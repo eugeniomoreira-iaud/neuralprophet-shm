@@ -3,7 +3,13 @@
 This file provides guidance to Claude Code (claude.ai/code) and other AI coding agents when working with code in this repository.
 
 ## Overview
-This repository implements a **Physics-Informed Grey-Box Framework for Static Structural Health Monitoring (SHM)**. It provides a transferable Python methodology for processing structural sensor data (e.g., inclinometers, strain gauges) and environmental proxies (e.g., ERA5-Land skin temperature, solar radiation) to detect structural anomalies using interpretable machine learning. The `heritageshm` library is not installed as a package — it is imported from the repo root via `sys.path` manipulation in every notebook (see Import Pattern below).
+This repository implements a **Physics-Guided Grey-Box Framework for Static Structural Health Monitoring (SHM)**. It provides a *transferable* Python methodology for predicting a structural response (e.g., inclination) from environmental drivers, reconstructing data outages, and detecting anomalies as departures from a frozen healthy-state model. The intended demonstration develops the full procedure on one monitored wall section and then applies the **same procedure, unchanged**, to other sections — so transferability across sections is the primary design goal.
+
+Two points of terminology, deliberately chosen:
+- **"Physics-guided," not "physics-informed."** The physics enters through feature construction (plane-of-array radiation, thermal-memory lags) and driver selection, not through governing equations embedded in a loss. The weaker, accurate term is used throughout.
+- **No cointegration.** Earlier versions used Engle-Granger cointegration to justify the proxy and define anomalies. This is removed. Covariate selection is now a time-series-aware screening problem, and anomalies are residuals from a frozen predictive model (residual-based novelty detection under environmental normalization).
+
+The `heritageshm` library is not installed as a package — it is imported from the repo root via `sys.path` manipulation in every notebook (see Import Pattern below).
 
 ---
 
@@ -22,16 +28,18 @@ conda activate neuralprophet_env
 conda env update -f environment.yml --prune
 ```
 
-Key packages in the environment: `neuralprophet` (via pip), `xgboost`, `scikit-learn`, `statsmodels`, `jupytext`, `watchdog`, and the full scientific Python stack (`numpy`, `pandas`, `scipy`, `matplotlib`, `seaborn`).
+Key packages in the environment: `neuralprophet` (via pip), `xgboost`, `scikit-learn`, `statsmodels`, `pvlib` (plane-of-array irradiance / solar geometry), `jupytext`, `watchdog`, and the full scientific Python stack (`numpy`, `pandas`, `scipy`, `matplotlib`, `seaborn`).
 
 ### Running the Pipeline
 The analysis is driven by a sequential Jupyter Notebook pipeline. Execute the following notebooks in order:
 
-1. `00_Sensor_Preprocessing.ipynb` — Raw data extraction and cleaning.
-2. `01_Data_Quality_and_Gaps.ipynb` — Proxy alignment and gap characterization.
-3. `02_Proxy_Validation_and_Lags.ipynb` — Thermal lag screening and feature engineering.
-4. `03_Imputation_Benchmark.ipynb` — XGBoost virtual sensing and uncertainty quantification.
-5. `04_GreyBox_Decomposition_and_Monitoring.ipynb` — NeuralProphet decomposition and anomaly detection.
+1. `00_Sensor_Preprocessing.ipynb` — Raw data extraction and cleaning (site-specific).
+2. `01_Data_Quality_and_Gaps.ipynb` — Proxy alignment, joint-availability check, and gap characterization.
+3. `02_Proxy_Screening_and_Lags.ipynb` — Plane-of-array radiation, time-series-aware covariate screening, the radiation-value experiment, and thermal-lag feature engineering.
+4. `03_Imputation_Benchmark.ipynb` — Benchmarked virtual sensing (XGBoost and alternatives) with train/validation discipline and uncertainty quantification.
+5. `04_GreyBox_Decomposition.ipynb` — Frozen-baseline NeuralProphet decomposition, component extraction, and residual diagnostics on a held-out healthy test period.
+6. `05_Anomaly_Detection_and_Monitoring.ipynb` — EWMA control chart on the frozen residuals, with the reconstruction–detection firewall applied via provenance flags.
+7. `06_Detectability_Assessment.ipynb` — FEM-based damage injection and detectability assessment (ROC, latency, observability).
 
 To launch the interactive environment:
 ```bash
@@ -50,9 +58,11 @@ Every Jupyter Notebook (`.ipynb`) is strictly paired with a human-readable Pytho
 Paired files:
 - `00_Sensor_Preprocessing.ipynb` ↔ `00_Sensor_Preprocessing.py`
 - `01_Data_Quality_and_Gaps.ipynb` ↔ `01_Data_Quality_and_Gaps.py`
-- `02_Proxy_Validation_and_Lags.ipynb` ↔ `02_Proxy_Validation_and_Lags.py`
+- `02_Proxy_Screening_and_Lags.ipynb` ↔ `02_Proxy_Screening_and_Lags.py`
 - `03_Imputation_Benchmark.ipynb` ↔ `03_Imputation_Benchmark.py`
-- `04_GreyBox_Decomposition_and_Monitoring.ipynb` ↔ `04_GreyBox_Decomposition_and_Monitoring.py`
+- `04_GreyBox_Decomposition.ipynb` ↔ `04_GreyBox_Decomposition.py`
+- `05_Anomaly_Detection_and_Monitoring.ipynb` ↔ `05_Anomaly_Detection_and_Monitoring.py`
+- `06_Detectability_Assessment.ipynb` ↔ `06_Detectability_Assessment.py`
 
 ### Auto-Watcher (`auto_watcher.py`)
 The repo includes `auto_watcher.py`, a file-system watcher that automatically runs `jupytext --sync` whenever a `.py` or `.ipynb` file is saved, keeping pairs in sync without manual intervention. It requires the `watchdog` package.
@@ -76,13 +86,16 @@ The `heritageshm` package contains the functional logic. **Changes to any module
 
 | Module | Role | Key outputs |
 |---|---|---|
-| `dataloader.py` | Ingestion of `.adc` sensor files and `.csv` proxy files; saving interim data | Pandas DataFrames |
-| `preprocessing.py` | Signal cleaning, resampling, and multi-proxy alignment onto the sensor index | Aligned DataFrame |
-| `diagnostics.py` | Gap taxonomy (MCAR/MAR/MNAR), ADF, Engle-Granger cointegration, Ljung-Box tests; gap histogram figure and gap statistics table | Figure `.png`, stats `.csv` |
-| `features.py` | Physically motivated thermal inertia lagged-feature generation | Feature DataFrame |
-| `imputation.py` | Wrappers for benchmark gap-filling models (XGBoost virtual sensing with conformal bootstrap) | Imputed series, uncertainty bounds |
-| `decomposition.py` | NeuralProphet grey-box decomposition: trend, seasonality, AR memory, exogenous regressors | Decomposed DataFrame, model object |
-| `monitoring.py` | EWMA and CUSUM control chart implementation for residual-based anomaly detection | Control chart figure, alarm table |
+| `dataloader.py` | Ingestion of `.adc` sensor files, `.csv` proxy files, and FEM response `.csv` files (healthy/damaged) for detectability testing; saving interim data | Pandas DataFrames |
+| `preprocessing.py` | Signal cleaning, resampling, and multi-proxy alignment onto the sensor index (resample to source resolution; do not upsample beyond the proxy's native step) | Aligned DataFrame |
+| `diagnostics.py` | Gap taxonomy (MCAR/MAR/MNAR) and residual diagnostics (Ljung-Box, ACF, prediction-interval coverage); gap histogram figure and gap statistics table | Figure `.png`, stats `.csv` |
+| `solar.py` | Plane-of-array (POA) irradiance from global horizontal irradiance using solar geometry and a section's azimuth/tilt (`pvlib`-based) | POA series per section |
+| `screening.py` | Time-series-aware covariate screening: deseasonalized/partial correlation, lagged cross-correlation, VIF, regularized selection; nested-model comparison for the radiation-value experiment | Ranking tables `.csv` |
+| `features.py` | Physically motivated thermal-inertia lagged-feature generation | Feature DataFrame |
+| `imputation.py` | Wrappers for benchmark gap-filling models (e.g., XGBoost virtual sensing with conformal bootstrap), with provenance flags | Imputed series, uncertainty bounds, provenance labels |
+| `decomposition.py` | NeuralProphet grey-box decomposition with fit→**freeze**→apply support: trend, seasonality, AR memory, exogenous regressors | Decomposed DataFrame, frozen model object |
+| `monitoring.py` | EWMA (primary) and optional CUSUM control charts for residual-based anomaly detection; consumes provenance flags to enforce the reconstruction–detection firewall | Control chart figure, alarm table, false-alarm rate |
+| `detectability.py` | FEM damage-signature injection, detection-threshold/ROC computation, detection latency, and per-section observability mapping | ROC figure, detectability table |
 | `viz.py` | Seaborn/Matplotlib visualization utilities; `apply_theme()` for consistent plot styling | Figure objects |
 
 ### Import Pattern
@@ -100,9 +113,9 @@ from heritageshm.dataloader import load_preprocessed_sensor
 When generating new notebook cells or scripts, always include this block.
 
 ### Data Flow
-1. **Raw Data**: `data/raw/sensor/` (`.adc` files) and `data/raw/proxies/` (`.csv` files).
+1. **Raw Data**: `data/raw/sensor/` (`.adc` files), `data/raw/proxies/` (`.csv` files, e.g. local weather-station export), and `data/raw/fem/` (`.csv` files: FEM healthy and damaged response series).
 2. **Interim Data**: Cleaned/aligned datasets in `data/interim/sensor/` and `data/interim/aligned/`.
-3. **Processed Data**: Final feature matrices and imputed series in `data/processed/`.
+3. **Processed Data**: Final feature matrices, imputed series (with provenance), and frozen-baseline predictions in `data/processed/`.
 4. **Outputs**: Plots in `outputs/figures/`, metrics in `outputs/tables/`, models in `outputs/models/`.
 
 > **Important:** `data/` and `outputs/` are gitignored and do not exist in the cloned repository. They must be created locally and populated with data before running any notebook. A `FileNotFoundError` on these paths is expected behaviour on a fresh clone — it is not a code bug.
@@ -112,22 +125,41 @@ All saved figures and tables follow a consistent naming pattern:
 ```
 {notebook_id}_{artifact_id}_{station}_{description}.{ext}
 ```
-Examples: `01_01_st02_gap_histogram.png`, `03_02_st02_imputation_metrics.csv`.
+Examples: `01_01_st02_gap_histogram.png`, `03_02_st02_imputation_metrics.csv`, `06_01_st02_detectability_roc.png`.
 
 When generating new output cells, follow this convention. The station identifier is controlled by the `TARGET_STATION` parameter at the top of each notebook.
 
-### Primary User Parameter: `TARGET_STATION`
-All notebooks are parameterized around `TARGET_STATION` (e.g., `'st02'`). This string controls which sensor file is loaded and which output files are named. It is always defined near the top of each notebook as a clearly marked user input. When modifying notebooks, never hardcode a station identifier — always reference `TARGET_STATION`.
+### Primary User Parameters
+All notebooks are parameterized around a small set of clearly marked user inputs near the top of each notebook. Never hardcode these values anywhere else.
+
+- `TARGET_STATION` — e.g. `'st02'`. Controls which sensor file is loaded and how outputs are named. **This is the transferability switch:** the develop-once / apply-everywhere workflow is realised by re-running the unchanged 01–06 pipeline with a different `TARGET_STATION`.
+- `TARGET_COL` — the structural response column (e.g. `'absinc'`).
+- `SECTION_AZIMUTH`, `SECTION_TILT` — orientation of the wall section, used by `solar.py` to compute the per-section plane-of-array irradiance. These differ per station and are the main reason a single shared weather station can serve differently oriented sections.
+- `PROXY_COLS`, `META_COLS`, `TARGET_FREQ` — proxy column selection, metadata columns to drop, and the alignment frequency.
+- `BASELINE_SPLIT` — chronological train / validation / held-out-healthy-test boundaries used to fit, tune, and evaluate the frozen baseline (see Notebook 04); the validation portion also defines the EWMA control limits consumed by Notebook 05.
+
+---
+
+## Methodological Rules (must be enforced in code)
+
+These rules encode the scientific design and must not be violated by notebook or module changes:
+
+1. **No cointegration / equilibrium tests.** Do not reintroduce Engle-Granger, ADF-as-model-validation, or "long-run equilibrium" language. Residual quality is assessed with Ljung-Box / ACF and prediction-interval coverage, not unit-root tests.
+2. **Reconstruction–detection firewall.** Implemented in its own dedicated notebook (05). Anomaly detection runs only on `observed` (and small-interpolation) segments. `monitoring.py` must receive provenance flags and exclude `imputed_large_gap` segments from residual/control-chart analysis.
+3. **Frozen baseline.** The NeuralProphet model is fit on the training period, **frozen**, and applied forward without refitting on validation/test/operational data. Refitting on the evaluation window would absorb gain-type damage and is prohibited.
+4. **Train/validation/test discipline everywhere.** Imputation (Notebook 03) uses chronological train/validation with strict no-leakage artificial-gap masking. The baseline (Notebook 04) uses train (fit+freeze) / validation (tune + set EWMA limits) / held-out-healthy-test (predictive error, residual whiteness, empirical false-alarm rate). The detection stage (Notebook 05) consumes the frozen model and the EWMA control limits set in 04; it must not refit.
+5. **Damage injection by difference, not replacement.** In Notebook 06, construct the damaged series as `y_mod = y_measured + (FEM_damaged − FEM_healthy)` so the FEM's healthy-state modelling error cancels and the residual reflects damage, not model mismatch. Never substitute the absolute FEM output for the measurement.
+6. **Transferability invariance.** Notebooks 01–06 must contain no site-specific constants. Anything that varies per section is a top-of-notebook parameter (`TARGET_STATION`, `SECTION_AZIMUTH`, `SECTION_TILT`, `BASELINE_SPLIT`).
 
 ---
 
 ## Coding Conventions
 
-### Notebook Structure Standard (Notebooks 01–04)
+### Notebook Structure Standard (Notebooks 01–06)
 
-Notebooks 01 through 04 form the **transferable core pipeline**. They are designed to work with any static structural sensor dataset and any compatible environmental proxy dataset — not only the Gubbio case. When writing or modifying these notebooks, preserve this generality: never hardcode site-specific values, units, or assumptions.
+Notebooks 01 through 06 form the **transferable core pipeline**. They are designed to work with any static structural sensor dataset and any compatible environmental proxy dataset — not only the Gubbio case. When writing or modifying these notebooks, preserve this generality: never hardcode site-specific values, units, or assumptions.
 
-Every notebook in the 01–04 sequence must follow this internal structure:
+Every notebook in the 01–06 sequence must follow this internal structure:
 
 **1. Title cell (Markdown)**
 The first cell must be a Markdown title block containing:
@@ -142,10 +174,11 @@ Example pattern (from Notebook 01):
 This notebook executes **Phase A, Step 1** of the `heritageshm` pipeline:
 
 1. **Sensor Loading** — Load the preprocessed sensor CSV from Notebook 00.
-2. **Proxy Loading** — Load environmental proxy data and select relevant columns.
+2. **Proxy Loading** — Load weather-station proxy data and select relevant columns.
 3. **Alignment** — Resample and synchronize proxies onto the sensor index.
-4. **Gap Characterization** — Classify missing data and diagnose gap taxonomy.
-5. **Save** — Export the aligned dataset to `/data/interim/aligned/`.
+4. **Joint Availability** — Quantify overlap of proxy coverage with sensor gaps.
+5. **Gap Characterization** — Classify missing data and diagnose gap taxonomy.
+6. **Save** — Export the aligned dataset to `/data/interim/aligned/`.
 ```
 
 **2. Imports cell (Code)**
@@ -169,31 +202,35 @@ Notebook cells must not contain multi-function algorithms, statistical tests, or
 ### Notebook 00 — Special Status
 
 `00_Sensor_Preprocessing.ipynb` is intentionally **ad hoc** and site-specific. It encodes the particular raw data format, column layout, file extension, and compensation coefficients of the author's on-site inclinometer system (`.adc` files, tab-separated, temperature-compensation coefficient). It is not expected to be transferable without modification. When working on Notebook 00:
-- Do not attempt to generalise it to match the 01–04 pattern.
+- Do not attempt to generalise it to match the 01–06 pattern.
 - Parameters such as `COMP_COEFF`, `STATIONS`, `SEPARATOR`, and `FILE_EXT` are site-specific and must be updated by the user for a new deployment.
 - Its output (`{station}_preprocessed.csv` in `data/interim/sensor/`) is the standard entry point for the transferable pipeline starting at Notebook 01.
 
 ---
 
-### Expected Dataset Contracts (Notebooks 01–04)
+### Expected Dataset Contracts (Notebooks 01–06)
 
-The transferable pipeline (01–04) expects two input datasets with the following structure. Any new sensor or proxy dataset must conform to these contracts before being fed into the pipeline.
+The transferable pipeline expects the following input datasets. Any new dataset must conform to these contracts before being fed into the pipeline.
 
 **Sensor dataset** (`data/interim/sensor/{station}_preprocessed.csv`)
 - Produced by Notebook 00 (or any equivalent preprocessing step).
 - A CSV file with a `datetime` column parseable as a `DatetimeIndex`.
-- At minimum one structural response column (e.g., `absinc` for absolute inclination). Column name is user-configurable via `TARGET_COL`.
+- At minimum one structural response column (e.g., `absinc`). Column name is user-configurable via `TARGET_COL`.
 - Regular or near-regular time steps (gaps allowed; the pipeline handles them). Typical resolution: hourly or sub-hourly.
-- Units: SI or consistent engineering units. No requirement for specific units, but units must be consistent across the full series.
-- No pre-imputation expected: the pipeline assumes this file contains NaN where data is missing.
+- Units must be consistent across the full series (no specific unit required).
+- No pre-imputation expected: the file contains NaN where data is missing.
 
 **Proxy dataset** (`data/raw/proxies/{name}.csv`)
-- A CSV file with a datetime column named `datetime (UTC)`, parseable as a `DatetimeIndex`.
-- One or more environmental variable columns. Column names and units are user-configurable via `PROXY_COLS`.
-- Must cover the full temporal window of the sensor dataset (checked explicitly in Notebook 01 before alignment).
-- Typical sources: ERA5-Land reanalysis (skin temperature, solar radiation), local weather station exports, or any reanalysis provider (e.g., Oikolab). The pipeline does not assume a specific source.
-- Resolution: hourly or finer. The pipeline resamples to `TARGET_FREQ` during alignment.
-- Metadata columns (coordinates, model name, elevation, UTC offset) are automatically dropped during loading in Notebook 01 if listed in `META_COLS`.
+- A CSV file with a datetime column (e.g. `datetime` or `datetime (UTC)`), parseable as a `DatetimeIndex`.
+- One or more environmental variable columns. Column names and units are user-configurable via `PROXY_COLS`. For the Gubbio deployment these are local weather-station variables (air temperature, relative humidity, **global horizontal solar radiation**, wind, rain, etc.); global horizontal radiation is converted to per-section POA in Notebook 02.
+- Must cover the full temporal window of the sensor dataset (checked explicitly in Notebook 01 before alignment), and its own gaps are quantified against the sensor gaps (joint-availability check).
+- Resolution: hourly or finer. The pipeline resamples to `TARGET_FREQ` during alignment but does not upsample beyond the proxy's native step.
+- Metadata columns (coordinates, model name, elevation, UTC offset) are dropped during loading if listed in `META_COLS`.
+
+**FEM dataset** (`data/raw/fem/{station}_{scenario}.csv`) — required only for Notebook 06
+- A CSV with a `datetime` column aligned to the sensor index and one response column matching `TARGET_COL`.
+- Provided as matched pairs: a healthy run and one or more damaged runs (e.g. elastic-modulus reduction per component/leaf), all driven by the same real environmental forcing.
+- Used only to form the injected damage signature `(FEM_damaged − FEM_healthy)`; absolute FEM values are never substituted for measurements.
 
 ---
 
@@ -205,8 +242,8 @@ Every `.py` file in `heritageshm/` must begin with a module-level docstring that
 ```python
 """
 Module: diagnostics.py
-Handles gap taxonomy characterization, cointegration testing,
-and residual diagnostics (ADF, Ljung-Box).
+Handles gap taxonomy characterization (MCAR/MAR/MNAR) and residual
+diagnostics (Ljung-Box, ACF, prediction-interval coverage).
 """
 ```
 
@@ -217,30 +254,35 @@ Every public function must have a NumPy-style or Google-style docstring containi
 - `Returns` section: type and description of every return value.
 - Any side effects (e.g., saves a file, prints to stdout) must be noted.
 
-Example pattern (already used in `diagnostics.py`):
+Example pattern (from `screening.py`):
 ```python
-def test_cointegration(df, target_col, proxy_col, alpha=0.05):
+def lagged_cross_correlation(df, target_col, proxy_col, max_lag, deseasonalize=True):
     """
-    Performs the Engle-Granger two-step cointegration test to validate
-    the physical long-run equilibrium between the structural response and the proxy.
+    Computes the lagged cross-correlation between a candidate proxy and the
+    structural target to identify the wall's thermal-memory lag structure.
 
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame containing both variables.
+        DataFrame containing both variables on a common time index.
     target_col : str
         The structural sensor column (e.g., 'absinc').
     proxy_col : str
-        The environmental proxy column (e.g., 'skin_temperature (degC)').
-    alpha : float, optional
-        Significance level for the test. Default 0.05.
+        The candidate environmental proxy column (e.g., 'poa_irradiance').
+    max_lag : int
+        Maximum lag (in samples) to evaluate in both directions.
+    deseasonalize : bool, optional
+        If True, remove diurnal/seasonal components before correlating to
+        avoid spurious shared-cycle association. Default True.
 
     Returns
     -------
-    is_cointegrated : bool
-        True if the null hypothesis of no cointegration is rejected.
-    p_value : float
-        P-value from the Engle-Granger test.
+    lags : np.ndarray
+        Array of evaluated lags.
+    corr : np.ndarray
+        Cross-correlation value at each lag.
+    best_lag : int
+        Lag maximising absolute cross-correlation.
     """
 ```
 
