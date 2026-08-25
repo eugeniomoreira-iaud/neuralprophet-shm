@@ -1,0 +1,770 @@
+% ---------------------------------------------------------------------------
+% Study report · The unified dataset, and what imputation can do for it
+%
+% Build:  pdflatex unified_imputation_report.tex  (twice, for the ToC)
+% Figures are read from ../outputs/ and are produced by the paired notebooks.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{Unified dataset and imputation · 2018--2026}
+
+\input{../../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.2cm}\textbf{One dataset for the whole archive, and what
+imputation can do for it}\\[2mm]
+\large Every station, both instrument eras, 26 July 2018 to 13 August 2026}
+\author{Study report · \texttt{studies/unified\_dataset/}}
+\date{13 August 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+Every earlier study in this project began by reading the raw archive and ended
+by discarding most of it. This one builds the dataset those studies should have
+started from --- all three legacy stations, both column eras, cleaned,
+compensated and carrying provenance on every row --- and then asks what can be
+done about the holes.
+
+\textbf{The archive is emptier than its span suggests.} Eight years of calendar
+time contain \textbf{2061 days} of inclinometer readings at the target station,
+70\,\% of the span; the other two stations hold 1119 and 984 days and both
+stopped recording years before the February 2025 instrument replacement. The
+network narrowed from three locations to one in stages, not at a single moment.
+
+\textbf{The missingness is the worst kind available.} On every gap, every
+channel is missing at once: air temperature, humidity, battery and inclinometer
+fail together on \textbf{100\,\%} of the missing hours. This is outage-driven
+missingness, and it has a consequence that governs the whole study --- no method
+conditioned on a covariate can ever fill a real gap here, because the covariates
+are gone with the target.
+
+\textbf{The benchmark cannot see that, and the study reports the discrepancy.}
+Injected gaps have their drivers intact, so a driver-based filler scores best at
+almost every length and would be useless in production. This is the
+exchangeability assumption behind any conformal guarantee, failing concretely
+and measurably.
+
+\textbf{The two eras are two instruments, and a constant does not reconcile
+them.} The step at the changeover is $-132.5$\,mdeg once the season is removed,
+but the diurnal amplitude rises from 13.4 to 17.9\,mdeg across it --- a
+\textbf{ratio of 1.34}. The instruments differ in gain as well as in zero, so
+the joined series is offered as a clearly named derived column and never as the
+default.
+
+\textbf{The record does not have to stay in pieces.} Without filling anything,
+the longest strictly continuous stretch in eight years is \textbf{108 days}.
+Imputation raises that to \textbf{988.9 days --- 2.71 annual cycles} --- at
+14.5\,\% invented, or to \textbf{617.2 days} at 3.2\,\% if the stretch is
+required to stay within one instrument era. Both carry a calibrated interval on
+every invented value, and past a 15\,mdeg tolerance no further record can be
+bought at any price.
+\end{abstract}
+
+\tableofcontents
+
+% ===========================================================================
+\section{What this study builds, and why}
+\label{sec:intro}
+
+\subsection{Two deliverables}
+
+The work is split into two notebooks, deliberately.
+
+\texttt{build\_unified\_dataset.py} is the \textbf{ingest}, and it is the only place
+in the project that reads the raw archive. It is meant to be re-run whenever the
+archive grows: it discovers the extent itself, so no date has to be edited. It
+writes one table per station to \texttt{data/interim/unified/}, plus a manifest
+recording how the build was made.
+
+\texttt{imputation\_study.py} is this report. It consumes that output and never
+touches an \texttt{.adc} file.
+
+The separation is not tidiness. The ingest writes only measurements, and every
+row it writes carries \texttt{inc\_source = observed}. Imputation happens on the
+far side of that boundary, so a filled value can never be mistaken for a reading
+by a notebook three steps downstream.
+
+\subsection{Three rules the dataset obeys}
+
+\panel{The rules, and where they come from}{%
+\textbf{The two eras are two instruments.} The package installed on 2025-02-21
+replaced the legacy network rather than augmenting it, and its inclinometer
+shares no baseline with legacy block b2 (\texttt{docs/raw-data-format.md}
+Section 3.3). The primary \texttt{inc} and \texttt{inc\_comp} columns keep the
+baselines apart; \texttt{era} and \texttt{instrument} say which is which.
+
+\medskip
+\textbf{The absolute level means nothing.} Only changes carry structural
+information (Section 7.1 of the same document). Every level here is referred to
+an arbitrary anchor.
+
+\medskip
+\textbf{A filled value is not a measurement.} Provenance is carried on every
+row, through every product, to the end.}
+
+\subsection{What the dataset contains}
+
+One CSV per station on the hourly grid, spanning the whole archive.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{3.4cm}Y}
+\toprule
+\textbf{Column} & \textbf{Meaning} \\
+\midrule
+\texttt{batt}, \texttt{tair}, \texttt{rh} & Supply voltage, air temperature,
+relative humidity \\
+\texttt{inc} & Inclinometer, millidegrees about the instrument's calibrated
+zero. Its absolute level carries no structural information \\
+\texttt{sr}, \texttt{twall} & Solar radiation and wall temperature. Current era,
+target station only \\
+\texttt{inc\_comp} & Compensated at the documented coefficient, anchored
+\emph{within each era separately} \\
+\texttt{inc\_comp\_joined} & The same with the estimated instrument offset
+removed, so the eras form one series. Target station only. Carries an estimated
+constant \\
+\texttt{era}, \texttt{instrument} & Which era, and which physical instrument \\
+\texttt{inc\_source} & \texttt{observed} or \texttt{missing}. The ingest fills
+nothing \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The compensation uses the documented coefficient of 5\,mdeg per \degC. That
+value has never been calibrated for these instruments, and the legacy study
+measured its influence on a headline error at $-58$\,\% to $+183$\,\%. It is
+used here for continuity with every earlier study, and the reader should treat
+absolute levels accordingly.
+
+% ===========================================================================
+\section{What is actually there}
+\label{sec:present}
+
+\subsection{Three stations, three different records}
+
+\begin{center}
+\small
+\begin{tabular}{lllR{1.6cm}R{1.7cm}R{1.6cm}}
+\toprule
+\textbf{Station} & \textbf{Eras} & \textbf{Last reading} &
+\textbf{Span [d]} & \textbf{Observed [d]} & \textbf{of archive} \\
+\midrule
+\texttt{st01} & legacy         & 2022-06-01 & 1406.3 & 1118.7 & 38.0\,\% \\
+\texttt{st02} & legacy+current & 2026-08-13 & 2940.0 & 2061.0 & 70.1\,\% \\
+\texttt{st03} & legacy         & 2023-06-24 & 1794.6 &  984.1 & 33.5\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{The network failed in stages, not at the changeover}{%
+The data-quality report records that the current-era package ``replaced'' the
+legacy network, which is true of the file format and misleading about the
+instrumentation. \textbf{Station 01 stopped recording in June 2022 and station
+03 in June 2023} --- two years and eight months before the replacement
+respectively.
+
+\medskip
+For most of the archive there was never a three-station network to compare
+across. Any cross-station test --- including the one most likely to settle the
+sign contradiction documented in the two prediction studies --- is confined to
+the period before June 2022.}
+
+\begin{figure}[H]
+\includegraphics{U_F03_station_completeness}
+\caption{Daily availability of the inclinometer at each station. The staggered
+right-hand edges are the point: the three records end three years apart.}
+\end{figure}
+
+\subsection{The target station, era by era}
+
+\begin{center}
+\small
+\begin{tabular}{lllR{1.5cm}R{1.5cm}R{1.3cm}R{1.3cm}}
+\toprule
+\textbf{Era} & \textbf{From} & \textbf{To} & \textbf{Span [d]} &
+\textbf{Cycles} & \textbf{\texttt{inc}} & \textbf{\texttt{twall}} \\
+\midrule
+legacy  & 2018-07-26 & 2025-02-20 & 2401.0 & 6.57 & 68.5\,\% & --- \\
+current & 2025-02-21 & 2026-08-13 &  538.0 & 1.47 & 77.2\,\% & 36.8\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The current era is the better-instrumented and the better-covered of the two,
+and it is short. Wall temperature is present on barely a third of it, because
+the probe-failure sentinel and the acquisition outages interleave.
+
+\begin{figure}[H]
+\includegraphics{U_F04_channel_availability}
+\caption{Daily availability of every channel at the target station. Solar
+radiation and wall temperature begin only at the changeover; wall temperature is
+then interrupted repeatedly by its own failure sentinel.}
+\end{figure}
+
+\subsection{The calendar}
+
+\begin{figure}[H]
+\includegraphics{U_F05_calendar}
+\caption{Fraction of each day observed, by year and day of year. Outages appear
+as horizontal bands and are not confined to any season.}
+\end{figure}
+
+% ===========================================================================
+\section{The instrument changeover}
+\label{sec:changeover}
+
+The two eras are adjacent --- the legacy record ends on 2025-02-19 and the
+current one begins on 2025-02-21, an interruption of about a day --- so a level
+comparison across the boundary is possible. It is also misleading if taken
+naively, because the two comparison windows sit at different points of the
+annual cycle.
+
+\begin{center}
+\small
+\begin{tabular}{lR{2.6cm}}
+\toprule
+\textbf{Quantity} & \textbf{Value} \\
+\midrule
+Interruption                       & 1.04 d \\
+Raw step                           & $-127.67$ mdeg \\
+Attributable to the season         & $+4.81$ mdeg \\
+\textbf{Attributed to the instrument} & $\mathbf{-132.48}$ \textbf{mdeg} \\
+\midrule
+Diurnal amplitude, legacy side     & 13.38 mdeg \\
+Diurnal amplitude, current side    & 17.91 mdeg \\
+\textbf{Gain ratio}                & $\mathbf{1.34}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{A constant offset does not reconcile the two instruments}{%
+The offset is estimable and the estimate is reported. The diagnostic beside it
+is the one that matters: the diurnal amplitude --- the signal's response to the
+daily thermal cycle, which is a property of the wall and not of the logger ---
+rises by \textbf{34\,\%} across the changeover.
+
+\medskip
+The wall did not become a third more responsive to sunlight overnight. Either
+the new instrument has a different gain, or it is mounted where the thermal
+response is larger, or both. A single additive constant cannot absorb a
+multiplicative difference, so \texttt{inc\_comp\_joined} reconciles the
+\emph{levels} of the two eras and does not reconcile their \emph{scales}.
+
+\medskip
+This is why the joined series is a derived column and not the default, and why
+any analysis spanning the changeover should either work in the difference domain
+or report results per era.}
+
+\begin{figure}[H]
+\includegraphics{U_F02_era_join}
+\caption{The compensated series before and after the join. The offset removes
+the level discontinuity; it cannot remove the amplitude difference.}
+\end{figure}
+
+% ===========================================================================
+\section{What is missing, and why}
+\label{sec:missing}
+
+\subsection{The anatomy of the gaps}
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.4cm}R{1.7cm}R{1.8cm}R{1.5cm}}
+\toprule
+\textbf{Band} & \textbf{Gaps} & \textbf{Hours lost} &
+\textbf{Share} & \textbf{Median} \\
+\midrule
+$\leq$ 3 h & 426 &   619 &  2.9\,\% &  1 h \\
+3--6 h     &  60 &   284 &  1.3\,\% &  4 h \\
+6--24 h    &  72 &   906 &  4.3\,\% & 11 h \\
+1--3 d     &   2 &    65 &  0.3\,\% & 33 h \\
+3--7 d     &   0 &     0 &  0.0\,\% & --- \\
+7--30 d    &   3 & 1\,415 &  6.7\,\% & 491 h \\
+\textbf{$>$ 30 d} & \textbf{6} & \textbf{17\,809} &
+\textbf{84.4\,\%} & 1\,396 h \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+569 gaps hold 21\,098 missing hours, and the distribution is extremely uneven.
+\textbf{The 560 gaps of three days or less account for 8.9\,\% of the loss; six
+gaps longer than thirty days account for 84.4\,\%.} Almost everything that is
+missing is missing in a handful of long outages.
+
+\begin{figure}[H]
+\includegraphics{U_F06_gap_anatomy}
+\caption{Left: share of missing hours by length band, annotated with the number
+of gaps. Centre: hours lost by season of onset. Right: every gap, by date and
+length, on a logarithmic scale.}
+\end{figure}
+
+\subsection{The nine that matter}
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.5cm}l}
+\toprule
+\textbf{From} & \textbf{To} & \textbf{Days} & \textbf{Season} \\
+\midrule
+\textbf{2022-04-09} & \textbf{2023-06-21} & \textbf{437.6} & MAM \\
+2026-03-06 & 2026-06-18 & 103.9 & MAM \\
+2018-09-23 & 2018-11-21 &  59.0 & SON \\
+2020-06-04 & 2020-07-31 &  57.3 & JJA \\
+2024-08-27 & 2024-10-09 &  42.7 & JJA \\
+2024-05-04 & 2024-06-14 &  41.5 & MAM \\
+2019-01-14 & 2019-02-04 &  20.8 & DJF \\
+2019-04-20 & 2019-05-11 &  20.5 & MAM \\
+2025-09-25 & 2025-10-13 &  17.8 & SON \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+These nine cut the eight-year archive into ten pieces. Their onsets are spread
+across all four seasons, so there is no seasonal maintenance pattern to exploit.
+
+\subsection{Why the record is missing}
+
+\panel{Every channel fails at once}{%
+Of the hours in which the inclinometer is missing, the fraction in which each
+other channel is \emph{also} missing:
+
+\medskip
+\begin{tabular}{lR{2.0cm}}
+\texttt{batt}  & 100.0\,\% \\
+\texttt{tair}  & 100.0\,\% \\
+\texttt{rh}    & 100.0\,\% \\
+\texttt{sr}    & 100.0\,\% \\
+\texttt{twall} & 100.0\,\% \\
+\end{tabular}
+
+\medskip
+There is no covariate that is ever observed while the target is absent. The
+missingness is not random, and it is not conditional on something the record
+still contains --- it is an \textbf{outage}, and an outage takes the whole
+station with it.
+
+\medskip
+\textbf{The consequence is hard and it governs Section~\ref{sec:fill}: no method
+conditioned on a covariate can fill a real gap in this record.} Not because such
+methods are poor, but because their inputs are missing exactly when they would
+be needed.}
+
+This also settles a question the framework in the companion manuscript raises
+but cannot answer from the extended-sensor era alone. Its regressor-diagnosis
+stage applies an availability filter --- does a candidate exist during the
+intervals that must be reconstructed? --- and warns that on-structure channels
+sharing the station's power and communications will fail it by construction.
+Here that filter does not merely reduce the candidate pool. \textbf{It empties
+it.}
+
+% ===========================================================================
+\section{What can be filled, and how well}
+\label{sec:fill}
+
+Six fillers of increasing ambition, measured against gaps of known length
+injected where the record is complete. No filler sees the values it is asked to
+reproduce. The range matters because no single method is right at every length:
+interpolation is unbeatable across an hour and meaningless across a month, while
+a seasonal model knows nothing useful about an hour and is most of what remains
+after a week.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{3.0cm}Y}
+\toprule
+\textbf{Filler} & \textbf{What it knows} \\
+\midrule
+\texttt{interpolate}    & The two flanking observations, and nothing else \\
+\texttt{seasonal\_naive} & That there is a daily cycle \\
+\texttt{kalman}          & A local linear trend plus a daily seasonal, in state-space form. The only filler with a native notion of its own uncertainty \\
+\texttt{harmonic}        & The annual and diurnal cycles, fitted by least squares. Its error does not grow with gap length \\
+\texttt{drivers}         & A ridge regression on air temperature and humidity \\
+\texttt{neuralprophet}   & Trend and seasonality from the project's own decomposition \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Error against gap length}
+
+\begin{center}
+\small
+\begin{tabular}{rR{1.6cm}R{1.8cm}R{1.4cm}R{1.8cm}R{1.4cm}}
+\toprule
+\textbf{Gap} & \textbf{interp.} & \textbf{seas.\ naive} &
+\textbf{kalman} & \textbf{harmonic} & \textbf{drivers} \\
+\midrule
+1 h     & \textbf{1.22} &  4.58 &  \textbf{1.04} &  3.84 &  1.83 \\
+3 h     &  1.61 &  5.67 &  1.75 &  3.73 & \textit{1.14} \\
+6 h     &  \textbf{2.79} &  4.52 &  2.99 &  4.00 & \textit{2.48} \\
+12 h    &  8.75 &  9.04 &  \textbf{8.55} &  9.98 & \textit{7.25} \\
+24 h    &  9.83 &  \textbf{5.12} &  5.71 &  6.13 & \textit{4.00} \\
+48 h    &  9.54 &  4.94 &  \textbf{4.18} &  4.80 & \textit{2.07} \\
+72 h    & 14.70 &  \textbf{7.31} &  \textbf{7.31} &  8.24 & \textit{5.50} \\
+168 h   & 10.68 &  \textbf{8.05} &  9.86 & 10.02 & \textit{6.98} \\
+336 h   & 21.79 & \textbf{11.50} & 13.07 & 12.84 & \textit{8.78} \\
+720 h   & 15.79 & \textbf{13.62} & 16.69 & 15.56 & 14.49 \\
+1080 h  & 16.13 & 13.68 & \textbf{11.29} & 14.63 & \textit{10.65} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Mean absolute error in mdeg, against a signal standard
+deviation of about 52\,mdeg. \textbf{Bold}: best method that can actually run on
+a real gap. \textit{Italic}: the driver filler, which cannot --- see
+Section~\ref{sec:illusion}.}
+
+\begin{figure}[H]
+\includegraphics{U_F07_filler_benchmark}
+\caption{Left: mean absolute error against gap length. Right: the width of the
+calibrated 90\,\% interval for the same method and length.}
+\end{figure}
+
+\panel{No method wins everywhere, and the crossover is sharp}{%
+\textbf{Below six hours, interpolation and the Kalman smoother are
+interchangeable and both are excellent} --- around 1 to 3\,mdeg, which is
+2 to 6\,\% of the signal's standard deviation. Nothing more elaborate helps,
+because over a few hours the series really is close to a straight line between
+its endpoints.
+
+\medskip
+\textbf{Past twelve hours interpolation collapses and never recovers.} At 24
+hours it is at 9.8\,mdeg while the seasonal-naive filler is at 5.1, because a
+straight line drawn across a day removes the diurnal cycle the data actually
+contains. This is the single clearest result in the benchmark and it sets the
+six-hour boundary used in every policy below.
+
+\medskip
+\textbf{Beyond a day, the choice is between knowing the daily cycle and knowing
+the local state}, and they trade places repeatedly: seasonal-naive wins at 24,
+72, 168, 336 and 720 hours, the Kalman smoother at 48 and 1080. The differences
+are small compared with the error itself, so the policy's choice among them
+matters far less than the decision to stop interpolating.}
+
+\subsection{The uncertainty attached to a filled value}
+
+A mean absolute error says how wrong a filler is on average. It does not say how
+wrong a particular value might be, which is what a consumer needs in order to
+weight or exclude it. The per-trial errors are therefore used directly as a
+calibration sample: the interval covering 90\,\% of them is, by construction,
+the interval that would have covered 90\,\% of the errors observed. No
+distributional assumption is made --- these errors are neither Gaussian nor
+independent, and assuming either would understate them.
+
+\begin{center}
+\small
+\begin{tabular}{rR{1.7cm}R{1.9cm}R{1.4cm}R{1.8cm}}
+\toprule
+\textbf{Gap} & \textbf{interp.} & \textbf{seas.\ naive} &
+\textbf{kalman} & \textbf{harmonic} \\
+\midrule
+1 h    &  3.16 &  8.39 &  2.06 &  7.63 \\
+6 h    &  6.20 & 10.17 &  5.81 &  8.95 \\
+24 h   & 22.71 &  9.56 &  8.51 &  9.00 \\
+168 h  & 21.19 & 13.92 & 15.75 & 14.95 \\
+720 h  & 29.20 & 21.44 & 29.31 & 25.18 \\
+1080 h & 31.62 & 26.33 & 19.94 & 28.54 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Half-width of the 90\,\% interval, in mdeg.}
+
+The interval widens with gap length for every method, as it must. It is also
+consistently two to three times the mean absolute error, which is the honest
+consequence of a long-tailed error distribution: the typical filled value is
+good, and the occasional one is not.
+
+\subsection{The driver filler, and why its score is not to be believed}
+\label{sec:illusion}
+
+The driver filler has the lowest error at eight of the eleven lengths tested. It
+is also the one method in the set that \textbf{cannot be used at all}.
+
+Section~\ref{sec:missing} established that every channel of this station fails
+together: on 100\,\% of the missing hours, air temperature and humidity are
+missing too. The benchmark cannot see this, because it injects its gaps where
+the record is complete --- so the drivers are present throughout every injected
+gap, and absent throughout every real one.
+
+\panel{This is the exchangeability assumption, failing measurably}{%
+Any conformal guarantee holds under exchangeability between the calibration
+sample and the deployment conditions. Here the two differ in a way that is not
+subtle and not statistical: the calibration gaps have their predictors, the
+deployment gaps do not.
+
+\medskip
+Had the policy been allowed to select on benchmark score alone, it would have
+chosen the driver filler at eight lengths, and the resulting fill would have
+degraded silently to interpolation while carrying the driver filler's error bars
+--- claiming 2.07\,mdeg at 48 hours where interpolation delivers 9.54.
+
+\medskip
+The study therefore measures the method and then refuses it. What that refusal
+costs is small and is stated: between 0.0 and 2.7\,mdeg of accuracy per band,
+1.05\,mdeg on average.}
+
+This is the concrete case for the availability criterion that the companion
+manuscript's regressor-diagnosis stage applies. At this site the criterion does
+not merely reorder the candidates --- it removes every one of them.
+
+% ===========================================================================
+\section{The longest stretch}
+\label{sec:stretch}
+
+Every extra hour of continuous record costs invented data. The frontier is the
+exchange rate, and it is the answer this study exists to give.
+
+\subsection{Without filling anything}
+
+\panel{Eight years of archive contain 108 consecutive days}{%
+The longest run in which no hour is missing, over the whole record, runs from
+\textbf{2025-05-05 to 2025-08-21} --- \textbf{108.2 days}, or 0.30 of an annual
+cycle. It sits in the current era, which is the shortest and best-covered part
+of the archive.
+
+\medskip
+That is what the record offers to any method requiring strict continuity, and it
+is why every earlier study in this project tolerated gaps rather than demanding
+their absence.}
+
+\subsection{The frontier}
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{1.4cm}llR{2.0cm}}
+\toprule
+\textbf{Tolerance} & \textbf{Stretch} & \textbf{Cycles} & \textbf{From} &
+\textbf{To} & \textbf{Fabricated} \\
+\midrule
+--- (observed) & 108.2 d & 0.30 & 2025-05-05 & 2025-08-21 & 0.00\,\% \\
+2 mdeg   & 169.5 d & 0.46 & 2023-10-30 & 2024-04-16 &  0.61\,\% \\
+5 mdeg   & 211.5 d & 0.58 & 2021-08-20 & 2022-03-19 &  1.60\,\% \\
+10 mdeg  & 617.2 d & 1.69 & 2020-07-31 & 2022-04-09 &  3.20\,\% \\
+\textbf{15 mdeg} & \textbf{988.9 d} & \textbf{2.71} &
+\textbf{2023-06-21} & \textbf{2026-03-06} & \textbf{14.52\,\%} \\
+20 mdeg  & 988.9 d & 2.71 & 2023-06-21 & 2026-03-06 & 14.52\,\% \\
+40 mdeg  & 988.9 d & 2.71 & 2023-06-21 & 2026-03-06 & 14.52\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Fabricated share is measured \emph{inside} the winning
+stretch, not across the record.}
+
+\begin{figure}[H]
+\includegraphics{U_F08_stretch_frontier}
+\caption{Left: longest continuous stretch per policy, annotated with the annual
+cycles it contains; the dashed line is what the record offers unfilled. Right:
+the same stretches against the fabricated share paid for them.}
+\end{figure}
+
+\panel{The frontier has one sharp step and then stops}{%
+Between 2 and 10\,mdeg of tolerance the stretch grows steadily, and everything
+gained is cheap: at 10\,mdeg the record yields \textbf{617 days for 3.2\,\%
+fabrication}, which is 5.7 times what strict continuity offers.
+
+\medskip
+At 15\,mdeg the stretch jumps to \textbf{988.9 days}, because that is the point
+at which the two 41-- and 43-day outages of 2024 become fillable and three
+segments merge into one. The jump costs a step change in fabrication, from
+3.2\,\% to \textbf{14.5\,\%}.
+
+\medskip
+Past 15\,mdeg nothing further is bought at any price. The remaining boundaries
+are the 59-day, 104-day and 438-day outages, all longer than the longest gap the
+benchmark can calibrate, and the 438-day one is longer than most of the segments
+it separates. \textbf{Raising the tolerance to 40\,mdeg --- most of the signal's
+standard deviation --- buys not one additional day.}}
+
+\subsection{What the era join is worth}
+
+The 988.9-day stretch runs from June 2023 to March 2026 and therefore
+\textbf{crosses the February 2025 instrument changeover}. It exists only in the
+joined column, and so rests on the estimated offset of
+Section~\ref{sec:changeover}.
+
+Confining every stretch to a single era answers what is available without that
+estimate.
+
+\begin{center}
+\small
+\begin{tabular}{lR{2.0cm}R{1.6cm}R{2.4cm}}
+\toprule
+& \textbf{Stretch} & \textbf{Cycles} & \textbf{Fabricated} \\
+\midrule
+Within one era        & 617.2 d & 1.69 &  3.20\,\% \\
+Across the join       & 988.9 d & 2.71 & 14.52\,\% \\
+\midrule
+\textbf{Worth of the join} & \textbf{+371.7 d} & \textbf{+1.02} & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{The join buys a year, and the gain is not free of doubt}{%
+Accepting the estimated offset adds \textbf{371.7 days} and takes the record
+past \textbf{2.7 annual cycles} --- enough, for the first time anywhere in this
+project, to identify an annual component from a single continuous window.
+
+\medskip
+It also inherits the unresolved finding of Section~\ref{sec:changeover}: the
+diurnal amplitude differs by 34\,\% across the changeover, so the two
+instruments do not share a scale. A stretch spanning them is continuous in
+level and inhomogeneous in gain.
+
+\medskip
+\textbf{The recommendation is therefore conditional.} For work in the difference
+domain, or for anything where a change of scale partway through is tolerable,
+take the 988.9-day stretch. For anything fitting one amplitude across the whole
+window --- a harmonic decomposition, a seasonal model, an amplitude-based
+diagnostic --- take the 617.2-day stretch inside the legacy era, which is
+homogeneous and costs 3.2\,\% fabrication rather than 14.5\,\%.}
+
+\begin{figure}[H]
+\includegraphics{U_F09_recommended_stretch}
+\caption{The recommended stretch with its provenance. Upper panel: the series,
+with imputed values marked and their calibrated 90\,\% interval shaded. Lower
+panel: where the imputed values are.}
+\end{figure}
+
+% ===========================================================================
+\section{Verdicts}
+\label{sec:verdicts}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{4.2cm}Y}
+\toprule
+\textbf{Question} & \textbf{Answer} \\
+\midrule
+how many stations, and for how long? &
+\texttt{st01} 1119 days, last reading 2022-06-01; \texttt{st02} 2061 days, still
+recording; \texttt{st03} 984 days, last reading 2023-06-24. The network failed
+in stages, not at the changeover. \\
+how complete is the target station? &
+2061 of 2940 days, 70.1\,\%. 569 gaps holding 21\,098 hours. \\
+where are the missing hours? &
+\textbf{84.4\,\% in six gaps over 30 days.} The other 563 gaps together hold
+15.6\,\%, and the 560 shorter than three days hold 8.9\,\%. \\
+what is the missingness mechanism? &
+\textbf{Outage-driven (MNAR).} Every covariate is missing on 100\,\% of the
+hours the target is missing. No covariate-conditioned method can fill a real gap
+here. \\
+best filler, short gaps &
+1 h: kalman, 1.04\,mdeg. 6 h: interpolation, 2.79. Below six hours the choice
+barely matters. \\
+best filler, long gaps &
+24 h and beyond: seasonal-naive or the Kalman smoother, 4--14\,mdeg.
+\textbf{Interpolation collapses past 12 h} and must not be used there. \\
+the driver filler &
+Lowest error at eight of eleven lengths, and \fail\ --- it cannot run on a real
+gap. Measured, then refused. Refusing it costs 1.05\,mdeg on average. \\
+uncertainty on a filled value &
+Calibrated without distributional assumption; half-widths of 2--31\,mdeg
+depending on method and length, consistently 2--3$\times$ the mean error. \\
+longest stretch, nothing filled &
+\textbf{108.2 days} (0.30 cycles), 2025-05-05 to 2025-08-21. \\
+longest stretch, after imputation &
+\textbf{988.9 days} (2.71 cycles), 2023-06-21 to 2026-03-06, 14.5\,\% invented
+--- but it crosses the instrument changeover. \\
+longest homogeneous stretch &
+\textbf{617.2 days} (1.69 cycles), 2020-07-31 to 2022-04-09, 3.2\,\% invented,
+one instrument throughout. \\
+what still cannot be filled &
+The 438-day, 104-day and 59-day outages. Raising the tolerance from 15 to
+40\,mdeg buys \textbf{not one additional day}. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\panel{The recommendation}{%
+\textbf{For work in the difference domain, or tolerant of a scale change
+partway: the 988.9-day stretch}, June 2023 to March 2026, 14.5\,\% imputed, with
+the per-value intervals attached. It is the only window in this project reaching
+2.7 annual cycles.
+
+\medskip
+\textbf{For anything fitting one amplitude across the window: the 617.2-day
+stretch}, July 2020 to April 2022, 3.2\,\% imputed, one instrument throughout.
+It is shorter and it is homogeneous, and for a harmonic or seasonal model that
+matters more than its length.
+
+\medskip
+In both cases the filled values are marked, and their uncertainty travels with
+them.}
+
+% ===========================================================================
+\section{Caveats}
+
+\textbf{The compensation coefficient is uncalibrated.} Every absolute level in
+this dataset depends on a value never measured for these instruments. Relative
+statements are far more robust than levels, and the first difference is
+invariant to it entirely.
+
+\textbf{The conformal intervals are calibrated on injected gaps.} Their
+guarantee is marginal and holds under exchangeability between injected and real
+gaps. Section~\ref{sec:missing} shows that assumption failing in one identified
+respect --- real gaps have no drivers --- so the intervals are a floor on the
+uncertainty, not a complete account of it.
+
+\textbf{The joined series reconciles levels, not scales.} The 34\,\% difference
+in diurnal amplitude across the changeover is unexplained and is not removed by
+the offset.
+
+\textbf{One station is analysed.} All three are built and classified, and only
+\texttt{st02} is carried through the imputation work, by instruction and for
+comparability with the two prediction studies.
+
+% ===========================================================================
+\section{Artefact inventory}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{3.4cm}Y}
+\toprule
+\textbf{Artefact} & \textbf{Content} \\
+\midrule
+\texttt{U\_01} -- \texttt{U\_03} & Station classification, era profiles, and the
+changeover estimate. Written by the ingest \\
+\texttt{U\_04} -- \texttt{U\_07} & Classification, era profile, monthly and
+calendar completeness \\
+\texttt{U\_08} -- \texttt{U\_10} & Every gap, the length bands, and the nine
+major outages \\
+\texttt{U\_11}, \texttt{U\_12} & Missingness mechanism, whole record and current
+era \\
+\texttt{U\_13} -- \texttt{U\_15} & Filler benchmark, conformal bands, and the
+driver illusion \\
+\texttt{U\_15b} & What excluding the unavailable filler costs, band by band \\
+\texttt{U\_16} & The policies, one per tolerance \\
+\texttt{U\_17}, \texttt{U\_18} & Stretch frontier: across the era join, and
+confined within one era \\
+\texttt{U\_19}, \texttt{U\_20} & The recommended stretch, and the verdicts \\
+\addlinespace
+\texttt{U\_F01}, \texttt{U\_F02} & Raw series per station; the era join \\
+\texttt{U\_F03} -- \texttt{U\_F05} & Station completeness, channel availability,
+calendar \\
+\texttt{U\_F06} & Gap anatomy \\
+\texttt{U\_F07} & Filler benchmark and calibrated intervals \\
+\texttt{U\_F08}, \texttt{U\_F09} & Stretch frontier; the recommended stretch \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Reproduction, from the study directory with \texttt{neuralprophet\_env} active:
+
+\begin{quote}
+\ttfamily\small
+jupytext -{}-to ipynb build\_unified\_dataset.py \\
+jupyter nbconvert -{}-to notebook -{}-execute -{}-inplace \\
+\phantom{jupyter nbconvert }build\_unified\_dataset.ipynb \\[2mm]
+jupytext -{}-to ipynb imputation\_study.py \\
+jupyter nbconvert -{}-to notebook -{}-execute -{}-inplace \\
+\phantom{jupyter nbconvert }imputation\_study.ipynb
+\end{quote}
+
+The ingest must run first: the study reads its output and nothing else.
+
+\end{document}

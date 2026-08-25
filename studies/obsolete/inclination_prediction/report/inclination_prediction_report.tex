@@ -1,0 +1,1346 @@
+% ---------------------------------------------------------------------------
+% Study report · Predicting the inclination from the extended sensor package
+%
+% Build:  pdflatex inclination_prediction_report.tex   (twice, for the ToC)
+% Figures are read from ../outputs/ and are produced by the paired notebook.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{Predicting the inclination · station 02 · extended
+sensor package}
+
+\input{../../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.2cm}\textbf{Predicting the inclination of the Gubbio wall
+from the extended sensor package}\\[2mm]
+\large Station 02, 21 February 2025 to 10 August 2026, hourly grid}
+\author{Study report · \texttt{studies/inclination\_prediction/}}
+\date{12 August 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+The instrument package installed at station 02 on 21 February 2025 records air
+temperature, relative humidity, wall temperature, solar radiation, battery
+voltage and inclination on one logger. This report asks what that package buys
+as a \emph{prediction} system. Three questions are answered: which single channel
+best predicts the inclination, whether a combination does better and how the best
+combination should be diagnosed, and how far ahead NeuralProphet can forecast
+with a defensible statement of uncertainty. Every driver is given the chance to
+act through a transport delay and a thermal inertia before it is ranked, with the
+delay bounded at twelve hours on physical grounds, and the ranking is
+out-of-sample throughout.
+
+The headline results are that air temperature dominates every ranking; that on
+the long summer block the pair \texttt{tair + sr} reduces the error by 27\,\%
+over air temperature alone, while wall temperature appears in no winning subset
+in either tier once implausible delays are excluded; that the useful forecast
+band is roughly three to twelve hours ahead, outside which the model does no
+better than repeating the previous day; and that the nominal 90\,\% prediction
+interval of the deployable configuration actually covers 54--67\,\% of
+observations, so it must not be quoted as ninety.
+
+One structural finding governs the reading of all of it. The site predicts a
+\emph{negative} association between the inclination and any heating driver: the
+valley face is the more sun-exposed, expands further, and tips the wall towards
+the mountain. The compensated target does show that sign, at $r = -0.956$ with
+air temperature. The \emph{raw} channel does not --- it moves \emph{positively},
+at $r = +0.845$ and $+1.63$\,mdeg\,/\,\degC. The expected sign in the target is
+produced by the compensation subtracting 5\,\mdegC\ from a channel whose measured
+slope is 1.63, not by the structure.
+
+A separate diagnostic bears on the same question. Given a signed operator, the
+inclination is found to \emph{lead} the wall-temperature probe by two hours, on
+the raw channel as well as the compensated one --- the signature of a probe set
+deeper than the material whose expansion drives the movement. The probe's depth
+is not recorded anywhere in the archive; the phase measured here is the check to
+run against it once it is.
+\end{abstract}
+
+\tableofcontents
+
+% ===========================================================================
+\section{What this study asks, and what it assumes}
+
+Three questions, posed of the extended sensor package:
+
+\begin{enumerate}
+\item Over the period in which the extended set of sensors exists, is it
+possible to use one of the sensor variables to predict the inclination, and
+which is the best predictor?
+\item Can a set of more than one predictor perform better than one alone, and
+how should the best combination be diagnosed?
+\item Using the best scenario, how far into the future can the inclination be
+predicted, and with what measure of uncertainty, using NeuralProphet?
+\end{enumerate}
+
+\subsection{Premises, imposed rather than tested}
+
+Three premises are fixed by the study design. They differ deliberately from
+those of the companion study \texttt{studies/thermal\_compensation/}, which
+examined exactly these assumptions and rejected two of them. This study accepts
+them and asks a different question on top.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{L{4.6cm}Y}
+\toprule
+\textbf{Premise} & \textbf{Consequence for this report} \\
+\midrule
+The logged \texttt{I} channel is an inclination in millidegrees, not a
+conditioner voltage &
+The 2500 offset that the companion study subtracts is added back at load time.
+Nothing downstream is affected: the compensation normalises the series to start
+at zero, which removes every additive constant. Only the printed levels change.
+\\
+The documented temperature compensation is correct &
+The compensated series \texttt{inc\_comp} is the target of every model below.
+The coefficient is never swept and the acceptance tests of the companion study
+are not repeated. \\
+The analysis grid is one hour &
+Every external proxy the production pipeline aligns against is published hourly,
+so the record is aggregated immediately after parsing and every correlation,
+operator scan, fit and forecast in this report is computed on that grid. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{The site's expected sign}
+\label{sec:sign}
+
+The wall stands in an embankment situation with two distinct faces. The
+\textbf{valley side} receives markedly more direct insolation than the
+\textbf{mountain side}, so under daytime heating it expands further, and the
+differential expansion tips the wall \textbf{towards the mountain}. Under the
+instrument's convention that is a \textbf{negative} change in inclination.
+
+The site physics therefore predicts a \emph{negative} association between the
+inclination and every heating driver --- air temperature, wall temperature,
+solar radiation. A negative correlation is the expected result here and must not
+be reported as an anomaly or corrected away.
+
+This is a prediction about the \emph{structure}, so it has to be tested on the
+signal before the compensation touches it. The distinction is not academic: the
+compensation subtracts 5\,\mdegC, and if the instrument's true thermal slope is
+smaller than that, the residual carries the opposite sign to the original by
+arithmetic alone. A negative sign already present in the raw channel is
+structural; a negative sign that appears only after compensation is not.
+
+\subsection{What the raw channel actually shows}
+\label{sec:signtest}
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.4cm}R{1.7cm}R{1.4cm}R{1.7cm}}
+\toprule
+\textbf{Series} & \textbf{Driver} & \textbf{$r$ lev.} &
+\textbf{slope lev.} & \textbf{$r$ band} & \textbf{slope band} \\
+\midrule
+Raw \texttt{inc}       & \texttt{tair}  & $+0.845$ & $+1.628$ & $+0.966$ & $+2.291$ \\
+                       & \texttt{twall} & $+0.791$ & $+1.248$ & $+0.767$ & $+1.319$ \\
+                       & \texttt{sr}    & $+0.588$ & $+0.021$ & $+0.758$ & $+0.017$ \\
+\addlinespace
+\texttt{inc\_comp}     & \texttt{tair}  & $-0.956$ & $-3.372$ & $-0.975$ & $-2.709$ \\
+                       & \texttt{twall} & $-0.878$ & $-2.535$ & $-0.701$ & $-1.411$ \\
+                       & \texttt{sr}    & $-0.478$ & $-0.032$ & $-0.803$ & $-0.022$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Tier~1 window. Slopes are in mdeg per \degC\ for the
+temperatures and mdeg per W/m$^2$ for radiation; ``band'' denotes the diurnal
+band, with a one-week centred rolling mean removed.\par}
+
+\panel{The expected sign is present in the target, and absent from the
+instrument}{%
+The raw inclination moves \emph{positively} with every heating driver: $+0.845$
+with air temperature on levels, $+0.966$ on the diurnal band, at a slope of
+$+1.63$\,\mdegC. This is the opposite of what the embankment geometry predicts.
+
+\medskip
+The compensated series shows the expected negative sign --- but it does so by
+arithmetic. The compensation subtracts 5\,\mdegC\ from a channel whose measured
+slope is $+1.63$, leaving a residual slope of $1.63 - 5 = -3.37$\,\mdegC, which
+is exactly the value the table reports. The sign flip is entirely a product of
+the over-correction.
+
+\medskip
+Three readings are consistent with this, and these data cannot separate them.
+\textbf{(i)} The instrument's sign convention is inverted relative to the one
+assumed, so a positive raw change \emph{is} movement towards the mountain.
+\textbf{(ii)} The instrument's own thermal drift is positive and larger than the
+structural response, masking it. \textbf{(iii)} The structural response at this
+station does not follow the differential-expansion expectation. Settling this
+requires the calibration sheet, the installation record, or an independent
+measurement of the mounting orientation --- none of which is in the archive. The
+contradiction is recorded in \texttt{docs/raw-data-format.md} Section~7.5 rather
+than resolved here.}
+
+\subsection{What this costs the rest of the report}
+
+Every statement of the form ``air temperature is the best predictor'' is true of
+this target and means, in substantial part, that air temperature predicts the
+residual of its own correction. Three consequences are carried throughout.
+
+\textbf{The relative standings survive.} Every configuration is scored against
+the same target, so the ordering of channels, the operator estimates, the
+combination diagnostics and the calibration results are all internally valid.
+
+\textbf{The absolute errors do not transfer.} They describe a system predicting a
+partly artificial signal, and should not be quoted for a raw-inclination
+deployment without re-running the study on that target.
+
+\textbf{The perfect-foresight regime of Section~\ref{sec:horizon} is inflated by
+the same mechanism.} Handing the model future air temperature is close to handing
+it the future target, because the target contains $-5\,T_{\mathrm{air}}$ by
+construction. That regime is read accordingly there.
+
+% ===========================================================================
+\section{Data, cleaning and the windows the study can use}
+
+\subsection{Loading}
+
+The loader implements the contract in \texttt{docs/raw-data-format.md}: decimal
+separators normalised per field rather than per file, record timestamps
+preferred over filename dates, duplicate timestamps merged field by field rather
+than dropped, and every sentinel mapped to \texttt{NaN} --- zeros in the
+battery, temperature, humidity and inclination channels, $-55$ in the wall
+probe, and the unsigned wrap-around above 1400\,W/m$^2$ in the pyranometer.
+Night-time zeros in solar radiation are kept, because they are measurements.
+
+Hourly aggregation takes the mean of each interval and accepts the interval only
+when at least two of its three raw samples survived cleaning, so an hour rebuilt
+from a single reading is not presented as equivalent to a complete one. A
+rolling-median context filter then removes the instrument-settling transient that
+follows the 103-day outage.
+
+\begin{figure}[H]
+\includegraphics{S3_F01_st02_overview}
+\caption{The compensated inclination and its four candidate drivers over the
+whole extended-package era, on the hourly grid. The two long interruptions ---
+the wall-probe failure from mid-July 2025 and the acquisition outage from March
+to June 2026 --- are visible as the gaps in the \texttt{twall} panel and in every
+panel respectively. The inclination's annual excursion is roughly 150\,mdeg
+against a diurnal amplitude of a few tens, and its shape is close to an inverted
+air-temperature curve, which Section~\ref{sec:signtest} attributes to the
+correction rather than to the structure.}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics{S3_F02_st02_target}
+\caption{Raw and compensated inclination, with the correction term that separates
+them. The correction is not a small adjustment: over the era it spans a range
+comparable to the signal's own, and the compensated series is close to the
+negative of the correction. This is the figure behind the residual slope of
+$-3.37$\,\mdegC.}
+\end{figure}
+
+\subsection{Which periods carry which channels}
+
+Wall temperature is the binding constraint of this era. The probe reads its
+open-circuit sentinel on 219 of the 416 days present, while every other channel
+is available whenever the logger is. That asymmetry forces the study into two
+tiers, and the choice between them is a substantial part of Question~2.
+
+\begin{center}
+\small
+\begin{tabular}{L{5.6cm}R{2.2cm}R{1.6cm}R{1.8cm}}
+\toprule
+\textbf{Longest contiguous runs} & \textbf{Start} & \textbf{Days} &
+\textbf{Coverage} \\
+\midrule
+\multicolumn{4}{l}{\itshape All channels, wall temperature included} \\
+\quad spring block            & 2025-02-21 & 73.1  & 99.5\,\% \\
+\quad early-summer block      & 2025-05-05 & 69.6  & 99.9\,\% \\
+\quad detached summer block   & 2026-06-18 & 53.3  & 95.7\,\% \\
+\addlinespace
+\multicolumn{4}{l}{\itshape Wall temperature dropped} \\
+\quad summer block            & 2025-05-05 & 143.2 & 99.9\,\% \\
+\quad winter block            & 2025-11-25 & 101.0 & 99.7\,\% \\
+\quad spring block            & 2025-02-21 & 73.1  & 99.5\,\% \\
+\quad detached summer block   & 2026-06-18 & 53.3  & 95.7\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Tier 1} is the calendar window 2025-02-21 to 2025-07-13, 3432 hourly
+slots, in which all four drivers are present. Internally it is not one run but
+two, split on 5 May by a short wall-probe interruption --- a fact that becomes
+important in Section~\ref{sec:horizon}, because it means any autoregressive model
+fitted on Tier~1 is fitted across a discontinuity. The detached summer block of
+2026 is held back entirely as an out-of-period test.
+
+\textbf{Tier 2} drops wall temperature and takes the longest contiguous run that
+remains: 2025-05-05 to 2025-09-25, 143.2 days, 3438 slots at 99.9\,\% coverage.
+It is not longer than Tier~1 in days --- the era contains no longer clean run ---
+but it is what a deployed system actually has, it extends two and a half months
+further into the year, and it is unbroken.
+
+The two tiers overlap between 5 May and 13 July. They are therefore not
+independent samples, and agreement between them is weaker evidence than it would
+otherwise be. Where they disagree, the disagreement is informative.
+
+\begin{figure}[H]
+\includegraphics{S3_F03_st02_diurnal}
+\caption{Mean diurnal cycle over the Tier~1 window. The inclination carries a
+daily cycle of roughly 20\,mdeg, in anti-phase with air temperature --- peaking
+near dawn, troughing in mid-afternoon. That is the sign the embankment geometry
+predicts. Section~\ref{sec:signtest} shows that in this target it is produced by
+the correction: the same cycle drawn on the raw channel is in phase with air
+temperature, not against it.}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics{S3_F04_st02_correlations}
+\caption{Correlation structure over the Tier~1 window, on levels (left) and on
+first differences (right). Levels correlations between two trending series are
+inflated by the shared trend; the differenced matrix is the honest one for a
+signal with drift. Both are shown so the gap is visible. Note the block of high
+mutual correlation among the drivers themselves, quantified in
+Section~\ref{sec:collinearity}.}
+\end{figure}
+
+% ===========================================================================
+\section{Question 1 --- the operator scan and the best single predictor}
+
+\subsection{Why an operator is fitted before anything is ranked}
+
+A structure with thermal mass cannot respond to a change in forcing
+instantaneously, so before any driver is ranked it is given the chance to act
+through the operator that suits it. Two operators are scanned \emph{jointly},
+because they are physically distinct and scanning either alone can attribute to
+one what belongs to the other:
+
+\begin{itemize}
+\item a \textbf{transport delay} $d$ shifts the driver in time without changing
+its shape --- what a thermal front travelling from the exposed face to the depth
+that moves the instrument would do;
+\item a \textbf{thermal inertia} $\tau$ low-passes the driver through a
+single-pole filter with $\alpha = \Delta t/(\tau + \Delta t)$ --- what a body
+integrating the forcing would do. The instantaneous case is $\tau = 0$ and
+remains in the grid, so it competes rather than being assumed away.
+\end{itemize}
+
+\subsection{The delay is bounded at twelve hours}
+\label{sec:cap}
+
+The grid is 13 delays (0 to 12 hours) by 16 time constants (0 to 168 hours) for
+each driver, scored by explained variance. The bound on the delay is physical and
+it is load-bearing.
+
+\textbf{The mechanism sets the scale.} Direct insolation heats one face of a
+masonry embankment. A thermal front reaching the depth that governs the
+inclination is not expected to take longer than half a day, and no process at
+this site would impose a slower transport.
+
+\textbf{Beyond half a cycle the scan stops being interpretable.} On a
+near-periodic diurnal signal, a delay of $d$ hours is indistinguishable from a
+\emph{lead} of $24 - d$. A grid extending past twelve hours can therefore return
+an optimum that is really an aliased lead --- which no causal filter can
+represent and no forecasting system can use. Twelve hours is the half-cycle, and
+stopping there keeps every reported optimum interpretable.
+
+\panel{The bound is correct for the forcings, and the wrong shape for the wall
+probe}{%
+This bound is derived for \textbf{external forcings}. Air temperature and solar
+radiation are inputs to the system: they must precede the response they cause, so
+constraining their delay to be non-negative is physically right, and
+Section~\ref{sec:probe} confirms that both of them do in fact peak at a
+non-negative delay.
+
+\medskip
+\textbf{Wall temperature is not a forcing.} It is an \emph{internal state
+variable} --- a temperature measured at some unrecorded depth inside the masonry
+--- and nothing requires it to precede the deformation. An earlier version of
+this report scanned delays to 48 hours, found an optimum for \texttt{twall} at
+\textbf{20 hours}, and dismissed it as lying ``outside the physically admissible
+range''. That dismissal was wrong in kind. Twenty hours is the 24-hour alias of a
+four-hour \emph{lead}, and a lead of an internal probe over the response is
+admissible --- it is what a deep installation produces.
+
+\medskip
+The right correction is not a tighter bound but a \emph{signed} one, and
+Section~\ref{sec:probe} applies it. What the causal constraint does remain right
+about is \textbf{use}: a lead cannot be applied by a forecasting system, because
+it would require the probe's future values at the moment the forecast is issued.
+So the constraint stays in force for every model in this report, and the lead is
+measured separately as a diagnostic. With the constraint applied, wall
+temperature's predictive optimum is \textbf{zero delay, zero time constant} at
+$R^2 = 0.491$, it ranks second at $R^2 = 0.459$ out of sample, and it appears in
+no winning subset in Section~\ref{sec:combinations}.}
+
+\subsection{Both bands are needed}
+
+The scan is run twice: on the series as they are, and on the diurnal band alone,
+with a one-week centred rolling mean removed.
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.5cm}R{1.3cm}R{1.5cm}R{1.6cm}R{2.0cm}}
+\toprule
+\textbf{Driver} & \textbf{delay} & \textbf{$\tau$} & \textbf{$r$} &
+\textbf{$R^2$} & \textbf{$R^2$ at $d=\tau=0$} \\
+\midrule
+\multicolumn{6}{l}{\itshape Full band, Tier 1} \\
+\quad \texttt{tair}  &  0 h &   0 h & $-0.956$ & 0.914 & 0.914 \\
+\quad \texttt{twall} & 12 h & 120 h & $-0.888$ & 0.788 & 0.771 \\
+\quad \texttt{sr}    &  0 h & 168 h & $-0.813$ & 0.662 & 0.229 \\
+\quad \texttt{rh}    &  0 h & 168 h & $+0.853$ & 0.728 & 0.472 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape Diurnal band, Tier 1 --- carried forward} \\
+\quad \texttt{tair}  &  0 h &   0 h & $-0.975$ & 0.951 & 0.951 \\
+\quad \texttt{sr}    &  0 h &   1 h & $-0.837$ & 0.700 & 0.644 \\
+\quad \texttt{twall} &  0 h &   0 h & $-0.701$ & 0.491 & 0.491 \\
+\quad \texttt{rh}    &  0 h &   0 h & $+0.695$ & 0.483 & 0.483 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The two bands disagree sharply, and the disagreement is the point. On the full
+band the optima for \texttt{sr} and \texttt{rh} both sit at $\tau = 168$\,hours
+--- the last value in the grid, that is, at the boundary --- lifting explained
+variance for \texttt{sr} from 0.229 to 0.662. A time constant of one week is not
+a thermal property of a masonry wall; it is the width of filter needed to turn a
+daily radiation cycle into a seasonal envelope. The full-band optimum is fitting
+the annual component, and it is pinned at the grid edge because a longer filter
+would fit it better still. Wall temperature does the same thing in two dimensions
+at once, running to the edge in both delay and $\tau$.
+
+Once the weekly rolling mean is removed, every optimum moves to zero delay and a
+short time constant. Reporting the full-band operators as physical constants
+would have produced three confident and entirely spurious findings. The
+diurnal-band operators are the ones carried forward.
+
+\begin{figure}[H]
+\includegraphics{S3_F05_st02_operators_fullband}
+\caption{Explained variance over the delay-by-inertia grid, full band. The bright
+band along the bottom edge of the \texttt{sr} and \texttt{rh} panels is the
+boundary optimum discussed above: the surface is still rising as $\tau$ reaches
+the end of the grid, which is the visual signature of a filter fitting a
+component slower than anything the grid contains.}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics{S3_F06_st02_operators_diurnal}
+\caption{The same grid on the diurnal band, with the delay bounded at twelve
+hours. Every optimum now sits in the top-left corner --- zero delay, zero or
+one-hour time constant. The gradual brightening towards the right-hand edge of
+the \texttt{twall} and \texttt{sr} panels is the leading edge of the 24-hour
+alias returning; Section~\ref{sec:cap} is the reason the grid stops before it
+becomes a maximum.}
+\end{figure}
+
+\subsection{No driver needs a transport delay}
+
+The result of bounding the scan is unusually clean: on the diurnal band,
+\textbf{every driver's optimum is at zero delay}, and only solar radiation takes
+a non-zero time constant, at one hour.
+
+That is a substantive finding, not a null one. Within the physically admissible
+window there is no evidence of a lagged structural response at all --- the
+compensated inclination tracks its drivers within the hour. It is also consistent
+with Section~\ref{sec:signtest}: a target that contains $-5\,T_{\mathrm{air}}$ by
+construction must follow air temperature instantaneously, because that term
+\emph{is} air temperature. The finding therefore describes the target's
+construction at least as much as the structure's thermodynamics, and a repeat on
+the raw channel would be needed to separate the two.
+
+\subsection{The wall probe's phase, and what it says about its depth}
+\label{sec:probe}
+
+Nothing in this subsection feeds any model. The operators used everywhere else
+are the causal ones fixed above; the guard that enforces this is described at the
+end of the subsection, and its effect is verified.
+
+\subsubsection*{Why the wall probe deserves a signed scan}
+
+The deformation is governed by the temperature field near the sun-exposed valley
+face. The probe sits at some depth inside the masonry, and that depth decides
+which way the phase between them runs:
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{2.6cm}L{6.4cm}Y}
+\toprule
+\textbf{Probe position} & \textbf{What it reads} & \textbf{Expected phase} \\
+\midrule
+\textbf{Shallow} & a fast, weakly damped signal close to the surface forcing &
+the inclination \textbf{lags} the probe \\
+\textbf{Deep} & a strongly damped and delayed signal &
+the inclination \textbf{leads} the probe \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The depth is not recorded anywhere in the archive. So what follows measures the
+\emph{phase}, in hours, and leaves the depth open. When the depth is established
+it becomes a consistency check against these numbers rather than a reason to
+repeat the analysis.
+
+\subsubsection*{The measurement}
+
+Phase is measured on the diurnal band over signed delays from $-12$ to $+12$
+hours. A negative phase means the second channel \emph{lags} the first.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.8cm}R{1.8cm}R{1.8cm}R{1.6cm}}
+\toprule
+\textbf{First} & \textbf{Second} & \textbf{phase} & \textbf{$r$ there} &
+\textbf{$r$ at zero} & \textbf{$R^2$ gain} \\
+\midrule
+\multicolumn{6}{l}{\itshape The wall probe against the response} \\
+\quad \texttt{inc\_comp} & \texttt{twall} & $-2$ h & $-0.875$ & $-0.701$ & 0.275 \\
+\quad \texttt{inc} (raw) & \texttt{twall} & $-2$ h & $+0.866$ & $+0.767$ & 0.162 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape The wall probe against what heats it} \\
+\quad \texttt{twall} & \texttt{tair} & $+2$ h & $+0.897$ & $+0.753$ & 0.238 \\
+\quad \texttt{twall} & \texttt{sr}   & $+3$ h & $+0.891$ & $+0.532$ & 0.510 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape Controls --- external forcings, must not lag} \\
+\quad \texttt{inc\_comp} & \texttt{tair} & $0$ h & $-0.975$ & $-0.975$ & 0.000 \\
+\quad \texttt{inc\_comp} & \texttt{sr}   & $+1$ h & $-0.805$ & $-0.803$ & 0.004 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S3_F15_st02_operators_signed}
+\caption{The diurnal-band operator grid re-run over signed delays. Air
+temperature, solar radiation and relative humidity all peak at zero delay, as
+external forcings must. Wall temperature peaks at $-4$ hours with a two-hour time
+constant, and its entire high-$R^2$ region lies in negative delay. This figure is
+diagnostic and feeds no model.}
+\end{figure}
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{1.3cm}R{1.6cm}R{1.8cm}R{2.4cm}}
+\toprule
+\textbf{Driver} & \textbf{delay} & \textbf{$\tau$} & \textbf{$R^2$ signed} &
+\textbf{$R^2$ causal} & \textbf{lost to causality} \\
+\midrule
+\texttt{tair}  &  0 h & 0 h & 0.951 & 0.951 & 0.000 \\
+\texttt{twall} & $-4$ h & 2 h & \textbf{0.797} & 0.491 & \textbf{0.306} \\
+\texttt{sr}    &  0 h & 1 h & 0.700 & 0.700 & 0.000 \\
+\texttt{rh}    &  0 h & 0 h & 0.483 & 0.483 & 0.000 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection*{What it shows}
+
+\textbf{The controls pass cleanly.} Air temperature, solar radiation and relative
+humidity all peak at a non-negative delay and lose \emph{exactly nothing} to the
+causal constraint. Had an external forcing appeared to lag the response, every
+number here would have been a method artefact. None does.
+
+\textbf{Wall temperature is the sole exception, and the effect is large.} Its
+optimum sits at $-4$ hours with a two-hour time constant, at $R^2 = 0.797$
+against 0.491 under the causal constraint --- \textbf{0.306 of explained variance
+suppressed}, a 62\,\% relative loss. Nothing else in the package loses anything.
+
+\textbf{The lead survives on the raw channel.} This is the load-bearing check.
+The compensated and the raw inclination both lead \texttt{twall} by two hours, at
+$-0.875$ and $+0.866$ respectively --- opposite signs, as
+Section~\ref{sec:signtest} requires, but the \emph{same phase}. The lead is
+therefore a property of the instrument pair, not an artefact of the correction.
+
+\textbf{The chain is internally consistent.} The probe lags solar radiation by
+three hours and air temperature by two, while the inclination lags air
+temperature by none. Everything is consistent with one picture: the deformation
+tracks the near-surface thermal state essentially in step with the air, and the
+probe registers the same event two to four hours later because it is set further
+in.
+
+\panel{Read against the depth: the probe is deeper than the layer that moves the
+wall}{%
+The inclination \emph{leads} the wall probe. On the table above, that is the
+signature of a \textbf{deep} installation: the probe is set behind the material
+whose expansion actually drives the movement, so it reports the thermal event
+after the structure has already responded to it.
+
+\medskip
+This report deliberately stops short of converting the phase into a depth in
+centimetres, which would require assuming a thermal diffusivity for the masonry.
+The phase itself is the durable measurement. When the installation depth is
+established, the check is direct: a deeper probe should show a larger lag against
+air temperature than the two hours measured here, and a correspondingly larger
+lead of the inclination over it.
+
+\medskip
+There is a corollary that bears on the unresolved sign contradiction of
+Section~\ref{sec:signtest}. A deformation genuinely driven by bulk thermal
+expansion of masonry ought to lag air temperature by \emph{something}. This one
+does not --- it is in step with the air to within the hour, while the wall's own
+temperature is not. That is more easily explained by a response acting on the
+instrument or its immediate mounting than by one acting through the depth of the
+wall, and it strengthens reading \textbf{(ii)} of Section~\ref{sec:signtest}:
+instrument thermal drift dominating a smaller structural response.}
+
+\subsubsection*{How the lead is kept out of every model}
+
+A lead cannot be used by a forecasting system: applying it would require the
+probe's future values at the moment the forecast is issued.
+\texttt{ip\_lib.operators\_from\_summary} therefore takes a
+\texttt{causal\_only} flag, default true, which clamps any negative optimum to
+zero and reports that it has done so. Every predictive operator in this report is
+built through that guard.
+
+The guard was verified rather than assumed. The thirteen tables carrying every
+ranking, subset search, importance diagnostic, out-of-period test and horizon
+result were compared byte for byte against the run made before the signed scan
+existed. All thirteen are identical. The diagnostic in this subsection is purely
+additive: it changes nothing that any model touched.
+
+\subsection{The ranking}
+
+Each driver is then scored on its own, at its diurnal-band operator, by pooled
+error over five rolling-origin folds --- every test block strictly after the
+training block it was fitted on.
+
+Autoregression is deliberately excluded from this stage. One hour ahead, the
+inclination's own recent history explains almost all of its variance, and every
+driver added on top of it looks equally negligible; a ranking computed that way
+measures how little room the autoregressive term leaves, not what the channel
+knows. Autoregression returns in Section~\ref{sec:horizon}, where it belongs.
+
+Battery voltage is carried through as a \textbf{negative control}. It rises with
+insolation and temperature, so it correlates with the real drivers, but no
+mechanism connects it to the structure.
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.4cm}R{1.2cm}R{1.6cm}R{1.6cm}R{1.5cm}R{1.9cm}}
+\toprule
+\textbf{Driver} & \textbf{delay} & \textbf{$\tau$} & \textbf{MAE} &
+\textbf{fold sd} & \textbf{$R^2$} & \textbf{available} \\
+\midrule
+\multicolumn{7}{l}{\itshape Tier 1, four drivers plus the control} \\
+\quad \texttt{tair}  & 0 h & 0 h &  8.74 & 7.56 & $+0.760$ & 77.1\,\% \\
+\quad \texttt{twall} & 0 h & 0 h & 13.61 & 8.13 & $+0.459$ & 36.6\,\% \\
+\quad \texttt{batt}\,$^\dagger$ & 0 h & 1 h & 20.71 & 9.79 & $-0.045$ & 77.1\,\% \\
+\quad \texttt{rh}    & 0 h & 0 h & 24.10 & 10.78 & $-0.283$ & 77.1\,\% \\
+\quad \texttt{sr}    & 0 h & 1 h & 28.40 & 15.15 & $-0.788$ & 69.1\,\% \\
+\addlinespace
+\multicolumn{7}{l}{\itshape Tier 2, three drivers plus the control} \\
+\quad \texttt{tair}  & 0 h & 0 h &  8.25 & 3.02 & $+0.656$ & 77.1\,\% \\
+\quad \texttt{rh}    & 0 h & 0 h & 14.67 & 4.64 & $-0.148$ & 77.1\,\% \\
+\quad \texttt{sr}    & 0 h & 1 h & 18.59 & 8.18 & $-1.110$ & 69.1\,\% \\
+\quad \texttt{batt}\,$^\dagger$ & 0 h & 1 h & 30.90 & 5.14 & $-3.441$ & 77.1\,\% \\
+\bottomrule
+\multicolumn{7}{l}{\footnotesize $^\dagger$ negative control. MAE in mdeg;
+availability is measured over the whole era, not the window.}
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S3_F07_st02_rank_tier1}
+\caption{Single-predictor skill on the Tier~1 window, without autoregression.
+Error bars are the spread across the five rolling-origin folds. The right panel
+carries each channel's availability over the whole era, which is what prices wall
+temperature's second place.}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics{S3_F08_st02_rank_tier2}
+\caption{The same ranking on the Tier~2 block. Air temperature keeps first place
+with a comparable score and a much tighter fold spread; the ordering below it
+changes, which is what a channel whose apparent skill is seasonal rather than
+structural looks like.}
+\end{figure}
+
+\subsection{What the negative control reveals}
+
+The control ranks \emph{third of five} in Tier~1, ahead of relative humidity and
+solar radiation. Read carelessly this looks like a failure of the procedure. Read
+correctly it is the procedure working.
+
+The dividing line is not the ordering but the sign of $R^2$. Only \texttt{tair}
+($+0.760$) and \texttt{twall} ($+0.459$) beat the mean of the training block.
+Battery voltage, relative humidity and solar radiation all have \emph{negative}
+out-of-sample $R^2$: each, used alone, is worse than predicting a constant. The
+control lands among them, which is exactly what it is for --- it marks the noise
+floor, and shows that the three channels below the line carry no standalone
+predictive content whatever their in-sample correlation suggests. In Tier~2 the
+control falls to last outright.
+
+\panel{Answer to Question 1}{%
+\textbf{Air temperature}, applied instantaneously --- delay 0, $\tau = 0$ --- is
+the best single predictor in both tiers, with out-of-sample $R^2$ of 0.760 on
+Tier~1 and 0.656 on Tier~2 and a mean absolute error of 8.2--8.7\,mdeg. Wall
+temperature is the only other channel that beats a constant, at $R^2$ 0.459 once
+its implausible 20-hour operator is disallowed. Solar radiation and relative
+humidity have no standalone predictive value: both score below a channel with no
+physical mechanism.
+
+\medskip
+\textbf{No driver requires a transport delay.} Within the twelve-hour physical
+window every optimum is instantaneous, and only solar radiation takes a one-hour
+time constant.
+
+\medskip
+This answer must be read with Section~\ref{sec:signtest} in hand. Air temperature
+wins in large part because the target was built by subtracting a multiple of it,
+which also explains why the response is instantaneous. The finding that \emph{is}
+independent of that construction is the negative one: no channel other than the
+two temperatures carries usable information on its own.}
+
+% ===========================================================================
+\section{Question 2 --- combinations, and how to diagnose them}
+\label{sec:combinations}
+
+\subsection{How far the candidates duplicate one another}
+\label{sec:collinearity}
+
+These channels are physically coupled: radiation heats the air, and air and
+radiation together heat the wall. A regression containing several of them splits
+one physical effect across correlated coefficients in a way that is not stable
+between folds.
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{2.6cm}l}
+\toprule
+\textbf{Channel} & \textbf{VIF} & \textbf{max $|r|$ with others} &
+\textbf{closest} \\
+\midrule
+\texttt{tair}  & 8.06 & 0.924 & \texttt{twall} \\
+\texttt{twall} & 7.90 & 0.924 & \texttt{tair} \\
+\texttt{rh}    & 2.69 & 0.732 & \texttt{twall} \\
+\texttt{sr}    & 1.82 & 0.610 & \texttt{rh} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The two temperatures are near-duplicates at $r = 0.924$, with variance inflation
+factors around eight. That is why the search below is scored by out-of-sample
+error rather than by coefficients or in-sample fit, and why
+Section~\ref{sec:diagnostics} uses two importance measures instead of reading a
+coefficient table.
+
+\subsection{Every combination}
+
+With four candidates the search is exhaustive at fifteen subsets, which removes
+the need for a stepwise procedure and the selection bias that comes with one.
+Each subset is scored three ways: pooled rolling-origin MAE; the Bayesian
+information criterion of the corresponding least-squares fit; and an
+availability-weighted utility, defined as the ratio of the best subset's error to
+this subset's error, multiplied by the fraction of the \emph{whole era} on which
+the subset exists.
+
+\begin{center}
+\small
+\begin{tabular}{lR{0.7cm}R{1.5cm}R{1.4cm}R{1.4cm}R{1.6cm}R{1.4cm}}
+\toprule
+\textbf{Subset} & \textbf{$k$} & \textbf{MAE} & \textbf{fold sd} &
+\textbf{$R^2$} & \textbf{available} & \textbf{utility} \\
+\midrule
+\multicolumn{7}{l}{\itshape Tier 1 --- top seven of fifteen, by error} \\
+\quad \texttt{tair+sr+rh}       & 3 & \textbf{8.24} & 7.15 & 0.782 & 69.1\,\% & 0.691 \\
+\quad \texttt{tair+sr}          & 2 & 8.29 & 7.21 & 0.779 & 69.1\,\% & 0.687 \\
+\quad \texttt{tair+twall+sr+rh} & 4 & 8.30 & 7.13 & 0.781 & 36.5\,\% & 0.362 \\
+\quad \texttt{tair+twall+sr}    & 3 & 8.38 & 7.17 & 0.777 & 36.5\,\% & 0.359 \\
+\quad \texttt{tair}             & 1 & 8.74 & 7.56 & 0.760 & 77.1\,\% & \textbf{0.727} \\
+\quad \texttt{tair+rh}          & 2 & 8.75 & 7.54 & 0.759 & 77.1\,\% & 0.726 \\
+\quad \texttt{tair+twall}       & 2 & 8.80 & 7.53 & 0.759 & 36.6\,\% & 0.343 \\
+\addlinespace
+\multicolumn{7}{l}{\itshape Tier 2 --- all seven} \\
+\quad \texttt{tair+sr}          & 2 & \textbf{5.99} & 0.93 & 0.793 & 69.1\,\% & \textbf{0.691} \\
+\quad \texttt{tair+sr+rh}       & 3 & 6.13 & 1.00 & 0.782 & 69.1\,\% & 0.676 \\
+\quad \texttt{tair+rh}          & 2 & 8.02 & 3.06 & 0.672 & 77.1\,\% & 0.576 \\
+\quad \texttt{tair}             & 1 & 8.25 & 3.02 & 0.656 & 77.1\,\% & 0.560 \\
+\quad \texttt{rh}               & 1 & 14.67 & 4.64 & $-0.148$ & 77.1\,\% & 0.315 \\
+\quad \texttt{sr+rh}            & 2 & 14.70 & 4.27 & $-0.158$ & 69.1\,\% & 0.282 \\
+\quad \texttt{sr}               & 1 & 18.59 & 8.18 & $-1.110$ & 69.1\,\% & 0.223 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{Wall temperature is in no winning subset, in either tier}{%
+The best Tier~1 subset is \texttt{tair + sr + rh}. The four-channel model that
+adds wall temperature is \emph{worse} on error (8.30 against 8.24) and less than
+half as available. Every subset containing \texttt{twall} is beaten by the same
+subset without it. This is a direct reversal of the earlier, unbounded-delay
+version of this study, in which the four-channel model led the table --- and the
+reversal is traceable entirely to disallowing a 20-hour delay that the site's
+physics excludes.}
+
+\begin{figure}[H]
+\includegraphics{S3_F09_st02_subsets_tier1}
+\caption{Exhaustive subset search on Tier~1. Left: error against subset size,
+coloured by availability, with the best-per-size frontier dashed. The frontier is
+almost flat --- adding predictors buys 6\,\% in total. Right: the eight best
+subsets once availability is priced in, where the single-predictor model wins
+outright.}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics{S3_F10_st02_subsets_tier2}
+\caption{The same search on Tier~2. Here the frontier has a real step between one
+and two predictors, and \texttt{tair + sr} wins on error, on BIC and on utility
+simultaneously --- the only configuration in the study on which all three
+criteria agree.}
+\end{figure}
+
+\subsection{The two tiers give different answers, and only one is resolved}
+
+On Tier~1 the best subset beats the best single predictor by 0.50\,mdeg, that is
+6.0\,\%. The fold-to-fold spread of both estimates is around 7.2--7.6\,mdeg,
+fifteen times the difference between them. \textbf{The Tier~1 ordering below the
+top place is not resolved by these data.} What Tier~1 does establish is that no
+combination is dramatically better than air temperature alone, and that on
+utility the single predictor wins outright.
+
+On Tier~2 the picture is different and much cleaner. Adding solar radiation to
+air temperature reduces the error from 8.25 to 5.99\,mdeg, that is
+\textbf{27.4\,\%}, and lifts $R^2$ from 0.656 to 0.793. The fold spread of the
+winning model is 0.93\,mdeg, well inside the 2.26\,mdeg improvement, although the
+single-predictor model's own spread of 3.02\,mdeg means the comparison is
+directionally clear rather than sharply resolved. BIC agrees, dropping by 921,
+and utility agrees despite \texttt{sr} costing 8 percentage points of
+availability.
+
+Why the tiers disagree is worth stating: Tier~2 runs from May to September and
+contains the high-summer period in which radiation is both strong and variable,
+while Tier~1 is dominated by spring, when the radiation signal is weaker relative
+to the air-temperature signal that already dominates the target. Solar radiation
+earns its place in the season in which it is doing work.
+
+\subsection{Which member is doing the work}
+\label{sec:diagnostics}
+
+Two diagnostics are run on the winning Tier~1 subset, deliberately different,
+because their disagreement is informative.
+
+\textbf{Leave-one-out gain} removes a channel and \emph{refits}. It answers: what
+would it cost to build this system without that channel? Under strong
+collinearity a refit can recover much of the lost information from a correlated
+channel, so this number is small exactly when the channel is replaceable.
+
+\textbf{Permutation importance} shuffles a channel within the test block while
+holding the fitted model fixed. It answers: how much does the model \emph{as
+built} rely on that channel?
+
+\begin{center}
+\small
+\begin{tabular}{lR{2.0cm}R{1.8cm}R{2.6cm}R{1.4cm}}
+\toprule
+\textbf{Channel} & \textbf{MAE without} & \textbf{gain} & \textbf{permutation
+increase} & \textbf{sd} \\
+\midrule
+\texttt{tair} & 24.80 & 16.56 (66.8\,\%) & 8.84 & 2.40 \\
+\texttt{sr}   &  8.75 &  0.51 (5.9\,\%)  & 0.013 & 0.019 \\
+\texttt{rh}   &  8.29 &  0.05 (0.6\,\%)  & $-0.010$ & 0.026 \\
+\bottomrule
+\multicolumn{5}{l}{\footnotesize Subset \texttt{tair + sr + rh}; full-subset MAE
+8.24\,mdeg. All values in mdeg.}
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S3_F11_st02_diagnostics}
+\caption{Contribution of each channel to the winning Tier~1 subset. Left: the
+cost of removing the channel and refitting. Right: the cost of shuffling it with
+the model held fixed, with the spread over folds and repeats. Air temperature
+dominates both. Both other channels sit at or below their own error bar on the
+right-hand panel, which is the quantitative statement that the model does not
+rely on them.}
+\end{figure}
+
+Air temperature dominates both measures by three orders of magnitude on the
+permutation scale. Solar radiation and relative humidity each produce a
+permutation increase smaller than its own standard deviation, so the fitted model
+does not measurably rely on either. \texttt{sr} shows the one interesting
+asymmetry --- a 5.9\,\% leave-one-out gain against a permutation increase of
+essentially zero --- but at 0.51\,mdeg against a 7.15\,mdeg fold spread, that
+asymmetry is not resolved either.
+
+\subsection{The out-of-period test}
+
+The Tier~1 models are refitted on the whole Tier~1 window and applied to the
+detached 2026 summer block, fourteen months later, with no refitting. This is the
+hardest test in the study: a different season, a different part of the annual
+cycle, and an instrument that has been through a 103-day outage in between.
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.4cm}R{1.6cm}R{1.6cm}}
+\toprule
+\textbf{Model} & \textbf{$n$} & \textbf{MAE} & \textbf{RMSE} \\
+\midrule
+\texttt{tair + sr + rh} & 1225 & 17.39 & 20.08 \\
+\texttt{tair} alone     & 1225 & \textbf{16.96} & 20.12 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both models roughly double their cross-validated error, and \textbf{the single
+predictor is marginally the better of the two}. Whatever the two additional
+channels contributed inside the Tier~1 window did not survive the transfer. This
+is the strongest single piece of evidence in the section, and it points the same
+way as the utility column.
+
+\subsection{The diagnostic protocol}
+
+Question~2 asks not only which combination wins but how to tell. The procedure
+used above is the answer, and it transfers to any station and any sensor set.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{R{0.5cm}L{6.0cm}Y}
+\toprule
+& \textbf{Rule} & \textbf{Failure it prevents} \\
+\midrule
+1 & Bound the operator scan by the physics of the mechanism, and by half the
+dominant period &
+A physically impossible optimum, or an aliased lead reported as a delay \\
+2 & Fit each driver's operator first, on the band of interest &
+A lagged driver ranked below an instantaneous one; a boundary optimum reported as
+a physical time constant \\
+3 & Score without autoregression &
+Every driver tying behind the autoregressive term at short horizons \\
+4 & Use rolling-origin folds and report the spread &
+A ranking that depends on where a single split happened to fall \\
+5 & Search subsets exhaustively when the candidate set is small &
+Selection bias and instability under collinearity \\
+6 & Never read coefficients under high VIF; use leave-one-out gain and
+permutation importance, and read their disagreement as redundancy &
+Importance attributed by collinearity rather than by content \\
+7 & Price availability over the whole record, not over the window &
+Choosing a channel that is absent when it is needed \\
+8 & Carry a negative control &
+Mistaking shared diurnal shape for predictive content \\
+9 & Confirm on an out-of-period block &
+A combination that fits one season and transfers to none \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Rule 1 is first because it is the rule this study learned the hard way: the
+earlier unbounded scan changed the identity of the winning subset, and no
+downstream diagnostic would have caught it.
+
+\panel{Answer to Question 2}{%
+\textbf{Yes, in the season where the extra channel does work --- and never with
+wall temperature.} On the Tier~2 summer block \texttt{tair + sr} beats
+\texttt{tair} alone by 27.4\,\% in mean absolute error, and wins on error, BIC
+and availability-weighted utility simultaneously. On the spring-dominated Tier~1
+window the best subset improves on air temperature by 6.0\,\%, a fifteenth of the
+fold-to-fold spread, and the out-of-period test at fourteen months prefers the
+single predictor outright.
+
+\medskip
+\textbf{Wall temperature appears in no winning subset in either tier}, as a
+\emph{predictor}. Every subset containing it is beaten by the same subset without
+it, at less than half the availability. On this evidence it should not be a
+required regressor of the production pipeline --- which resolves, in the
+negative, the open question raised in
+\texttt{docs/data-quality-report-2026-08-10.md}, Section~6.
+
+\medskip
+\textbf{That verdict is about forecasting, and must not be read as ``the channel
+is uninformative''.} Section~\ref{sec:probe} shows the opposite: given a signed
+operator, \texttt{twall} explains $R^2 = 0.797$ of the diurnal band against 0.491
+under the causal constraint, and it is the only channel in the package that loses
+anything at all to that constraint. It fails as a predictor precisely
+\emph{because} what it knows arrives too late to forecast with --- which is
+itself a measurement of where the probe sits. A channel can be worthless for
+prediction and valuable for diagnosis, and this one is both.
+
+\medskip
+The diagnosis is made by the nine-rule protocol above; the four components that
+did the actual work here were the physical bound on the operator scan, the
+availability-weighted utility, the disagreement between the two importance
+measures, and the out-of-period block.}
+
+% ===========================================================================
+\section{Question 3 --- how far ahead, and with what uncertainty}
+\label{sec:horizon}
+
+\subsection{Design}
+
+NeuralProphet is fitted with \texttt{n\_lags} $=24$ and \texttt{n\_forecasts}
+$=168$, so a single training run yields every horizon from one hour to one week
+and the whole sweep comes from one fit rather than from eight. Quantile
+regression at the 5th and 95th percentiles attaches a nominal 90\,\% prediction
+interval to every forecast. Gaps are bridged by interpolation so that the
+autoregressive window has continuous history, and scoring happens only at
+originally observed timestamps: the model may read a filled value, but it is
+never rewarded for reproducing one.
+
+Two regressor regimes are run, and the difference between them is the point of
+the exercise:
+
+\begin{itemize}
+\item \textbf{lagged} --- the regressors enter only through their past values.
+This is what a deployed system has, and it is the honest number.
+\item \textbf{future} --- the regressors are known across the forecast window.
+This is what the same system coupled to a \emph{perfect} weather forecast would
+have. On this target it is more than that, and the excess is discussed in
+Section~\ref{sec:regimegap}.
+\end{itemize}
+
+Skill is measured against two baselines. \textbf{Persistence} carries the last
+observation forward. \textbf{Seasonal naive} repeats the value from a whole
+number of days earlier, which is the cheapest possible way to exploit the diurnal
+cycle. At horizons that are exact multiples of 24 hours the two baselines
+coincide by construction.
+
+\subsection{Results}
+
+\begin{center}
+\small
+\begin{tabular}{R{1.3cm}R{1.5cm}R{1.5cm}R{1.9cm}R{2.0cm}R{1.6cm}R{1.6cm}}
+\toprule
+\textbf{$h$ [h]} & \textbf{MAE} & \textbf{persist.} & \textbf{seas.\ naive} &
+\textbf{skill vs p.} & \textbf{cover.} & \textbf{width} \\
+\midrule
+\multicolumn{7}{l}{\itshape Tier 2, lagged --- the deployable configuration} \\
+1   &  4.43 &  2.79 & 6.10 & $-0.585$ & 61.4\,\% & 15.3 \\
+3   &  5.59 &  6.81 & 6.09 & $+0.179$ & 54.4\,\% & 16.3 \\
+6   &  6.35 & 11.74 & 6.09 & $+0.459$ & 56.6\,\% & 24.6 \\
+12  &  6.35 & 16.06 & 6.10 & $\mathbf{+0.605}$ & 53.6\,\% & 18.4 \\
+24  &  6.96 &  6.10 & 6.10 & $-0.141$ & 57.1\,\% & 22.9 \\
+48  &  8.09 &  8.30 & 8.30 & $+0.025$ & 67.1\,\% & 27.7 \\
+72  &  9.62 &  9.67 & 9.67 & $+0.005$ & 66.8\,\% & 31.7 \\
+168 & 15.95 & 12.22 & 12.22 & $-0.306$ & 58.1\,\% & 29.7 \\
+\addlinespace
+\multicolumn{7}{l}{\itshape Tier 2, future --- regressors known over the horizon} \\
+1   &  3.82 &  2.86 & 6.13 & $-0.336$ & 95.4\,\% & 40.0 \\
+6   &  5.88 & 12.05 & 6.11 & $+0.512$ & 95.2\,\% & 42.8 \\
+12  &  6.07 & 16.62 & 6.13 & $+0.635$ & 95.8\,\% & 45.5 \\
+24  &  6.50 &  6.12 & 6.12 & $-0.061$ & 96.7\,\% & 47.9 \\
+72  &  9.06 &  9.49 & 9.49 & $+0.046$ & 93.0\,\% & 53.1 \\
+168 & 13.07 & 12.84 & 12.84 & $-0.018$ & 82.7\,\% & 50.6 \\
+\addlinespace
+\multicolumn{7}{l}{\itshape Tier 1, future --- accurate, but see
+Section~\ref{sec:regimegap}} \\
+1   &  2.03 &  3.42 & 5.33 & $+0.406$ & 18.0\,\% & 0.0 \\
+12  &  2.47 & 21.61 & 5.33 & $+0.886$ & 18.9\,\% & 0.0 \\
+24  &  2.85 &  5.33 & 5.33 & $+0.464$ & 23.4\,\% & 0.0 \\
+168 &  7.36 & 10.96 & 10.96 & $+0.328$ & 21.3\,\% & 0.0 \\
+\addlinespace
+\multicolumn{7}{l}{\itshape Tier 1, lagged --- fitted across the 5 May
+discontinuity} \\
+1   &  4.43 &  3.44 & 5.76 & $-0.285$ & 12.3\,\% & 0.0 \\
+12  & 14.42 & 21.20 & 5.76 & $+0.320$ &  9.8\,\% & 0.0 \\
+24  & 21.67 &  5.76 & 5.76 & $-2.764$ & 11.2\,\% & 0.2 \\
+168 & 52.82 & 10.62 & 10.62 & $-3.974$ &  0.0\,\% & 2.7 \\
+\bottomrule
+\multicolumn{7}{l}{\footnotesize MAE and interval width in mdeg. Coverage is
+against a nominal 90\,\%.}
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S3_F12_st02_horizon_skill}
+\caption{Forecast error (left) and skill against persistence (right) for all four
+configurations. The dashed line in the left panel is persistence itself, and its
+shape explains most of the right panel: persistence is excellent at one hour,
+worst at twelve, and excellent again at twenty-four because the signal is
+diurnal. Skill against it is therefore not monotonic in the horizon, and quoting
+a single ``maximum useful horizon'' would misdescribe the curve.}
+\end{figure}
+
+\subsection{Reading the horizon curve}
+
+The non-monotonic skill curve is the substantive finding, and it follows from the
+structure of the signal rather than from any property of the model. Taking the
+deployable Tier~2 lagged configuration:
+
+At \textbf{one hour} nothing beats persistence. The inclination changes slowly
+enough that its own last value is an excellent forecast (MAE 2.79\,mdeg), and no
+configuration in the study --- including a model trained for that horizon alone
+--- gets below it.
+
+Between \textbf{three and twelve hours} the model has real skill, peaking at
+$+0.605$ at twelve hours. This is the interval in which persistence has decayed
+but the diurnal cycle has not yet brought the signal back, and it is where the
+environmental regressors earn their place.
+
+At \textbf{twenty-four hours} the diurnal periodicity restores both baselines to
+6.10\,mdeg and the model, at 6.96, is beaten by simply repeating yesterday.
+
+Beyond \textbf{forty-eight hours} the model and the baselines converge, with
+skill of $+0.025$ and $+0.005$ --- indistinguishable from zero. At one week the
+model is 30\,\% worse than repeating the value from a week before.
+
+The Tier~1 lagged configuration fails outright: 21.7\,mdeg at twenty-four hours
+and 52.8 at one week, against baselines of 5.8 and 10.6. The diagnosis is in
+Section~2.2 --- the Tier~1 window is two runs separated by a wall-probe
+interruption on 5 May, so an autoregressive model fitted on it is fitted across a
+discontinuity that its lag window cannot see. This is not a finding about wall
+temperature; it is a finding about training an autoregressive model on a
+fragmented record, and it is why Tier~2 is the configuration of record.
+
+\subsection{The gap between the regimes is not the value of a weather forecast}
+\label{sec:regimegap}
+
+The Tier~1 future configuration is the most accurate in the study by a wide
+margin: 2.03\,mdeg at one hour, 2.47 at twelve, 7.36 at one week, with positive
+skill against persistence at \emph{every} horizon. Taken at face value this says
+that a system coupled to a perfect weather forecast could predict this structure
+a week ahead.
+
+It should not be taken at face value. The target contains $-5\,T_{\mathrm{air}}$
+by construction (Section~\ref{sec:signtest}), so handing the model the future air
+temperature is close to handing it the future target. The future regime is
+therefore measuring two things at once --- the genuine value of knowing the
+weather, and the arithmetic value of being told the term that was subtracted ---
+and on this target the second dominates.
+
+The corollary is that the lagged--future gap in Tier~2, from 4.43 to 3.82\,mdeg
+at one hour and 6.35 to 6.07 at twelve, is an \emph{upper} bound on what a
+weather forecast is worth here, and even that bound is modest: 14\,\% and 4\,\%
+respectively. The main benefit of the future regime is not accuracy but
+calibration, discussed next.
+
+\subsection{Is the quoted uncertainty honest?}
+
+\begin{figure}[H]
+\includegraphics{S3_F13_st02_uncertainty}
+\caption{Calibration (left) and width (right) of the nominal 90\,\% prediction
+interval. The dashed line marks the nominal rate. Only the Tier~2 future
+configuration tracks it. The deployable Tier~2 lagged configuration sits 23 to 36
+percentage points below while producing intervals roughly half as wide --- the
+signature of an overconfident model. Both Tier~1 configurations return degenerate
+intervals of zero width and are plotted only to document the failure.}
+\end{figure}
+
+This is the part of Question~3 with the most operational consequence.
+
+The \textbf{Tier~2 future} configuration is well calibrated: empirical coverage
+of 93--97\,\% against a nominal 90\,\% out to three days, falling to 82.7\,\% at
+one week. Slightly conservative, and usable as quoted.
+
+The \textbf{Tier~2 lagged} configuration --- the one that can actually be
+deployed --- covers only 53.6--67.1\,\%. Its nominal ninety per cent interval is
+in reality a fifty-five to sixty-five per cent interval. Its median width, 15 to
+32\,mdeg, is between 38 and 60\,\% of the future-regime width, so the model is
+not merely mis-stating a correct interval but is confidently narrow about a
+prediction it cannot support.
+
+\textbf{Both Tier~1 configurations produce degenerate quantile heads}, with
+interval widths of exactly zero at almost every horizon and coverage between 0
+and 23\,\%. The Tier~1 future configuration is therefore accurate and
+\emph{completely uninformative about its own uncertainty} --- a combination worth
+naming, because a point forecast that good invites trust that its interval does
+not earn.
+
+\panel{Uncertainty must be recalibrated before it is published}{%
+The interval NeuralProphet produces under the deployable regime is not a 90\,\%
+interval. Any downstream anomaly threshold built on it would fire on three to
+four times the intended fraction of ordinary observations: the intended miss rate
+is 10\,\%, the measured one runs from 33 to 46\,\%. Two routes are open and both
+are outside this study's scope: split-conformal recalibration on a held-out
+block, which would restore nominal coverage by construction; or widening the
+quantile spread until measured coverage reaches ninety, which is the same
+operation done by hand. Until one of them is applied, only the measured coverage
+should be quoted, never the nominal one.}
+
+\begin{figure}[H]
+\includegraphics{S3_F14_st02_fan}
+\caption{Ten days of the Tier~2 lagged test period at a twenty-four-hour horizon,
+with the 90\,\% interval. The forecast reproduces the diurnal shape and the broad
+level, and the interval is visibly too narrow for the excursions it is meant to
+contain --- the picture behind the 57\,\% coverage in the table above.}
+\end{figure}
+
+\subsection{What the joint multi-horizon head costs}
+
+One fit produced every horizon, which is efficient but not free: the network
+shares one set of weights across 168 output steps. Refitting with
+\texttt{n\_forecasts} set to exactly one horizon isolates the cost.
+
+\begin{center}
+\small
+\begin{tabular}{R{1.6cm}R{2.2cm}R{2.2cm}R{2.4cm}}
+\toprule
+\textbf{$h$ [h]} & \textbf{dedicated} & \textbf{joint head} &
+\textbf{joint penalty} \\
+\midrule
+1  & 3.30 & 4.43 & $+34.2$\,\% \\
+24 & 7.45 & 6.96 & $-6.6$\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The joint head costs 34\,\% at one hour and \emph{gains} 6.6\,\% at twenty-four,
+consistent with the shared weights acting as a regulariser at longer horizons and
+as a distraction at the shortest one. The conclusion is unchanged either way:
+even the dedicated one-hour model, at 3.30\,mdeg, does not beat persistence at
+2.79.
+
+\panel{Answer to Question 3}{%
+\textbf{The useful forecast band is roughly three to twelve hours ahead}, where
+skill against persistence runs from $+0.18$ to $+0.61$ and the mean absolute
+error is 5.6--6.4\,mdeg. Below three hours persistence wins; at twenty-four hours
+and beyond, repeating the previous day wins. There is no horizon at which the
+deployable system beats a naive baseline by more than a factor of two and a half.
+
+\medskip
+\textbf{The uncertainty attached to that band is not what it claims.} The
+deployable configuration's nominal 90\,\% interval covers 54--67\,\% of
+observations, and must be recalibrated before publication. Only the Tier~2 future
+configuration is calibrated as quoted.
+
+\medskip
+\textbf{A weather forecast is worth having but not transformative}: at most
+14\,\% at one hour and 4\,\% at twelve, and its principal benefit is calibration
+rather than accuracy. The far larger apparent gain in Tier~1 is an artefact of
+the target's construction, not a forecast benefit.}
+
+% ===========================================================================
+\section{Verdicts}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{4.4cm}Y}
+\toprule
+\textbf{Question} & \textbf{Answer} \\
+\midrule
+0 · expected sign &
+Site physics predicts negative; the compensated target complies at $r = -0.956$,
+the \textbf{raw channel does not} ($r = +0.845$, $+1.63$\,\mdegC). The compliance
+is arithmetic, not structural. \fail\ as evidence for the mechanism. \\
+1 · best single predictor &
+\texttt{tair}, instantaneous, in both tiers. $R^2$ 0.760 (Tier~1) and 0.656
+(Tier~2); MAE 8.74 and 8.25\,mdeg. \\
+1 · lag structure &
+No \emph{forcing} needs a transport delay within the twelve-hour physical window;
+only \texttt{sr} takes a time constant, of one hour. \\
+1 · wall-probe phase &
+The inclination \textbf{leads} \texttt{twall} by 2\,h, on the raw channel as well
+as the compensated one, and the signed optimum is $-4$\,h at $R^2$ 0.797 against
+0.491 causal. Signature of a \textbf{deep} probe. Depth unrecorded; the phase is
+the check to run once it is known. \\
+1 · what else is usable &
+Only \texttt{twall} ($R^2$ 0.459) also beats a constant. \texttt{sr}, \texttt{rh}
+and the negative control all score below a constant. \\
+2 · best combination &
+\texttt{tair + sr} on Tier~2: $-27.4$\,\% MAE, best on error, BIC and utility
+together. On Tier~1 the 6.0\,\% gain is not resolved above the fold spread. \\
+2 · wall temperature &
+\fail\ \emph{as a predictor}. Present in no winning subset in either tier; every
+subset containing it is beaten by the same subset without it, at 36.6\,\%
+availability. \pass\ \emph{as a diagnostic} --- see the wall-probe phase row. \\
+2 · negative control &
+Third of five in Tier~1, last in Tier~2 --- and the boundary between positive and
+negative out-of-sample $R^2$ falls above it. \\
+3 · useful horizon &
+3 to 12 hours. Peak skill $+0.605$ at 12\,h. Persistence wins at 1\,h; the
+previous day wins at 24\,h and beyond. \\
+3 · uncertainty &
+\fail\ as quoted. Nominal 90\,\% interval measures 54--67\,\% under the
+deployable regime; both Tier~1 configurations are degenerate. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ===========================================================================
+\section{Caveats, and what would change the answers}
+
+\textbf{The target is partly artificial, and the sign test proves it.} The raw
+channel moves the other way from the compensated one. The single change most
+likely to alter every conclusion here is re-running the study on the raw
+inclination, or on a compensated series using the 1.63\,\mdegC\ slope the
+companion study fitted. The methods transfer unchanged; only the target moves.
+
+\textbf{The expected sign is unresolved, not confirmed.} Section~\ref{sec:signtest}
+lists three readings consistent with the measurement, and the archive contains
+nothing that distinguishes them. The calibration sheet or the installation record
+would.
+
+\textbf{The delay bound is an assumption, stated and defended.} Twelve hours
+follows from the mechanism and from half the diurnal period. It changed the
+winning subset, so it is not a neutral choice --- but for an external forcing the
+alternative admits optima that the site's physics excludes.
+
+\textbf{The wall probe's depth is unknown, and it is the cheapest open question
+to close.} It decides whether the two-hour lead of
+Section~\ref{sec:probe} is a shallow or a deep installation, and it bears
+directly on the sign contradiction of Section~\ref{sec:signtest}. The phase is on
+record, so answering it requires no re-analysis --- only a comparison. It is
+listed as open question 3 in \texttt{docs/data-quality-report-2026-08-10.md}.
+
+\textbf{The tiers overlap and are short.} Tier~1 and Tier~2 share 70 days.
+Neither exceeds 144 days, so no annual term is identifiable and every seasonal
+statement here is an inference from two seasons rather than a measurement over a
+cycle.
+
+\textbf{Tier~1 is internally fragmented.} The 5 May interruption splits it, which
+is enough to break the autoregressive model in Section~\ref{sec:horizon}. A
+production system must screen for this before fitting, not after.
+
+\textbf{Ridge is a screening model, not the deployed one.} It orders candidate
+sets cheaply so that NeuralProphet is run only on the survivors. Where the two
+disagree, NeuralProphet is the relevant answer.
+
+\textbf{The horizon study uses one chronological split per configuration.} The
+70\,\% cut is the same for all four, so the comparison between them is sound, but
+the absolute skill numbers carry the uncertainty of a single origin.
+
+% ===========================================================================
+\section{Artefact inventory}
+
+Every figure and table in this report is produced by
+\texttt{inclination\_prediction\_study.ipynb} and written to \texttt{outputs/}.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{4.6cm}Y}
+\toprule
+\textbf{Artefact} & \textbf{Content} \\
+\midrule
+\texttt{S3\_01} -- \texttt{S3\_04} & Channel summary, coverage, contiguous
+blocks with and without wall temperature \\
+\texttt{S3\_05}, \texttt{S3\_06} & Correlation matrices, levels and differences \\
+\texttt{S3\_23} & Sign test: raw against compensated, correlation and slope \\
+\texttt{S3\_07}, \texttt{S3\_08}, \texttt{S3\_10} & Operator optima: full band,
+diurnal band, Tier~2 \\
+\texttt{S3\_24}, \texttt{S3\_25} & Signed operator optima and the probe-phase
+table --- diagnostic, feeding no model \\
+\texttt{S3\_09}, \texttt{S3\_11} & Single-predictor rankings, both tiers \\
+\texttt{S3\_12} & Variance inflation factors \\
+\texttt{S3\_13}, \texttt{S3\_14} & Exhaustive subset searches, both tiers \\
+\texttt{S3\_15}, \texttt{S3\_16} & Leave-one-out gain, permutation importance \\
+\texttt{S3\_17} & Out-of-period test on the 2026 block \\
+\texttt{S3\_18} & The diagnostic protocol \\
+\texttt{S3\_19} & Horizon tables, four configurations \\
+\texttt{S3\_20} & Horizon limits and coverage summary \\
+\texttt{S3\_21} & Dedicated against joint multi-horizon head \\
+\texttt{S3\_22} & Verdicts \\
+\addlinespace
+\texttt{S3\_F01} -- \texttt{S3\_F04} & Overview, target, diurnal cycle,
+correlations \\
+\texttt{S3\_F05}, \texttt{S3\_F06} & Operator heat maps, both bands \\
+\texttt{S3\_F07}, \texttt{S3\_F08} & Single-predictor rankings \\
+\texttt{S3\_F09}, \texttt{S3\_F10} & Subset searches \\
+\texttt{S3\_F11} & Contribution diagnostics \\
+\texttt{S3\_F15} & Signed-delay operator grid, probe-phase diagnostic \\
+\texttt{S3\_F12}, \texttt{S3\_F13}, \texttt{S3\_F14} & Horizon skill,
+calibration, fan chart \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Reproduction, from the study directory with the \texttt{neuralprophet\_env}
+environment active:
+
+\begin{quote}
+\ttfamily\small
+jupytext -{}-to ipynb inclination\_prediction\_study.py \\
+jupyter nbconvert -{}-to notebook -{}-execute -{}-inplace \\
+\phantom{jupyter nbconvert }inclination\_prediction\_study.ipynb
+\end{quote}
+
+Figures are drawn through seaborn; setting \texttt{CONTEXT = 'paper'} in the
+parameter cell re-exports every one of them at manuscript column size. The
+site's sign convention and the contradiction of Section~\ref{sec:signtest} are
+recorded durably in \texttt{docs/raw-data-format.md} Section~7.5.
+
+\end{document}

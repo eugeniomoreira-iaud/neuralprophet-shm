@@ -1,0 +1,1612 @@
+% ---------------------------------------------------------------------------
+% Study report · Predicting the inclination from the legacy sensor set
+%
+% Build:  pdflatex inclination_prediction_legacy_report.tex  (twice, for the ToC)
+% Figures are read from ../outputs/ and are produced by the paired notebook.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{Legacy-era prediction · station 02 · 2018--2025}
+
+\input{../../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.2cm}\textbf{Predicting the inclination of the Gubbio wall
+from the legacy sensor set}\\[2mm]
+\large Station 02, 26 July 2018 to 20 February 2025, hourly grid}
+\author{Study report · \texttt{studies/inclination\_prediction\_legacy/}}
+\date{12 August 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+The 14-column network ran at station 02 for six and a half years before the
+February 2025 changeover. It carries air temperature, relative humidity, battery
+voltage and inclination --- no solar radiation, no wall temperature.
+
+This report asks two families of question. The first is what the extra length
+buys, and is specific to this era: which periodicities are present, over which
+stretch they should be decomposed, and how missing values should be filled. The
+second is the set the extended-sensor study asked --- best single predictor, best
+combination and how to diagnose it, how far ahead and with what uncertainty ---
+repeated here with that study's machinery unchanged, so that any difference in
+result is a difference in the data and not in the method.
+
+\textbf{The periodicities are real and identified} without imputing anything
+first: an annual term at 370\,d, a semi-annual term at 183\,d, and a diurnal term
+at 23.93\,h with its second and third harmonics. A window-function control shows
+the apparent 971-day feature to be an artefact of the outage pattern.
+\textbf{The semi-annual term is the annual second harmonic}, not an independent
+180-day process: frequency alone can never separate the two on a record of this
+length, but they are phase locked to within 28.5\textdegree.
+\textbf{The components do not hold still} --- the annual amplitude ranges from
+30.6 to 53.3\,mdeg --- and that is what makes the seasonal model useless for
+prediction. \textbf{Almost all of the forecast skill is autoregressive}: one hour
+ahead, 47.7 of the 48.8\,mdeg climatological error is removed by the signal's own
+recent history, the seasonal terms remove 0.1, and the drivers remove nothing.
+
+The ported questions answer sharply and negatively. Air temperature is the best
+single predictor on the whole era at $R^2 = 0.073$; on the unbroken block
+\emph{no driver beats a constant at all}. The two-driver combination improves on
+air temperature by 1.3\,\% against a fold spread twenty-three times that size,
+and out of period both models roughly double their error. Two warnings for the
+framework follow: extrapolating a fitted linear trend costs \textbf{85--93\,mdeg
+at every horizon}, and only about a tenth of the missing hours can be defensibly
+filled.
+
+\textbf{A seventh question was raised by those answers and is addressed in
+Section~\ref{sec:usable}: how much of the record can be used at all.} Everything
+above was computed under an assumption stated in Section~\ref{sec:record} and
+never tested --- that autoregressive work must run on one unbroken block. It need
+not. An autoregressive model consumes windows, not a continuous series, and
+fitting across every complete stretch of the era yields \textbf{6.57 annual
+cycles and 2.26 times the training windows for 1.5\,\% fabricated data}. The
+consequence is large: the deployable configuration's prediction intervals fall
+from 164--185\,mdeg, which excluded nothing, to \textbf{12--23\,mdeg}, and its
+one-hour error by 44\,\%, with no change to the model. The same comparison tests
+a rule the companion framework asserts --- that one to two annual cycles suffice
+for a yearly component --- and finds it half right: the longer span corrects the
+annual amplitude but lets NeuralProphet's trend absorb \emph{more} of the
+low-frequency variance, 53.8\,\% against 39.9.
+\end{abstract}
+
+\tableofcontents
+
+% ===========================================================================
+\section{What this study asks, and what it assumes}
+
+\subsection{Six questions, three of them ported}
+
+\textbf{Specific to the long record.}
+\begin{enumerate}
+\item Which periodicities are present in the compensated inclination?
+\item Over which stretch should they be decomposed, and do they persist?
+\item How should missing values be filled, and up to what gap length is that
+defensible?
+\end{enumerate}
+
+\textbf{Ported from \texttt{studies/inclination\_prediction/}, for
+comparability.}
+\begin{enumerate}
+\setcounter{enumi}{3}
+\item Can one sensor channel predict the inclination, and which is best?
+\item Can a combination beat the best single channel, and how is the best
+combination diagnosed?
+\item How far ahead can NeuralProphet forecast, with what uncertainty --- and
+what is the error at each horizon actually made of?
+\end{enumerate}
+
+Question 6 merges the sibling study's horizon question with this study's error
+budget. That is the natural place for it: a horizon curve says how large the
+error is, and the budget says which component produced it.
+
+\subsection{Premises, imposed rather than tested}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{L{4.6cm}Y}
+\toprule
+\textbf{Premise} & \textbf{Consequence for this report} \\
+\midrule
+The logged \texttt{I} channel is an inclination in millidegrees &
+The 2500 offset is added back. In this era the logged values run 2105--2300, so
+read as millidegrees they lie \textbf{outside} the $\pm$2000\,mdeg the datasheet
+certifies. Accepted by instruction; the compensation normalises the series to
+start at zero, so nothing downstream depends on it. \\
+The documented compensation is correct &
+\texttt{inc\_comp} is the target of every model. Section~\ref{sec:sensitivity}
+shows this is by far the most consequential of the three. \\
+The analysis grid is one hour &
+Matching every external proxy the pipeline aligns against. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{The sign contradiction, reproduced on a second instrument}
+\label{sec:sign}
+
+The site predicts a negative association between the inclination and any heating
+driver: the valley face is the more sun-exposed, expands further, and tips the
+wall towards the mountain. As in the extended-sensor study, that prediction is
+tested on the \emph{raw} channel, before the compensation can manufacture the
+expected sign.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.4cm}R{1.7cm}R{1.4cm}R{1.7cm}}
+\toprule
+\textbf{Series} & \textbf{Driver} & \textbf{$r$ lev.} & \textbf{slope lev.} &
+\textbf{$r$ band} & \textbf{slope band} \\
+\midrule
+Raw \texttt{inc}   & \texttt{tair} & $+0.241$ & $+1.173$ & $+0.957$ & $+2.379$ \\
+                   & \texttt{rh}   & $-0.244$ & $-0.479$ & $-0.584$ & $-0.343$ \\
+\texttt{inc\_comp} & \texttt{tair} & $-0.629$ & $-3.827$ & $-0.964$ & $-2.621$ \\
+                   & \texttt{rh}   & $+0.301$ & $+0.738$ & $+0.595$ & $+0.381$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Slopes in mdeg per \degC\ for temperature and per
+percentage point for humidity; ``band'' is the diurnal band.\par}
+
+\panel{The same positive slope on a different instrument}{%
+The legacy inclinometer moves \emph{positively} with air temperature, at
+$+2.379$\,\mdegC\ on the diurnal band. The extended-package instrument, installed
+seven years later as a physical reinstallation sharing no baseline and no
+hardware with this one, measured $+2.291$.
+
+\medskip
+Two independent instruments, agreeing to within 4\,\% on a slope that runs
+opposite to the site's structural expectation. That is much harder to explain as
+a per-instrument defect than as a systematic property of the instrument type or
+of the sign convention itself, and it correspondingly weakens the thermal-drift
+reading of \texttt{docs/raw-data-format.md} Section~7.5 in favour of an inverted
+convention.
+
+\medskip
+This is new evidence and it does not settle the question, which still needs the
+calibration sheet or the mounting orientation. It does mean the contradiction is
+a property of the measurement chain rather than of one sensor.}
+
+% ===========================================================================
+\section{The record, and what it can support}
+\label{sec:record}
+
+\subsection{Loading and cleaning}
+
+Of the 1926 legacy files, a third carry duplicate timestamps whose copies
+disagree, an eighth mix decimal separators internally, and some carry records
+dated to the previous day. Duplicates are merged field by field rather than
+dropped, because where copies differ it is usually because one carries real
+values where the other carries zeros: 19\,210 duplicated records were merged,
+resolving 18\,473 field-level conflicts. Sentinels sent 64\,248 zeros to
+\texttt{NaN}. The spike screen removed nothing --- unlike the current era, this
+record has no acquisition-restart transient.
+
+The result is 57\,625 hourly slots of which 39\,499 carry the inclinometer, that
+is \textbf{68.5\,\% coverage}.
+
+\begin{figure}[H]
+\includegraphics{S4_F01_st02_overview}
+\caption{The legacy era in full. The compensated inclination spans roughly
+285\,mdeg against a diurnal amplitude of tens, and the outages are visible as the
+blank stretches --- five of them longer than thirty days.}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics{S4_F02_st02_target}
+\caption{Raw and compensated inclination with the correction that separates them.
+As in the current era, the correction is not a small adjustment.}
+\end{figure}
+
+\subsection{Where the missing hours are}
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{2.0cm}R{2.4cm}}
+\toprule
+\textbf{Gap length} & \textbf{gaps} & \textbf{hours lost} &
+\textbf{share of missing} \\
+\midrule
+$\leq$ 3 h   & 417 &   606 &  3.3\,\% \\
+3--6 h       &  58 &   275 &  1.5\,\% \\
+6--24 h      &  70 &   875 &  4.8\,\% \\
+1--3 d       &   2 &    65 &  0.4\,\% \\
+3--7 d       &   0 &     0 &  0.0\,\% \\
+7--30 d      &   2 &   989 &  5.5\,\% \\
+$>$ 30 d     &   5 & 15\,316 & \textbf{84.5\,\%} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The shape of this table decides the imputation question before any method is
+tried. There are 554 gaps, but 84.5\,\% of the lost hours sit in five of them.
+
+\subsection{No block contains two annual cycles}
+\label{sec:blocks}
+
+\begin{center}
+\small
+\begin{tabular}{lR{2.2cm}R{1.6cm}R{1.8cm}R{1.6cm}}
+\toprule
+\textbf{Longest blocks, 72 h tolerance} & \textbf{start} & \textbf{days} &
+\textbf{coverage} & \textbf{cycles} \\
+\midrule
+first  & 2020-07-31 & 617.2 & 96.8\,\% & \textbf{1.69} \\
+second & 2019-05-11 & 390.1 & 97.7\,\% & 1.07 \\
+third  & 2023-06-21 & 317.5 & 91.8\,\% & 0.87 \\
+fourth & 2024-10-09 & 133.4 & 99.3\,\% & 0.37 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{This divides the study in two}{%
+Even absorbing interruptions of up to three days, the longest unbroken stretch
+holds \textbf{1.69} annual cycles. Nothing in this record qualifies on a
+two-cycle rule.
+
+\medskip
+The annual term therefore cannot be identified from any single contiguous window.
+It has to be fitted \emph{across} the gaps --- which a least-squares harmonic fit
+does naturally and an autoregressive model cannot. So the spectrum and the
+harmonic decomposition run on the \textbf{whole era}; the autoregressive work
+runs on the \textbf{longest block}, 2020-07-31 to 2022-04-09; and the third
+block, 2023-06-21 to 2024-05-04, is held back entirely for the out-of-period test
+of Section~\ref{sec:holdout}.}
+
+% ===========================================================================
+\section{Question 1 --- the spectrum}
+
+\subsection{Why not a periodogram}
+
+A fifth of the record is missing and the missingness is structured into a handful
+of long outages. An ordinary periodogram needs a complete grid, and filling those
+holes before estimating the spectrum lets the filling method decide the answer: a
+271-day hole interpolated linearly injects power at exactly the low frequencies
+under investigation.
+
+The Lomb--Scargle periodogram fits a sinusoid at each trial frequency by least
+squares over whatever samples exist, so it consumes the gaps rather than
+requiring them filled. \textbf{The spectrum is computed before any imputation.}
+
+Two controls accompany it. The \textbf{window function} is the same periodogram
+run on the observation mask alone: any peak appearing there is a property of when
+the instrument was running. The \textbf{permutation null} shuffles values against
+observation times, destroying periodicity while preserving the sampling pattern
+exactly; two hundred replicates put the 95th and 99th percentiles at 0.0124 and
+0.0140.
+
+\subsection{What is there}
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{1.6cm}R{2.2cm}L{3.4cm}}
+\toprule
+\textbf{Period} & \textbf{power} & \textbf{window} & \textbf{above 99\,\%} &
+\textbf{reading} \\
+\midrule
+370.1 d (1.01 yr) & \textbf{0.3995} & 0.0279 & yes & annual, genuine \\
+971.0 d (2.66 yr) & 0.1178 & \textbf{0.1336} & yes & \fail\ outage artefact \\
+544.6 d (1.49 yr) & 0.0538 & 0.0207 & yes & no physical reading \\
+183.0 d (0.50 yr) & 0.0351 & 0.0211 & yes & semi-annual, genuine \\
+113.9 d (0.31 yr) & 0.0278 & 0.0081 & yes & unanticipated, genuine \\
+75.2 d            & 0.0052 & 0.0027 & no  & below the null \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F03_st02_spectrum_low}
+\caption{Low-frequency Lomb--Scargle spectrum on daily means, with the
+permutation levels, and the window function beneath. The rise in the window
+function beyond about 700 days is what disqualifies the 971-day feature.}
+\end{figure}
+
+\panel{The window-function control earns its place}{%
+The second-largest peak in the data spectrum, at 971 days, has a
+\emph{window-function power larger than its own} --- 0.1336 against 0.1178. It is
+produced by the arrangement of the outages, not by the wall. Without this control
+it would have been reported as a 2.7-year structural cycle, comfortably clearing
+the permutation null.}
+
+The three periodicities anticipated before the analysis --- one day, roughly six
+months, one year --- are all present and all clear the null. A fourth, at
+\textbf{113.9 days}, was not anticipated. It is well separated from the window
+function, so it is not an outage artefact, and it has no obvious harmonic
+relationship to the annual term. This report records it and does not explain it.
+
+\subsection{The diurnal band}
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.8cm}L{6.2cm}}
+\toprule
+\textbf{Period} & \textbf{power} & \textbf{reading} \\
+\midrule
+23.93 h & \textbf{0.0407} & diurnal \\
+7.28 d  & 0.0068 & \fail\ artefact of the 168\,h detrending filter \\
+11.99 h & 0.0017 & second harmonic \\
+8.00 h  & 0.0015 & third harmonic \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F04_st02_spectrum_high}
+\caption{The diurnal band after removing a one-week rolling mean. The daily cycle
+and its second and third harmonics are clear.}
+\end{figure}
+
+The 7.28-day feature is a property of the analysis. A rolling mean of width $W$
+acts as a high-pass whose response peaks near $W$ itself, and 168\,h is seven
+days; re-running with a 720-hour window moves the feature, which is the test that
+identifies it. A Welch periodogram on the longest unbroken block confirms the
+daily peak independently at 1.0000\,d.
+
+% ===========================================================================
+\section{Question 2 --- decomposition, and whether it holds still}
+\label{sec:harmonics}
+
+\subsection{One limit that no amount of analysis removes}
+
+Separating an independent \textbf{180.0-day} process from the annual second
+harmonic at \textbf{182.62 days} requires resolving a frequency difference of
+$8.0 \times 10^{-5}$ cycles per day. That needs a record of roughly
+\textbf{34 years}. With six and a half it cannot be done, and no choice of
+estimator, window or grid changes that.
+
+Phase behaviour separates them where frequency cannot. If the semi-annual term is
+harmonic distortion of the annual cycle --- which any nonlinear response to a
+sinusoidal annual driver produces automatically --- its phase advances at exactly
+twice the annual rate, so $2\varphi_{\mathrm{annual}} -
+\varphi_{\mathrm{semiannual}}$ stays constant. An independent process drifts.
+
+\subsection{Amplitudes, phases, and their drift}
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.8cm}R{1.9cm}R{1.6cm}R{2.4cm}R{1.6cm}}
+\toprule
+\textbf{Component} & \textbf{period} & \textbf{amplitude} & \textbf{s.e.} &
+\textbf{peak, days after start} & \textbf{var.\ share} \\
+\midrule
+annual      & 365.25 d & \textbf{44.56} & 1.36 & 208.6 & 0.376 \\
+semiannual  & 182.62 d & 13.99 & 1.34 & 112.8 & 0.037 \\
+diurnal     &   1.00 d &  8.04 & 0.20 &   0.1 & 0.012 \\
+semidiurnal &   0.50 d &  2.96 & 0.10 &   0.3 & 0.002 \\
+\bottomrule
+\multicolumn{6}{l}{\footnotesize Amplitudes in mdeg; Newey--West standard errors
+with 24 lags. Model $R^2 = 0.487$.}
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F05_st02_harmonic_fit}
+\caption{The harmonic model fitted across the gaps over the whole era. It passes
+through the outages because a least-squares harmonic model does not require
+continuity.}
+\end{figure}
+
+Refitting in two-year windows stepped by ninety days:
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.9cm}R{1.4cm}R{2.6cm}R{2.6cm}}
+\toprule
+\textbf{Component} & \textbf{mean amp.} & \textbf{s.d.} &
+\textbf{amplitude range} & \textbf{phase range} \\
+\midrule
+annual     & 41.89 & 8.72 & 30.6 -- 53.3 & 189.5 -- 215.0 d \\
+semiannual &  9.14 & 3.07 &  4.7 -- 13.9 &  87.7 -- 134.5 d \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F06_st02_sliding_harmonics}
+\caption{Amplitude and phase of the annual and semi-annual components along the
+record. Neither is constant: the annual amplitude varies by a factor of 1.7 and
+its phase by 25 days. This figure explains why the seasonal model fails to
+predict in Section~\ref{sec:budget}.}
+\end{figure}
+
+\panel{The semi-annual term is the annual second harmonic}{%
+The phase-lock test over twelve windows gives a circular standard deviation of
+$2\varphi_{\mathrm{annual}} - \varphi_{\mathrm{semiannual}}$ of
+\textbf{28.5\textdegree}, resultant length 0.884, against
+\textbf{103.9\textdegree} for an unlocked null. The two components track each
+other.
+
+\medskip
+The 183-day peak is therefore harmonic distortion of a non-sinusoidal annual
+cycle, not a separate process with a six-month period. Its amplitude carries
+information about the \emph{shape} of the annual response, not about any
+independent semi-annual forcing.}
+
+\begin{figure}[H]
+\includegraphics{S4_F07_st02_diurnal}
+\caption{Mean diurnal cycle over the whole era, for the target and both drivers.}
+\end{figure}
+
+% ===========================================================================
+\section{Question 3 --- imputation}
+\label{sec:imputation}
+
+Filling a hole is defensible only up to the length at which the filler stops
+knowing anything the data did not already contain. Forty randomly placed gaps per
+length, eight lengths, four fillers.
+
+\begin{center}
+\small
+\begin{tabular}{rR{2.0cm}R{2.4cm}R{1.8cm}R{2.2cm}}
+\toprule
+\textbf{gap} & \textbf{interpolate} & \textbf{seasonal naive} &
+\textbf{harmonic} & \textbf{ridge, drivers} \\
+\midrule
+1 h   & \textbf{1.12} & 6.14 & 37.80 & 42.00 \\
+3 h   & \textbf{1.59} & 4.51 & 28.34 & 32.32 \\
+6 h   & \textbf{3.18} & 5.19 & 27.77 & 34.51 \\
+12 h  & 6.07 & \textbf{5.37} & 25.44 & 34.99 \\
+24 h  & 7.11 & \textbf{4.40} & 33.44 & 37.69 \\
+72 h  & 8.15 & \textbf{6.90} & 27.78 & 37.03 \\
+168 h & 8.73 & \textbf{8.27} & 25.71 & 32.74 \\
+720 h & \textbf{8.23} & 22.93 & 22.44 & 32.17 \\
+\bottomrule
+\multicolumn{5}{l}{\footnotesize MAE in mdeg, against a signal standard deviation
+of 51.6\,mdeg.}
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F08_st02_gaps_imputation}
+\caption{Left: where the missing hours are, by gap length. Right: what each
+filler costs against injected gaps of known length.}
+\end{figure}
+
+Applying a five-millidegree tolerance --- a tenth of the signal's standard
+deviation --- gives \textbf{interpolation to 6\,h} and \textbf{seasonal-naive to
+24\,h}; the model-based fillers never qualify.
+
+Two results deserve emphasis. The \textbf{model-based fillers are the worst of
+the four at every gap length}, by a wide margin: the harmonic model explains
+under half the variance and knows nothing about local behaviour, and the
+driver-based ridge is worse still --- which anticipates
+Section~\ref{sec:budget}'s finding that these drivers carry almost no predictive
+content. Simple interpolation beats both by a factor of eight at short gaps.
+
+And the policy interacts with the gap inventory to give the practical answer:
+filling everything up to 24 hours addresses gaps holding \textbf{9.6\,\%} of the
+missing hours. The 84.5\,\% locked in stretches longer than thirty days is not
+recoverable by any method tested, and should be treated as absent rather than
+reconstructed.
+
+% ===========================================================================
+\section{Question 4 --- operators and the best single predictor}
+
+\begin{figure}[H]
+\includegraphics{S4_F09_st02_correlations}
+\caption{Correlation structure of the legacy channels, on levels (left) and on
+first differences (right). Levels correlations between two trending series are
+inflated by the shared trend, so the differenced matrix is the honest one for a
+signal with drift. Note that the raw and compensated inclination sit at opposite
+signs against air temperature, which is Section~\ref{sec:sign} seen from a
+second angle.}
+\end{figure}
+
+\subsection{Full band against diurnal band}
+
+Before any driver is ranked it is given the chance to act through the operator
+that suits it: a transport delay, and a thermal inertia. The delay is bounded at
+twelve hours because both candidates are \textbf{external forcings}, which must
+causally precede the response (\texttt{docs/raw-data-format.md} Section~7.5).
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.5cm}R{1.3cm}R{1.5cm}R{1.6cm}R{2.0cm}}
+\toprule
+\textbf{Driver} & \textbf{delay} & \textbf{$\tau$} & \textbf{$r$} &
+\textbf{$R^2$} & \textbf{$R^2$ at $d=\tau=0$} \\
+\midrule
+\multicolumn{6}{l}{\itshape Full band} \\
+\quad \texttt{tair} & 0 h &   0 h & $-0.629$ & 0.395 & 0.395 \\
+\quad \texttt{rh}   & 0 h & 168 h & $+0.382$ & 0.146 & 0.091 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape Diurnal band --- carried forward} \\
+\quad \texttt{tair} & 0 h & 0 h & $-0.964$ & \textbf{0.929} & 0.929 \\
+\quad \texttt{rh}   & 0 h & 0 h & $+0.595$ & 0.353 & 0.353 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F10_st02_operators_fullband}
+\caption{Delay against inertia, full band. Relative humidity's optimum sits at
+$\tau = 168$\,h, the last value in the grid.}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics{S4_F11_st02_operators_diurnal}
+\caption{The same grid on the diurnal band. Both optima collapse to zero delay
+and zero time constant.}
+\end{figure}
+
+The comparison reproduces the extended-sensor study's finding exactly. On the
+full band, relative humidity's optimum runs to the \emph{edge} of the $\tau$
+grid, lifting explained variance from 0.091 to 0.146. A time constant of one week
+is not a thermal property of a masonry wall; it is the width of filter needed to
+turn a driver into a seasonal envelope, and it is pinned at the boundary because
+a longer filter would fit better still. Band-limiting removes it. Reporting the
+full-band operator as a physical time constant would have produced a confident
+and spurious finding.
+
+\subsection{The signed-delay control}
+
+The extended-sensor study had to scan wall temperature over \emph{signed} delays,
+because an internal state variable at unknown depth may legitimately lag the
+deformation. This era has no wall probe: both candidates are external forcings,
+so the signed scan here is a \textbf{control rather than a measurement}. If
+either driver gained materially from a lead, the method would be at fault.
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{1.3cm}R{1.7cm}R{1.7cm}R{2.4cm}}
+\toprule
+\textbf{Driver} & \textbf{delay} & \textbf{$\tau$} & \textbf{$R^2$ signed} &
+\textbf{$R^2$ causal} & \textbf{gained from lead} \\
+\midrule
+\texttt{tair} &  0 h & 0 h & 0.9291 & 0.9291 & 0.0000 \\
+\texttt{rh}   & $-1$ h & 0 h & 0.3552 & 0.3534 & 0.0018 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F12_st02_operators_signed}
+\caption{The diurnal-band grid over signed delays. Control only; feeds no model.}
+\end{figure}
+
+The control passes. Air temperature peaks exactly at zero. Relative humidity
+peaks one hour early, but that lead buys \textbf{0.0018} of explained variance
+--- an order of magnitude below the 0.01 threshold the study sets for a material
+lead, and exactly what an optimum landing one grid step off zero on noise looks
+like. Neither forcing leads the response in any meaningful sense, which is what
+the physics requires.
+
+\subsection{Ranking, on two windows}
+
+Each driver is scored on its own, at its diurnal-band operator, by pooled error
+over five rolling-origin folds. Autoregression is excluded: with it, everything
+ties behind the autoregressive term and the ranking says nothing. Battery voltage
+is carried as a \textbf{negative control}.
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{1.6cm}R{1.7cm}R{1.6cm}}
+\toprule
+\textbf{Driver} & \textbf{MAE} & \textbf{fold sd} & \textbf{$R^2$} &
+\textbf{vs best} \\
+\midrule
+\multicolumn{5}{l}{\itshape Whole era} \\
+\quad \texttt{tair}  & 36.70 & 11.19 & $+0.073$ & --- \\
+\quad \texttt{batt}\,$^\dagger$ & 38.89 & 11.96 & $-0.215$ & $+6.0$\,\% \\
+\quad \texttt{rh}    & 41.29 & 13.13 & $-0.327$ & $+12.5$\,\% \\
+\addlinespace
+\multicolumn{5}{l}{\itshape Unbroken block only} \\
+\quad \texttt{tair}  & 38.04 & 16.19 & $-0.719$ & --- \\
+\quad \texttt{rh}    & 41.83 & 23.51 & $-1.403$ & $+10.0$\,\% \\
+\quad \texttt{batt}\,$^\dagger$ & 46.05 & 19.43 & $-1.583$ & $+21.1$\,\% \\
+\bottomrule
+\multicolumn{5}{l}{\footnotesize $^\dagger$ negative control.}
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F13_st02_rank}
+\caption{Single-predictor skill on the whole era, without autoregression. Only
+air temperature beats a constant, and only barely.}
+\end{figure}
+
+\panel{On the unbroken block, no driver beats a constant}{%
+Air temperature's $R^2$ falls from $+0.073$ on the whole era to $\mathbf{-0.719}$
+on the longest unbroken block --- worse than predicting the mean. The negative
+control now ranks last, which is the one reassuring feature of the table.
+
+\medskip
+The marginal skill air temperature shows on the full era does not survive a
+change of window. Whatever it was tracking was a property of the particular mix
+of periods the whole record contains, not a stable relationship. This is the
+clearest statement in the report that \textbf{the legacy drivers do not predict
+this signal}, and Sections~\ref{sec:budget} and \ref{sec:sensitivity} reach it
+independently.}
+
+\panel{One discrepancy to read carefully}{%
+Air temperature explains \textbf{92.9\,\%} of the variance of the \emph{diurnal
+band} ($r = -0.964$) and \textbf{7.3\,\%} of the total variance out of sample.
+Both numbers are correct and they are not in conflict: the diurnal band is a
+small share of this signal's variance, which is dominated by seasonal and
+lower-frequency structure an instantaneous driver cannot reach.
+
+\medskip
+Quoting the band-limited correlation as though it described the signal would
+overstate what this channel knows by an order of magnitude.}
+
+% ===========================================================================
+\section{Question 5 --- combinations, and how to diagnose them}
+
+\subsection{Collinearity}
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{2.6cm}l}
+\toprule
+\textbf{Channel} & \textbf{VIF} & \textbf{max $|r|$ with others} &
+\textbf{closest} \\
+\midrule
+\texttt{tair} & 1.58 & 0.605 & \texttt{rh} \\
+\texttt{rh}   & 1.58 & 0.605 & \texttt{tair} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This is a useful contrast with the extended era, where air and wall temperature
+were near-duplicates at $r = 0.924$ with variance inflation factors around eight.
+Here the two candidates are only moderately related, so the collinearity caveat
+that governed the sibling study's diagnostics does not bite: coefficients would
+be readable. They are still not read, because the out-of-sample error is the
+quantity that matters.
+
+\subsection{Every combination}
+
+With two candidates the exhaustive search is three subsets.
+
+\begin{center}
+\small
+\begin{tabular}{lR{0.7cm}R{1.5cm}R{1.4cm}R{1.4cm}R{1.6cm}R{1.4cm}}
+\toprule
+\textbf{Subset} & \textbf{$k$} & \textbf{MAE} & \textbf{fold sd} &
+\textbf{$R^2$} & \textbf{BIC} & \textbf{utility} \\
+\midrule
+\texttt{tair + rh} & 2 & \textbf{36.25} & 10.83 & $+0.095$ & 403\,197 & \textbf{0.685} \\
+\texttt{tair}      & 1 & 36.70 & 11.19 & $+0.073$ & 403\,836 & 0.676 \\
+\texttt{rh}        & 1 & 41.29 & 13.13 & $-0.327$ & 419\,943 & 0.601 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F14_st02_subsets}
+\caption{Exhaustive subset search over the two legacy drivers.}
+\end{figure}
+
+The pair beats air temperature alone by \textbf{0.46\,mdeg, that is 1.3\,\%},
+against a fold-to-fold spread of 10.8\,mdeg --- twenty-three times the
+difference. \textbf{The ordering is not resolved by these data.} BIC and utility
+agree with the error ranking, but all three are reading the same unresolved
+margin.
+
+\subsection{Which member is doing the work}
+
+\begin{center}
+\small
+\begin{tabular}{lR{2.0cm}R{1.8cm}R{2.6cm}R{1.4cm}}
+\toprule
+\textbf{Channel} & \textbf{MAE without} & \textbf{gain} &
+\textbf{permutation increase} & \textbf{sd} \\
+\midrule
+\texttt{tair} & 41.29 & 5.05 (12.2\,\%) & \textbf{9.07} & 2.69 \\
+\texttt{rh}   & 36.70 & 0.46 (1.3\,\%)  & $-0.006$ & 0.124 \\
+\bottomrule
+\multicolumn{5}{l}{\footnotesize Subset \texttt{tair + rh}; full-subset MAE
+36.25\,mdeg. All values in mdeg.}
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F15_st02_diagnostics}
+\caption{Left: the cost of removing each channel and refitting. Right: the cost
+of shuffling it with the model held fixed. Relative humidity sits at zero on the
+right-hand panel, inside its own error bar.}
+\end{figure}
+
+The two diagnostics agree here, which is itself informative. Relative humidity's
+leave-one-out gain is 0.46\,mdeg and its permutation increase is
+$-0.006 \pm 0.124$ --- indistinguishable from zero. The fitted model does not
+rely on it, and refitting without it costs nothing separable from fold noise.
+Under the low VIF above there is no collinearity to hide behind: relative
+humidity simply carries no content.
+
+\subsection{The out-of-period test}
+\label{sec:holdout}
+
+Both models are fitted on the unbroken block and applied to the third block ---
+2023-06-21 to 2024-05-04, on the far side of a 271-day outage --- without
+refitting.
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.4cm}R{1.6cm}R{1.6cm}R{2.4cm}}
+\toprule
+\textbf{Model} & \textbf{$n$} & \textbf{MAE} & \textbf{RMSE} &
+\textbf{vs cross-validated} \\
+\midrule
+\texttt{tair + rh} & 6997 & \textbf{62.49} & 65.00 & $\times 1.72$ \\
+\texttt{tair} alone & 6997 & 63.56 & 65.92 & $\times 1.73$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{Neither model transfers}{%
+Both roughly \textbf{double} their cross-validated error, from 36 to 62--64\,mdeg
+--- worse than the 48.8\,mdeg a constant achieves in the error budget of
+Section~\ref{sec:budget}. Across a 271-day outage, a model fitted on
+environmental drivers does not merely degrade; it becomes worse than predicting
+the mean.
+
+\medskip
+The pair is marginally better than the single predictor here, reversing the
+extended-sensor study's holdout result --- but by 1.07\,mdeg on two models that
+are both failing, which settles nothing.}
+
+\subsection{The diagnostic protocol}
+
+The procedure used above is the answer to ``how is the best combination
+diagnosed''. It is the sibling study's protocol with one rule added --- rule 2 ---
+which this era's spectral work forced.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{R{0.5cm}L{5.6cm}Y}
+\toprule
+& \textbf{Rule} & \textbf{Failure it prevents} \\
+\midrule
+1 & Bound the operator scan by the mechanism and by half the dominant period &
+A physically impossible optimum, or an aliased lead read as a delay \\
+2 & Estimate the spectrum before imputing anything, and control for the sampling
+pattern &
+Letting the filling method decide which frequencies exist; reading an outage
+pattern as a structural cycle \\
+3 & Fit each driver operator on the band of interest &
+A boundary optimum reported as a physical time constant \\
+4 & Score without autoregression &
+Every driver tying behind the autoregressive term \\
+5 & Rolling-origin folds, report the spread &
+A ranking that depends on where the single split fell \\
+6 & Exhaustive subset search when the candidate set is small &
+Selection bias and instability under collinearity \\
+7 & Gain and permutation importance, never coefficients under high VIF &
+Importance attributed by collinearity rather than content \\
+8 & Weight by availability over the whole record &
+Choosing a channel absent when it is needed \\
+9 & Carry a negative control &
+Mistaking shared diurnal shape for predictive content \\
+10 & Confirm on an out-of-period block &
+A combination that fits one period and transfers to none \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+On this record rules 5, 9 and 10 did the work: the fold spread showed the subset
+ordering to be unresolved, the negative control ranked above relative humidity on
+the whole era, and the out-of-period test showed both models failing.
+
+% ===========================================================================
+\section{Question 6 --- horizon, uncertainty and the error budget}
+\label{sec:budget}
+
+\subsection{The ladder}
+
+The ladder adds one component at a time and scores every rung at every horizon,
+so each component's contribution is read off consecutive rows. Every rung is
+fitted before a chronological cut and scored across the whole test region at an
+exact lead time, pooled over three origins.
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.2cm}R{1.2cm}R{1.2cm}R{1.2cm}R{1.2cm}R{1.3cm}R{1.3cm}}
+\toprule
+\textbf{Rung} & \textbf{1 h} & \textbf{24 h} & \textbf{168 h} &
+\textbf{720 h} & \textbf{2160 h} & \textbf{4380 h} & \textbf{8760 h} \\
+\midrule
+climatology  & 48.80 & 48.82 & 48.98 & 49.56 & 50.57 & 51.07 & \textbf{51.67} \\
++ annual     & 50.12 & 50.15 & 50.32 & 50.96 & 52.42 & 55.12 & 55.43 \\
++ semiannual & 49.44 & 49.46 & 49.56 & 50.01 & 51.58 & 54.75 & 54.98 \\
++ diurnal    & 49.34 & 49.36 & 49.46 & 49.90 & 51.47 & 54.70 & 54.98 \\
++ AR         & \textbf{1.60} & \textbf{4.90} & \textbf{8.35} &
+\textbf{12.27} & \textbf{23.49} & \textbf{45.03} & 61.55 \\
++ drivers    & 1.60 & 4.95 & 8.13 & 12.61 & 25.19 & 46.96 & 62.87 \\
+\bottomrule
+\multicolumn{8}{l}{\footnotesize MAE in mdeg. Horizons 3, 6, 12 and 72 h omitted
+for width; they interpolate smoothly.}
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F16_st02_error_budget}
+\caption{Left: error against horizon per rung. The calendar-only rungs are flat,
+because a function of time does not degrade with lead; the autoregressive rungs
+climb. Right: the error reduction attributed to each component.}
+\end{figure}
+
+\textbf{Autoregression is almost the entire budget.} At one hour it removes 47.74
+of the 48.80\,mdeg climatological error, and it remains dominant out to 720\,h ---
+one month --- where it still removes 37.63. It continues to beat climatology at
+4380\,h (45.03 against 51.07) and finally fails at one year.
+
+\textbf{The seasonal terms buy nothing, and the annual term is actively
+harmful.} Adding it makes the forecast \emph{worse} by 1.33\,mdeg at every
+horizon; the semi-annual term recovers 0.68 and the diurnal term 0.10. The reason
+is Figure~6: the annual amplitude ranges over a factor of 1.7 and its phase by 25
+days, so a fixed harmonic fitted on the training block does not describe the test
+block. The cycle is real --- the spectrum is unambiguous --- but it is not
+stationary, and only a stationary component can be extrapolated.
+
+\textbf{The drivers add nothing measurable}, at every horizon, within
+$\pm$0.25\,mdeg.
+
+\subsection{What the trend term costs}
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{1.6cm}R{1.6cm}R{1.6cm}R{1.6cm}}
+\toprule
+\textbf{Model} & \textbf{1 h} & \textbf{24 h} & \textbf{720 h} &
+\textbf{4380 h} & \textbf{8760 h} \\
+\midrule
+seasonal, no trend & 49.34 & 49.36 & 49.90 & 54.70 & 54.98 \\
+seasonal + trend   & 134.34 & 134.38 & 135.65 & 143.92 & 148.15 \\
+\midrule
+\textbf{cost}      & \textbf{+85.00} & \textbf{+85.02} & \textbf{+85.75} &
+\textbf{+89.22} & \textbf{+93.18} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{Do not extrapolate a fitted linear trend on this signal}{%
+A straight line fitted on part of this record and extended across the rest costs
+between 85 and 93\,mdeg at every horizon --- against a signal standard deviation
+of 51.6\,mdeg and a climatological error of 49. It is by a wide margin the most
+damaging single term available, and it is a term the grey-box pipeline includes
+by default.
+
+\medskip
+The cause is the same non-stationarity that defeats the annual harmonic. A drift
+term is defensible as a \emph{description} of a fitted window; as an
+\emph{extrapolation} it is not.}
+
+\subsection{Knowing the drivers in advance}
+
+\begin{center}
+\small
+\begin{tabular}{rR{1.6cm}R{1.6cm}R{1.6cm}}
+\toprule
+\textbf{horizon} & \textbf{lagged} & \textbf{future} & \textbf{gain} \\
+\midrule
+1 h    &  1.60 &  1.61 & $-0.5$\,\% \\
+24 h   &  4.95 &  4.26 & $+14.0$\,\% \\
+168 h  &  8.13 &  4.99 & $+38.6$\,\% \\
+720 h  & 12.61 &  9.43 & $+25.2$\,\% \\
+8760 h & 62.87 & 61.82 & $+1.7$\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Perfect foreknowledge of the drivers is worth nothing at one hour, most at one
+week, and almost nothing again at one year. At short horizons the signal's own
+history already contains what the drivers would say; at long horizons neither
+knows anything.
+
+\subsection{NeuralProphet at the short horizons}
+\label{sec:np}
+
+NeuralProphet cannot span a year, so it is run on the longest unbroken block at
+horizons to one week.
+
+\panel{Correction: the annual term was never enabled}{%
+An earlier version of this section stated that this run carried the annual term,
+and qualified the result by noting that the block holds only 1.69 cycles so the
+component would be weakly identified. That qualification described something
+that does not exist. The function producing these numbers,
+\texttt{ip.run\_horizon\_experiment}, fixed \texttt{yearly\_seasonality} to
+false, so the configuration below carries a daily seasonality, an autoregressive
+term and the drivers, and no annual component whatever.
+
+\medskip
+The numbers in this section are unaffected --- they always described the model
+that was actually fitted. What was wrong was the description. The parameter is
+now explicit, and Section~\ref{sec:usable} enables it on a span long enough to
+identify it.}
+
+\begin{center}
+\small
+\begin{tabular}{rR{1.4cm}R{1.6cm}R{1.9cm}R{1.5cm}R{1.6cm}}
+\toprule
+\textbf{$h$} & \textbf{MAE} & \textbf{persist.} & \textbf{skill vs p.} &
+\textbf{cover.} & \textbf{width} \\
+\midrule
+\multicolumn{6}{l}{\itshape lagged --- the deployable configuration} \\
+1   &  3.35 & 1.55 & $-1.160$ & 100.0\,\% & 164.2 \\
+12  &  4.76 & 6.74 & $+0.294$ & 100.0\,\% & 165.5 \\
+24  &  5.66 & 4.41 & $-0.283$ & 100.0\,\% & 167.0 \\
+168 & 13.53 & 7.59 & $-0.783$ &  99.4\,\% & 185.3 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape future --- regressors known over the horizon} \\
+1   & 2.01 & 1.54 & $-0.305$ & 61.5\,\% & 14.5 \\
+12  & 3.15 & 6.65 & $+0.526$ & 60.6\,\% & 15.7 \\
+24  & 3.56 & 4.38 & $+0.188$ & 61.2\,\% & 16.8 \\
+168 & 6.27 & 7.43 & $+0.156$ & 65.0\,\% & 21.9 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F17_st02_np_skill}
+\caption{NeuralProphet error and skill against persistence on the longest
+unbroken block.}
+\end{figure}
+
+The deployable configuration beats persistence only between 6 and 12 hours, and
+beats the seasonal-naive baseline only out to 6 hours. With perfect future
+regressors the useful band extends to a full week.
+
+\begin{figure}[H]
+\includegraphics{S4_F19_st02_fan}
+\caption{Ten days of the test period at a twenty-four-hour horizon, with the
+nominal 90\,\% interval. The interval is so wide that the observed series never
+approaches its edges.}
+\end{figure}
+
+\subsection{Is the quoted uncertainty honest?}
+
+\begin{figure}[H]
+\includegraphics{S4_F18_st02_np_uncertainty}
+\caption{Calibration and width of the nominal 90\,\% interval. The lagged
+configuration covers 100\,\% of observations --- by producing intervals more than
+three times the signal's own standard deviation.}
+\end{figure}
+
+\panel{Both configurations fail calibration, in opposite directions}{%
+The \textbf{lagged} model covers \textbf{100\,\%} of observations against a
+nominal 90, which is not a success: it achieves this with a median interval width
+of 164--185\,mdeg, more than three times the signal's standard deviation of 51.6.
+An interval that wide excludes nothing and so detects nothing.
+
+\medskip
+The \textbf{future} model covers \textbf{61--65\,\%} with widths of 14--22\,mdeg
+--- informative in width, but substantially under-covering.
+
+\medskip
+The extended-sensor study found its deployable configuration under-covering at
+54--67\,\%. Here the same configuration over-covers by inflating the interval.
+Both are miscalibrated, in opposite directions, which is a reason to recalibrate
+by a split-conformal procedure rather than to trust either quantile head.}
+
+\subsection{What the joint multi-horizon head costs}
+
+One fit produced every horizon. Refitting with \texttt{n\_forecasts} set to
+exactly one horizon isolates the cost of sharing weights across 168 output steps.
+
+\begin{center}
+\small
+\begin{tabular}{R{1.6cm}R{2.2cm}R{2.2cm}R{2.4cm}}
+\toprule
+\textbf{$h$ [h]} & \textbf{dedicated} & \textbf{joint head} &
+\textbf{joint penalty} \\
+\midrule
+1  & 2.93 & 3.35 & $+14.3$\,\% \\
+24 & 5.96 & 5.66 & $-5.0$\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The joint head costs 14\,\% at one hour and \emph{gains} 5\,\% at twenty-four ---
+the same pattern the extended-sensor study found, consistent with shared weights
+acting as a regulariser at longer horizons and a distraction at the shortest. The
+conclusion is unchanged: even the dedicated one-hour model, at 2.93\,mdeg, does
+not beat persistence at 1.55.
+
+% ===========================================================================
+\section{Sensitivity}
+\label{sec:sensitivity}
+
+The headline is the autoregressive rung's error one day ahead, 4.90\,mdeg.
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.6cm}R{1.6cm}R{1.8cm}}
+\toprule
+\textbf{Variation} & \textbf{value} & \textbf{change} & \textbf{change \%} \\
+\midrule
+baseline                         &  4.90 & --- & --- \\
+compensation coefficient 0.010   & 13.88 & $+8.98$ & \textbf{$+183.2$\,\%} \\
+model block only                 &  9.46 & $+4.56$ & $+93.0$\,\% \\
+compensation coefficient 0.00163 &  2.07 & $-2.83$ & \textbf{$-57.7$\,\%} \\
+autoregressive depth 48          &  4.78 & $-0.12$ & $-2.4$\,\% \\
+autoregressive depth 12          &  4.98 & $+0.08$ & $+1.6$\,\% \\
+origins 0.4 / 0.5 / 0.6          &  4.92 & $+0.02$ & $+0.4$\,\% \\
+no seasonal terms at all         &  4.89 & $-0.01$ & $-0.2$\,\% \\
+no semi-annual term              &  4.90 & $-0.00$ & $-0.1$\,\% \\
+drivers dropped                  &  4.90 & $ 0.00$ & \textbf{$0.0$\,\%} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F20_st02_sensitivity}
+\caption{Sensitivity of the 24-hour autoregressive error to the study's choices.}
+\end{figure}
+
+\textbf{The compensation coefficient is the most consequential decision in the
+study}, moving the headline by $-58$\,\% to $+183$\,\%. Every absolute error in
+this report is a statement about a target built with a particular coefficient,
+and that coefficient has never been calibrated for this instrument.
+
+\textbf{The seasonal decomposition contributes nothing to prediction.} Removing
+every seasonal term changes the 24-hour error by 0.2\,\%. Sections 3 and 4
+establish that the cycles are real, identified and interpretable; this table and
+Section~\ref{sec:budget} establish that they are useless for forecasting, because
+they are not stationary. Both statements are true and the report keeps them
+separate.
+
+\textbf{The drivers are exactly worthless.} Dropping them changes the headline by
+0.00\,\% --- the third independent route to that conclusion, after the
+unbroken-block ranking and the out-of-period test.
+
+% ===========================================================================
+\section{How much of the record can actually be used}
+\label{sec:usable}
+
+Section~\ref{sec:record} divided the study on a premise: that the spectral and
+harmonic work tolerates gaps by construction while the autoregressive work does
+not, and must therefore run on the longest unbroken block. The first half is
+right. The second half is too strong, and every result from
+Section~\ref{sec:budget} onwards was computed under it.
+
+An autoregressive model does not need a continuous series. It needs windows of
+$n_{\text{lags}}$ consecutive observations followed by $n_{\text{forecasts}}$
+more, and those windows exist in every block, not only in the longest one. The
+restriction was never tested; this section tests it.
+
+That also reframes what imputation is for. Filling a hole is not a way of making
+a record continuous --- it is a way of buying back the windows the hole
+destroyed. A single missing hour costs a full window's worth of samples however
+brief it is, so the many short interruptions are cheap to fill and expensive to
+leave, and a months-long outage is the reverse.
+
+\subsection{What each gap tolerance buys}
+
+Section~\ref{sec:record} swept the tolerance to three days. Extended, it shows
+where the record actually divides.
+
+\begin{center}
+\small
+\begin{tabular}{rR{1.4cm}R{1.6cm}R{1.4cm}R{2.1cm}l}
+\toprule
+\textbf{tolerance} & \textbf{blocks} & \textbf{longest} &
+\textbf{cycles} & \textbf{fabricated} & \textbf{two cycles?} \\
+\midrule
+6 h    & 11 &  211.5 d & 0.58 &  1.6\,\% & \fail \\
+24 h   &  6 &  600.2 d & 1.64 &  2.6\,\% & \fail \\
+72 h   &  6 &  617.2 d & 1.69 &  3.2\,\% & \fail \\
+7 d    &  6 &  617.2 d & 1.69 &  3.2\,\% & \fail \\
+30 d   &  5 &  617.2 d & 1.69 &  3.2\,\% & \fail \\
+45 d   &  3 &  617.2 d & 1.69 &  3.2\,\% & \fail \\
+\textbf{60 d} & 2 & \textbf{1353.9 d} & \textbf{3.71} &
+\textbf{14.3\,\%} & \pass \\
+90 d   &  2 & 1353.9 d & 3.71 & 14.3\,\% & \pass \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Between three days and forty-five the longest block does not move at all. The
+record holds exactly seven interruptions longer than three days, and their
+positions explain the whole table:
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.6cm}}
+\toprule
+\textbf{From} & \textbf{To} & \textbf{Length} \\
+\midrule
+2018-09-23 & 2018-11-21 & 59.0 d \\
+2019-01-14 & 2019-02-04 & 20.8 d \\
+2019-04-20 & 2019-05-11 & 20.5 d \\
+2020-06-04 & 2020-07-31 & 57.3 d \\
+\textbf{2022-04-09} & \textbf{2023-06-21} & \textbf{437.6 d} \\
+2024-05-04 & 2024-06-14 & 41.5 d \\
+2024-08-27 & 2024-10-09 & 42.7 d \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The four in the earlier half stand between the record's start and the 617-day
+block, so absorbing any subset of them short of all four leaves that block
+unchanged --- which is why the longest span is flat from three days to
+forty-five. The binding constraint is the \textbf{59-day} interruption of autumn
+2018, and the table jumps precisely when the tolerance passes it: at
+\textbf{sixty days} the whole earlier half consolidates into one stretch of
+1353.9 days --- \textbf{3.71 annual cycles}, the first window in this project to
+clear the two-cycle rule --- at the price of inventing 14.3\,\% of it.
+
+\textbf{The record is permanently in two halves.} The 438-day outage between
+April 2022 and June 2023 never closes at any tolerance a person would defend. The
+earlier half reaches 3.71 cycles; the later half reaches 1.67 and never
+qualifies.
+
+\subsection{Windows gained against hours invented}
+
+Days are not what a model consumes. Counting windows instead, at the
+configuration Section~\ref{sec:budget} actually used
+($n_{\text{lags}} = 24$, $n_{\text{forecasts}} = 168$):
+
+\begin{center}
+\small
+\begin{tabular}{lR{1.3cm}R{1.5cm}R{1.5cm}R{1.8cm}R{1.5cm}}
+\toprule
+\textbf{Policy} & \textbf{cycles} & \textbf{windows} & \textbf{vs block} &
+\textbf{invented} & \textbf{per hour} \\
+\midrule
+model block (control)  & 1.69 & 14\,641 & 1.00 &   492 h & --- \\
+full era, no fill      & 6.57 & 17\,128 & 1.17 &     0 h & --- \\
+\textbf{full era, fill 6 h} & \textbf{6.57} & \textbf{33\,074} &
+\textbf{2.26} & \textbf{881 h} & \textbf{20.9} \\
+full era, fill 24 h    & 6.57 & 39\,345 & 2.69 & 1\,756 h & 14.1 \\
+full era, fill 72 h    & 6.57 & 39\,792 & 2.72 & 1\,821 h & 13.8 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F21_st02_window_accounting}
+\caption{Left: usable autoregressive windows under each policy, annotated with
+the annual cycles the span contains. Right: the share of that span which had to
+be invented to obtain them.}
+\end{figure}
+
+\panel{Filling the short interruptions is the best-value operation in the study}{%
+Taking the whole era \emph{without filling anything} buys only 17\,\% more
+windows than the block, because 554 separate interruptions each destroy a full
+window. Filling just the 475 holes of six hours or less --- 881 hours, or
+\textbf{1.5\,\% of the span}, at a measured interpolation error of 1.1 to
+3.2\,mdeg against a signal standard deviation of 51.6 --- raises that to
+\textbf{2.26 times} the block's windows, and buys \textbf{20.9 windows for every
+hour invented}.
+
+\medskip
+Past six hours the return falls and never recovers: the 24-hour policy buys 14.1
+windows per invented hour and the 72-hour policy 13.8. The six-hour limit is also
+exactly what the Section~\ref{sec:imputation} benchmark licenses for
+interpolation, so the efficient choice and the defensible one coincide.}
+
+\subsection{Is this one series, or two?}
+
+A 438-day outage is long enough for an instrument to be serviced, remounted or
+replaced, and an inclinometer's absolute level means nothing across such an
+event. Fitted straight through it, a trend term would read any offset as
+structural movement.
+
+The naive comparison confounds the offset with the season, since the last
+observations before the outage and the first after it sit at opposite ends of the
+annual cycle.
+
+\begin{center}
+\small
+\begin{tabular}{lR{2.0cm}R{2.0cm}R{1.8cm}R{1.4cm}}
+\toprule
+\textbf{Test} & \textbf{before} & \textbf{after} & \textbf{step} &
+\textbf{$t$} \\
+\midrule
+response, raw        & 151.66 &  91.55 & $-60.11$ & $-71.6$ \\
+response, deseasoned &   9.28 &  22.70 & $+13.42$ & $+22.9$ \\
+control \texttt{tair} &  7.98 &  24.58 & $+16.61$ & $+63.5$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Response in mdeg, control in \degC. Thirty days each
+side; the deseasoned row has the Section~\ref{sec:harmonics} harmonic fit
+subtracted.}
+
+The raw step of $-60$\,mdeg is mostly calendar: the control is 16.6\,\degC\
+warmer after the outage than before it, and the compensated inclination moves
+against temperature. Once the seasonal expectation is removed, \textbf{13.4\,mdeg
+of step survives} --- about a quarter of the signal's standard deviation, and far
+too large to dismiss.
+
+\textbf{So the era is treated as two series, not one.} That is not a compromise:
+it is what the prediction regime below does anyway, because it presents each
+complete stretch to the model separately and normalises each one on its own. An
+offset introduced during an outage therefore cannot propagate into the fit at
+all.
+
+\subsection{Decomposition: does a longer window help?}
+
+The companion manuscript states as a framework rule that a window of one to two
+annual cycles suffices to fit a yearly Fourier component reliably. This record is
+the only place in the project able to test it. The same NeuralProphet
+configuration is fitted on 1.69 cycles and on 6.57, and both are measured against
+the harmonic fit of Section~\ref{sec:harmonics}, whose single fixed basis gives
+an annual signal exactly one place to go.
+
+\begin{center}
+\small
+\begin{tabular}{lR{2.4cm}R{2.4cm}}
+\toprule
+& \textbf{model block} & \textbf{full era} \\
+& \textbf{1.69 cycles} & \textbf{6.57 cycles} \\
+\midrule
+observations                        & 14\,340 & 39\,499 \\
+\midrule
+sd of trend [mdeg]                  & 23.29 & 35.05 \\
+sd of yearly term [mdeg]            & 35.07 & 30.07 \\
+\textbf{trend's share}              & \textbf{39.9\,\%} & \textbf{53.8\,\%} \\
+\midrule
+annual amplitude [mdeg]             & 48.37 & 45.48 \\
+harmonic reference [mdeg]           & 42.54 & 43.31 \\
+\textbf{amplitude ratio}            & \textbf{1.137} & \textbf{1.050} \\
+phase gap to reference [d]          & 10 & 29 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\includegraphics{S4_F22_st02_decomposition}
+\caption{The whole-era decomposition. Top: the observations with the harmonic fit
+over them; below, the trend and each seasonal component NeuralProphet separated.}
+\end{figure}
+
+\panel{More cycles fix the amplitude and make the trend worse}{%
+The longer span cuts the annual amplitude's overestimate from \textbf{13.7\,\% to
+5.0\,\%}. On that measure the framework rule is too optimistic: 1.69 cycles
+identified an annual term nearly fourteen per cent too large, and the extra four
+cycles largely repaired it.
+
+\medskip
+On every other measure the longer span is no better. The trend's share of the
+low-frequency variance rises from \textbf{39.9\,\% to 53.8\,\%} --- over the
+whole era NeuralProphet's piecewise-linear trend holds \emph{more} variance than
+the annual cycle it is supposed to sit beneath --- and the phase drifts from
+10 days off the harmonic reference to 29.
+
+\medskip
+The finding is therefore not "use a longer window" but something sharper:
+\textbf{NeuralProphet's trend is not a safe container at either length}. At both
+spans it absorbs a large share of an annual signal that a fixed harmonic basis
+attributes correctly, which is the same failure the
+\texttt{thermal\_compensation\_legacy} study recorded on air temperature and the
+same term Section~\ref{sec:budget} priced at 85--93\,mdeg when extrapolated. A
+decomposition that must apportion trend against season correctly should not be
+read off this component alone.}
+
+\subsection{Prediction across every complete stretch}
+
+\panel{NeuralProphet 0.8.0's \texttt{drop\_missing} does not work}{%
+The library's documented mechanism for exactly this situation is
+\texttt{drop\_missing}, which is meant to discard the autoregressive windows
+touching a gap and train on the rest. In version 0.8.0 it does neither correctly.
+Training on a frame that actually requires a drop returns a \textbf{NaN loss from
+the first epoch} and leaves every weight NaN; the prediction path raises
+\texttt{Length of values ... does not match length of index}, because the rows it
+drops are not dropped from the frame the predictions are written into. Both were
+verified on this record.
+
+\medskip
+The route used instead is the library's multi-series support, which is sound: the
+surviving stretches are presented through the \texttt{ID} column, one set of
+shared components is fitted across all of them, and normalisation is per series.
+The seasonal terms therefore see all six and a half years while no autoregressive
+window is ever formed across an outage.}
+
+\begin{center}
+\small
+\begin{tabular}{rR{1.3cm}R{1.4cm}R{1.3cm}R{1.9cm}R{1.9cm}}
+\toprule
+\textbf{$h$} & \textbf{block} & \textbf{full era} & \textbf{change} &
+\textbf{coverage} & \textbf{width} \\
+\midrule
+\multicolumn{6}{l}{\itshape lagged --- the deployable configuration} \\
+1   &  3.35 &  1.88 & $-43.8$\,\% & 100 $\to$ 84 & 164 $\to$ 12 \\
+3   &  4.55 &  3.19 & $-29.7$\,\% & 100 $\to$ 80 & 170 $\to$ 14 \\
+6   &  4.41 &  4.15 & $-5.9$\,\%  & 100 $\to$ 79 & 167 $\to$ 16 \\
+12  &  4.76 &  5.00 & $+5.1$\,\%  & 100 $\to$ 77 & 165 $\to$ 17 \\
+24  &  5.66 &  5.53 & $-2.3$\,\%  & 100 $\to$ 76 & 167 $\to$ 19 \\
+72  &  8.92 &  8.69 & $-2.5$\,\%  & 100 $\to$ 65 & 175 $\to$ 23 \\
+168 & 13.53 & 11.12 & $-17.8$\,\% &  99 $\to$ 55 & 185 $\to$ 23 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape future --- regressors known over the horizon} \\
+1   & 2.01 & 1.08 & $-46.1$\,\% & 62 $\to$ 82 & 14 $\to$ 10 \\
+3   & 2.31 & 1.72 & $-25.6$\,\% & 61 $\to$ 79 & 15 $\to$ 10 \\
+6   & 2.79 & 1.86 & $-33.5$\,\% & 61 $\to$ 79 & 16 $\to$ 10 \\
+12  & 3.15 & 2.04 & $-35.1$\,\% & 61 $\to$ 78 & 16 $\to$ 10 \\
+24  & 3.56 & 2.11 & $-40.7$\,\% & 61 $\to$ 77 & 17 $\to$ 10 \\
+72  & 4.56 & 2.84 & $-37.7$\,\% & 63 $\to$ 76 & 20 $\to$ 12 \\
+168 & 6.27 & 3.51 & $-44.0$\,\% & 65 $\to$ 76 & 22 $\to$ 13 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize MAE in mdeg; coverage in per cent against a nominal 90;
+width in mdeg. Each pair reads block $\to$ full era.}
+
+\begin{figure}[H]
+\includegraphics{S4_F23_st02_segment_skill}
+\caption{NeuralProphet fitted across every complete stretch of the era, against
+the persistence and seasonal-naive baselines.}
+\end{figure}
+
+\panel{The uncertainty was an artefact of the window, not of the model}{%
+Section~\ref{sec:np} reported that the deployable configuration covered
+\textbf{100\,\%} of observations with intervals of \textbf{164--185\,mdeg} ---
+more than three times the signal's own standard deviation, so wide that they
+excluded nothing and detected nothing. That was the single worst result in this
+report.
+
+\medskip
+Fitted across the whole record instead, the same configuration produces intervals
+of \textbf{12--23\,mdeg} at a coverage of \textbf{55--84\,\%}. The intervals are
+now narrower than the signal and are no longer trivially satisfied; they
+under-cover at the long horizons, which a split-conformal recalibration can
+correct and an interval three times too wide cannot.
+
+\medskip
+The point estimate improves too, by 44\,\% one hour ahead and 18\,\% one week
+ahead, and the useful band against persistence widens from 6--12 h to 1--12 h.
+With known future regressors every horizon improves, by 26 to 46\,\%.
+
+\medskip
+None of this comes from a better model. It is the same architecture, the same
+depth, the same drivers and the same number of epochs. It comes from 2.26 times
+the training windows over 3.9 times the seasonal span, bought with
+\textbf{1.5\,\% fabricated data}.}
+
+\subsection{The bridged block, and what the fill costs it}
+
+A genuinely continuous series of two annual cycles can be had only by inventing
+the interruptions inside it. The block is built here because the question was
+asked, and it is reported with its cost attached: 1353.9 days at 3.71 cycles, of
+which \textbf{14.3\,\% is fabricated}, including six holes longer than anything
+the Section~\ref{sec:imputation} benchmark licenses and one of 59 days.
+
+Fitting the harmonic model twice --- once on the bridged series, once with the
+fabricated positions masked out again --- prices the distortion directly.
+
+\begin{center}
+\small
+\begin{tabular}{lR{2.0cm}R{2.4cm}R{1.8cm}}
+\toprule
+\textbf{Component} & \textbf{bridged} & \textbf{observed only} &
+\textbf{bias} \\
+\midrule
+annual       & 43.41 & 44.93 & $-3.4$\,\% \\
+semi-annual  & 13.17 & 15.86 & $\mathbf{-17.0}$\,\% \\
+diurnal      &  7.16 &  8.43 & $\mathbf{-15.0}$\,\% \\
+semi-diurnal &  2.49 &  2.91 & $\mathbf{-14.6}$\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Amplitudes in mdeg.}
+
+\textbf{The fill suppresses every component, and the short ones most.} A straight
+line drawn across a 59-day hole carries the annual level tolerably --- the annual
+amplitude falls by only 3.4\,\% --- but it contains no diurnal variation at all,
+so the components with periods shorter than the hole lose 15 to 17\,\% of their
+amplitude. The bias is systematically downward, because interpolation adds span
+without adding oscillation.
+
+\textbf{This block is not recommended and nothing else here depends on it.}
+Regime~B obtains 6.57 annual cycles for 1.5\,\% fabricated data; this obtains
+3.71 for 14.3\,\%. The bridged block would be worth its cost only if a strictly
+uninterrupted series were required for some other reason, and no analysis in this
+report requires one.
+
+% ===========================================================================
+\section{Verdicts}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{4.0cm}Y}
+\toprule
+\textbf{Question} & \textbf{Answer} \\
+\midrule
+1 · periodicities &
+Annual at 370.1\,d (power 0.400), semi-annual at 183.0\,d, diurnal at 23.93\,h
+with second and third harmonics, and an unanticipated component at 113.9\,d. All
+clear a 200-replicate permutation null. \\
+1 · spurious peaks &
+The 971-day feature has more window-function power than signal power: an outage
+artefact. The 7.28-day feature is an artefact of the detrending filter. \\
+2 · is 180 d independent? &
+\textbf{No.} Phase-locked to the annual term at 28.5\textdegree\ against
+103.9\textdegree\ for an unlocked null: the annual second harmonic. Frequency
+alone could never separate them --- that needs 34 years. \\
+2 · best decomposition window &
+The whole era, necessarily. No contiguous block holds two annual cycles; the
+longest holds 1.69. \\
+2 · are the components stable? &
+\fail. Annual amplitude 30.6--53.3\,mdeg, phase spanning 25 days. \\
+3 · imputation limit &
+Interpolation to 6\,h, seasonal-naive to 24\,h, model-based fillers never. This
+addresses 9.6\,\% of the missing hours; the 84.5\,\% in gaps over 30 days is not
+recoverable. \\
+4 · best single predictor &
+\texttt{tair}, at $R^2 = +0.073$ on the whole era. \fail\ on the unbroken block,
+where no driver beats a constant ($R^2 = -0.719$). \\
+4 · lag structure &
+Both forcings instantaneous. The signed control passes: the only negative
+optimum is \texttt{rh} at $-1$\,h, buying 0.0018 $R^2$. \\
+4 · negative control &
+\texttt{batt} ranks \emph{second of three} on the whole era, above relative
+humidity --- the noise floor sits above one of the two real channels. \\
+5 · best combination &
+\texttt{tair + rh}, by 1.3\,\% against a fold spread twenty-three times larger.
+\fail\ as a resolved ordering. \\
+5 · out-of-period &
+\fail. Both models roughly double their error, to 62--64\,mdeg --- worse than the
+48.8\,mdeg a constant achieves. \\
+6 · error budget &
+Autoregression is 47.7 of the 48.8\,mdeg at 1\,h and still dominates at one
+month. Seasonal terms contribute 0.1\,mdeg; drivers contribute nothing. \\
+6 · useful horizon &
+Autoregression beats climatology out to 4380\,h (six months). NeuralProphet's
+deployable configuration beats persistence only from 6 to 12\,h. \\
+6 · the trend term &
+\fail. Extrapolating it costs 85--93\,mdeg at every horizon. \\
+6 · uncertainty &
+\fail\ both ways \emph{on the unbroken block}: the deployable configuration
+covers 100\,\% with intervals over three times the signal's standard deviation;
+the perfect-foresight one covers 61--65\,\%. Section~\ref{sec:usable} largely
+repairs this. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\noindent Question 7 was raised by the answers above and is
+Section~\ref{sec:usable}.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{4.0cm}Y}
+\toprule
+\textbf{Question} & \textbf{Answer} \\
+\midrule
+7 · must autoregression use one block? &
+\textbf{No}, and the assumption was expensive. A model needs windows, not a
+continuous series, and they exist in every block. \\
+7 · usable record &
+The longest block gives 1.69 annual cycles and 14\,641 windows. Fitting across
+every complete stretch gives \textbf{6.57 cycles and 33\,074 windows} ---
+\textbf{2.26 times} as many --- for \textbf{1.5\,\%} fabricated data. \\
+7 · where imputation pays &
+Only below six hours: 475 short gaps cost 881 h and buy \textbf{21 windows per
+invented hour}. At 24 h the return falls to 14.1, and the six-hour limit is also
+what the benchmark licenses. \\
+7 · one series or two? &
+\textbf{Two.} The 438-day outage shows a $-60.1$\,mdeg step, of which
+$+13.4$\,mdeg survives removing the seasonal expectation --- a quarter of the
+signal's standard deviation. Each stretch is normalised separately. \\
+7 · does a longer window fix the decomposition? &
+\textbf{Partly.} The annual amplitude's overestimate falls from 13.7\,\% to
+5.0\,\%, but the trend's share of low-frequency variance \emph{rises} from
+39.9\,\% to 53.8\,\%. \fail\ as a general fix: NeuralProphet's trend absorbs the
+annual cycle at either length. \\
+7 · prediction, full era vs block &
+Lagged MAE $-44$\,\% at 1\,h and $-18$\,\% at 168\,h; intervals fall from
+164--185\,mdeg at 100\,\% coverage to \textbf{12--23\,mdeg at 55--84\,\%}. Future
+regime improves 26--46\,\% at every horizon. \\
+7 · the bridged block &
+3.71 cycles for \textbf{14.3\,\%} fabricated data, biasing the annual amplitude
+$-3.4$\,\% and every shorter component by 15--17\,\%. Reported, not recommended. \\
+7 · \texttt{drop\_missing} &
+\fail\ --- NeuralProphet 0.8.0's own mechanism for gapped autoregression returns
+a NaN loss from the first epoch and cannot predict at all. The multi-series route
+is used instead. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ===========================================================================
+\section{Caveats}
+
+\textbf{The target is constructed, and the sensitivity table shows how much that
+matters.} Every absolute error depends on a compensation coefficient never
+calibrated for this instrument. The relative statements --- which components
+matter, which do not --- are far more robust than the levels.
+
+\textbf{The sign contradiction is now two-instrument and still unresolved.}
+Section~\ref{sec:sign} adds evidence but does not settle it.
+
+\textbf{The 113.9-day component is recorded, not explained.} It is genuine by the
+window-function and permutation controls, and this report offers no mechanism.
+
+\textbf{Non-stationarity is diagnosed, not modelled.} The study establishes that
+the annual amplitude and phase move; it does not fit a time-varying seasonal
+model, which is the obvious next step and would change the
+Section~\ref{sec:budget} conclusions if it succeeded.
+
+\textbf{One station, one channel.} The legacy network had three blocks. This
+study reads only \texttt{st02} for comparability with the extended-sensor study,
+so it cannot separate structural from instrument behaviour by cross-station
+comparison --- the test most likely to resolve Section~\ref{sec:sign}.
+
+\textbf{The 438-day outage cannot be bridged, and the bridged block is not a
+recommendation.} Section~\ref{sec:usable} builds it because the question was
+asked and because the cost of an answer should be measured rather than asserted.
+The holes it fills are far longer than anything the Section~\ref{sec:imputation}
+benchmark licenses, and no result in this report depends on it.
+
+\textbf{Sections 1 to 6 keep the longest-block restriction.} They were computed
+under it, and they are left that way so that every ported result stays comparable
+with the extended-sensor study, which had no choice in the matter.
+Section~\ref{sec:usable} measures what the restriction costs; it does not
+retrofit the earlier sections with the answer.
+
+% ===========================================================================
+\section{Artefact inventory}
+
+Artefacts are numbered in reading order.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{4.2cm}Y}
+\toprule
+\textbf{Artefact} & \textbf{Content} \\
+\midrule
+\texttt{S4\_01} -- \texttt{S4\_04} & Channel summary, coverage, gap inventory,
+contiguous blocks \\
+\texttt{S4\_05} -- \texttt{S4\_07} & Sign test; correlation matrices, levels and
+differences \\
+\texttt{S4\_08}, \texttt{S4\_09} & Spectral peaks, low and high band \\
+\texttt{S4\_10} -- \texttt{S4\_13} & Harmonic fit, sliding fit, stability,
+phase-lock test \\
+\texttt{S4\_14}, \texttt{S4\_15} & Imputation benchmark and policy \\
+\texttt{S4\_16} -- \texttt{S4\_19} & Operators full band, diurnal band, signed;
+phase control \\
+\texttt{S4\_20} & Variance inflation factors \\
+\texttt{S4\_21}, \texttt{S4\_22} & Single-predictor rankings, whole era and
+unbroken block \\
+\texttt{S4\_23} & Exhaustive subset search \\
+\texttt{S4\_24} -- \texttt{S4\_26} & Leave-one-out gain, permutation importance,
+out-of-period test \\
+\texttt{S4\_27} & The diagnostic protocol \\
+\texttt{S4\_28} -- \texttt{S4\_31} & Error budget, marginal gains, trend cost,
+regime gap \\
+\texttt{S4\_32} -- \texttt{S4\_34} & NeuralProphet horizons, limits, joint head \\
+\texttt{S4\_35}, \texttt{S4\_36} & Sensitivity sweep, verdicts \\
+\texttt{S4\_37}, \texttt{S4\_38} & Gap-tolerance sweep; window accounting per
+fill policy \\
+\texttt{S4\_39}, \texttt{S4\_40} & Baseline step across the long outage;
+decomposition, control against the whole era \\
+\texttt{S4\_41} -- \texttt{S4\_43} & Segmented horizons, gain over the block,
+bridged-block bias \\
+\addlinespace
+\texttt{S4\_F01}, \texttt{S4\_F02} & Overview and target \\
+\texttt{S4\_F03}, \texttt{S4\_F04} & Spectra, low and high band \\
+\texttt{S4\_F05} -- \texttt{S4\_F07} & Harmonic fit, sliding harmonics, diurnal
+cycle \\
+\texttt{S4\_F08}, \texttt{S4\_F09} & Gaps and imputation; correlations \\
+\texttt{S4\_F10} -- \texttt{S4\_F12} & Operator grids: full band, diurnal,
+signed \\
+\texttt{S4\_F13} -- \texttt{S4\_F15} & Ranking, subsets, contribution
+diagnostics \\
+\texttt{S4\_F16} & Error budget \\
+\texttt{S4\_F17} -- \texttt{S4\_F19} & NeuralProphet skill, calibration, fan
+chart \\
+\texttt{S4\_F20} & Sensitivity \\
+\texttt{S4\_F21} -- \texttt{S4\_F23} & Window accounting; whole-era
+decomposition; segmented skill \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Reproduction, from the study directory with \texttt{neuralprophet\_env} active:
+
+\begin{quote}
+\ttfamily\small
+jupytext -{}-to ipynb inclination\_prediction\_legacy\_study.py \\
+jupyter nbconvert -{}-to notebook -{}-execute -{}-inplace \\
+\phantom{jupyter nbconvert }inclination\_prediction\_legacy\_study.ipynb
+\end{quote}
+
+\end{document}

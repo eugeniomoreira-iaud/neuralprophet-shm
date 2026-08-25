@@ -27,5 +27,8 @@ This file provides an overview of the repository's components and their purposes
 
 ## Configuration and Documentation
 - `README.md`: Project documentation and overview.
+- `auto_watcher instructions.md`: How to run the Jupytext auto-sync watcher.
+- `verify_env.py`: Post-installation environment health check.
+- `.vscode/`: Shared VS Code workspace settings and tasks (watcher, verification, notebook sync).
 - `LICENSE`: Legal license information.
 - `environment.yml`: Conda environment specification.

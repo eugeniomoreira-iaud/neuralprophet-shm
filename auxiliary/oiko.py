@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.18.1
+#       jupytext_version: 1.19.5
 #   kernelspec:
 #     display_name: neuralprophet_env
 #     language: python
@@ -77,18 +77,31 @@ import pandas as pd
 import io
 import os
 import time
-from datetime import date
+from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 
 # === USER INPUT ===
 LAT          = 43.35343
 LON          = 12.582047
-START        = '2018-01-01'
-END          = '2026-04-25'
-API_KEY      = '97efb218e1814a47abfff249488f6dfc'
+API_KEY      = '947bb562b5ee43bc9c31bccb82bb4699'
 OUTPUT_PATH  = '../data/raw/proxies/oikolab_weather.csv'
 CHUNK_MONTHS = 6   # 6 months x 10 params ~ 60 units (limit is 500)
 # ==================
+
+if os.path.exists(OUTPUT_PATH):
+    df_existing = pd.read_csv(OUTPUT_PATH, index_col=0, parse_dates=True)
+    if not df_existing.empty:
+        last_date = df_existing.index.max().date()
+        START = (last_date + timedelta(days=1)).isoformat()
+    else:
+        df_existing = None
+        START = '2018-01-01'
+else:
+    df_existing = None
+    START = '2018-01-01'
+
+END = (date.today() - timedelta(days=1)).isoformat()
+
 
 META_COLS = [
     'coordinates (lat,lon)',
@@ -166,28 +179,42 @@ print(f'All {len(windows)} chunks downloaded.')
 # - Metadata columns are dropped.
 
 # %%
-df = pd.concat(chunks, ignore_index=True)
-df = df.drop_duplicates(subset='datetime (UTC)')
+if chunks:
+    df_new = pd.concat(chunks, ignore_index=True)
+    df_new = df_new.drop_duplicates(subset='datetime (UTC)')
 
-df['datetime (UTC)'] = pd.to_datetime(df['datetime (UTC)'])
-df = df.set_index('datetime (UTC)').sort_index()
-df.index.name = 'datetime'
+    df_new['datetime (UTC)'] = pd.to_datetime(df_new['datetime (UTC)'])
+    df_new = df_new.set_index('datetime (UTC)').sort_index()
+    df_new.index.name = 'datetime'
 
-df = df.drop(columns=[c for c in META_COLS if c in df.columns])
-
-print('Shape      :', df.shape)
-print('Date range :', df.index.min(), '->', df.index.max())
-print('Columns    :', list(df.columns))
-print()
-
-missing = df.isnull().sum()
-if missing.any():
-    print('WARNING - Missing values:')
-    print(missing[missing > 0])
+    df_new = df_new.drop(columns=[c for c in META_COLS if c in df_new.columns])
+    
+    if df_existing is not None:
+        df = pd.concat([df_existing, df_new])
+        df = df[~df.index.duplicated(keep='last')].sort_index()
+    else:
+        df = df_new
 else:
-    print('OK - No missing values.')
+    print("No new chunks to process. Data is already up to date.")
+    if df_existing is not None:
+        df = df_existing
+    else:
+        df = pd.DataFrame()
 
-display(df.head())
+if not df.empty:
+    print('Shape      :', df.shape)
+    print('Date range :', df.index.min(), '->', df.index.max())
+    print('Columns    :', list(df.columns))
+    print()
+
+    missing = df.isnull().sum()
+    if missing.any():
+        print('WARNING - Missing values:')
+        print(missing[missing > 0])
+    else:
+        print('OK - No missing values.')
+
+    print(df.head())
 
 # %% [markdown]
 # ## Step 4 - Save
@@ -196,6 +223,7 @@ display(df.head())
 # Notebook 01 reads it with `pd.read_csv(..., index_col=0, parse_dates=True)`.
 
 # %%
-os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-df.to_csv(OUTPUT_PATH, index=True)
-print(f'Saved {df.shape[0]} rows x {df.shape[1]} cols -> {OUTPUT_PATH}')
+if not df.empty:
+    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+    df.to_csv(OUTPUT_PATH, index=True)
+    print(f'Saved {df.shape[0]} rows x {df.shape[1]} cols -> {OUTPUT_PATH}')

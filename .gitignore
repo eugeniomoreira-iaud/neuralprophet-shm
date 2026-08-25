@@ -23,4 +23,37 @@ outputs/figures/
 outputs/models/
 
 # (Optional) Track tables
-# outputs/tables/ 
+# outputs/tables/
+
+# PyTorch Lightning training artifacts (written into the working directory)
+lightning_logs/
+.lr_find_*.ckpt
+
+# Personal setup notes — contain machine-specific absolute paths
+SETUP.md
+
+# Per-machine environment snapshots (see SETUP.md, reproducibility notes)
+environment_frozen.yml
+environment_history.yml
+requirements_frozen.txt
+
+# macOS folder metadata
+.DS_Store
+
+# Editor and test-runner caches
+.vscode/
+.pytest_cache/
+
+# Local working copies of the read-only raw .adc archive, staged by
+# shmlib.adc.sync_cache. The archive lives in _UNIPG/__Mura-realtime/ and is
+# never committed to this repository.
+**/.cache/
+
+# Knowledge graph. Everything here is rebuilt by `/graphify . --update`, so only
+# the durable products are tracked: the graph a fresh clone queries, the audit
+# report, and the manifest that lets an update know what changed. The extraction
+# caches, per-run folders and the HTML view are all regenerated from them.
+studies/graphify-out/*
+!studies/graphify-out/graph.json
+!studies/graphify-out/GRAPH_REPORT.md
+!studies/graphify-out/manifest.json

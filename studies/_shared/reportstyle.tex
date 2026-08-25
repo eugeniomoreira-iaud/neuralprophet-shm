@@ -1,0 +1,85 @@
+% ---------------------------------------------------------------------------
+% reportstyle.tex — shared preamble for the study reports under studies/.
+%
+% Kept deliberately inside the package set shipped with TeX Live "basic":
+% no tcolorbox, no siunitx, no enumitem, no titlesec. Everything below
+% compiles with a stock pdflatex installation.
+%
+% Usage, from a report directory one level below a study folder:
+%     \input{../../_shared/reportstyle.tex}
+%     \graphicspath{{../outputs/}}
+% ---------------------------------------------------------------------------
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{textcomp}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[margin=2.4cm,headheight=15pt]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage[font=small,labelfont=bf,justification=justified]{caption}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage[hidelinks]{hyperref}
+
+% --- Palette ---------------------------------------------------------------
+\definecolor{rulegrey}{HTML}{B9C0C7}
+\definecolor{fillgrey}{HTML}{F2F4F6}
+\definecolor{failred}{HTML}{A5202B}
+\definecolor{passgreen}{HTML}{1B6B3A}
+\definecolor{accent}{HTML}{1F4E79}
+
+% --- Semantic shorthands ---------------------------------------------------
+\newcommand{\degC}{\textdegree C}
+\newcommand{\mdegC}{mdeg/\textdegree C}
+\newcommand{\fail}{\textcolor{failred}{\textbf{fail}}}
+\newcommand{\pass}{\textcolor{passgreen}{\textbf{pass}}}
+\newcommand{\worse}{\textcolor{failred}{worse}}
+\newcommand{\better}{\textcolor{passgreen}{better}}
+
+% --- Highlighted panel -----------------------------------------------------
+% #1 = heading, #2 = body
+\newcommand{\panel}[2]{%
+  \begin{center}%
+  \setlength{\fboxsep}{9pt}%
+  \fcolorbox{rulegrey}{fillgrey}{%
+    \begin{minipage}{0.93\textwidth}%
+      {\bfseries\color{accent}#1}\par\medskip
+      #2
+    \end{minipage}}%
+  \end{center}}
+
+% --- Numeric column: right aligned, fixed width ----------------------------
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+% --- Table look ------------------------------------------------------------
+\renewcommand{\arraystretch}{1.15}
+\setlength{\tabcolsep}{6pt}
+
+% --- Headers ---------------------------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape\runninghead}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% --- Section spacing without titlesec --------------------------------------
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{\z@}%
+  {-3.2ex \@plus -1ex \@minus -.2ex}{2.0ex \@plus.2ex}%
+  {\normalfont\Large\bfseries\color{accent}}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-2.6ex \@plus -1ex \@minus -.2ex}{1.4ex \@plus.2ex}%
+  {\normalfont\large\bfseries}}
+\makeatother
+
+% --- Figure defaults -------------------------------------------------------
+\setkeys{Gin}{width=\linewidth}
+\captionsetup[figure]{skip=6pt}

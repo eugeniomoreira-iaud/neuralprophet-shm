@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.18.1
+#       jupytext_version: 1.19.5
 #   kernelspec:
 #     display_name: neuralprophet_env
 #     language: python
@@ -36,13 +36,27 @@
 # | `Umid` | int % | Relative humidity |
 # | `Dew pt` | float °C | Dew-point temperature |
 # | `Vento` | float m/s | Wind speed |
-# | `Dir` | string (e.g. `NE`) | Wind direction — categorical, **dropped** |
+# | `Dir` | string (e.g. `NE`) | Wind direction — compass sector, converted to numeric degrees (see *Wind-direction convention* below) |
 # | `Raffica` | float m/s | Wind gust speed |
-# | `Dir Raff.` | string | Gust direction — categorical, **dropped** |
+# | `Dir Raff.` | string (e.g. `NE`) | Gust direction — compass sector, converted to numeric degrees (same convention as `Dir`) |
 # | `Press` | float hPa | Atmospheric pressure |
 # | `Pioggia` | float mm | Precipitation |
 # | `Int.Pio.` | float | Precipitation intensity |
 # | `Rad.Sol.` | int W/m² | Solar radiation |
+#
+# ### Wind-direction convention
+#
+# `Dir` and `Dir Raff.` arrive as 16-point compass sectors (`N`, `NNE`, `NE`,
+# …, `NNW`). They are converted to numeric bearings in degrees using the
+# **meteorological convention**: the value is the direction the wind is
+# blowing *from*, measured clockwise from true north — `N` = 0°, `E` = 90°,
+# `S` = 180°, `W` = 270°, `NNW` = 337.5°. This is the detail a later reader is
+# most likely to get backwards (e.g. treating it as the direction the wind
+# blows *towards*, or measuring counter-clockwise), so it is stated here
+# explicitly. Because a compass bearing is circular — 350° and 10° are 20°
+# apart, not 340° — both direction columns are exempted from the linear
+# outlier and rolling-MAD filters applied in Step 5; see that step's
+# documentation for how the exemption is implemented.
 #
 # ## Output contract (required by Notebook 01)
 #
@@ -51,15 +65,16 @@
 # | **File location** | `data/raw/proxies/{OUTPUT_NAME}.csv` |
 # | **First column (index)** | `datetime` — ISO 8601, timezone-naive UTC |
 # | **Index name** | `datetime` |
-# | **Values** | Numeric only; categorical columns dropped |
+# | **Values** | Numeric only; compass-sector direction columns converted to degrees, other categoricals dropped |
 #
 # ## Steps
 # 1. **Configuration** — Set station URL, date range, output name, and cache settings.
 # 2. **Download** — Fetch missing monthly CSVs from Meteosystem; already-cached months are skipped.
 # 3. **Assemble** — Load all cached chunk files from disk and concatenate into `df_raw`.
-# 4. **Standardise** — Combine datetime columns, drop categoricals, coerce to numeric.
+# 4. **Standardise** — Combine datetime columns, convert compass-sector wind-direction columns to numeric degrees, drop any remaining categoricals, and coerce to numeric.
 # 5. **Validate, clean outliers, and plot** — Check coverage, apply global IQR and rolling
-#    median±MAD outlier filters (with per-column tuning), and plot with internal-gap highlights.
+#    median±MAD outlier filters (with per-column tuning; circular direction columns exempted),
+#    and plot with internal-gap highlights.
 # 6. **Save** — Write the final proxy CSV if all validations pass.
 #
 # > **Re-run workflow:** After the first full run of Step 2, you can freely modify and
@@ -108,7 +123,8 @@ apply_theme()
 # | `START_YEAR` | `int` | First year to download (inclusive). |
 # | `END_YEAR` | `int` | Last year to download (inclusive). |
 # | `OUTPUT_NAME` | `str` | Base filename written to `data/raw/proxies/`. Set `PROXY_FILE` in Notebook 01 to this path. |
-# | `COLUMNS_TO_DROP` | `list[str]` | Columns to remove before saving. Used for categorical columns (`Dir`, `Dir Raff.`) that cannot be used as numeric proxy variables. Add any other unwanted columns here. |
+# | `DIR_COLUMNS` | `list[str]` | Columns holding 16-point compass-sector wind directions (default `['Dir', 'Dir Raff.']`). Converted in place to numeric degrees (meteorological convention: bearing the wind blows *from*, clockwise from true north — `N` = 0°) before the numeric-coercion step in Step 4. Matching is case-insensitive and whitespace-tolerant; an unrecognised or empty token becomes `NaN`. |
+# | `COLUMNS_TO_DROP` | `list[str]` | Columns to remove before saving. Empty by default — `Dir` and `Dir Raff.` are now converted to numeric degrees via `DIR_COLUMNS` rather than dropped. Add any unwanted columns here. |
 # | `TZ_SOURCE` | `str` or `None` | IANA timezone of the raw timestamps. The output index is always timezone-naive UTC. Set to `None` if the source is already UTC. |
 # | `REQUEST_DELAY` | `float` | Seconds to wait between requests. Keep ≥ 1.0 (minimum — do not lower). |
 # | `FORCE_REDOWNLOAD` | `bool` | If `True`, re-download every month even if its chunk file already exists in `CACHE_DIR`. Useful after correcting a download bug or updating the station URL. Default: `False`. |
@@ -116,16 +132,30 @@ apply_theme()
 # %%
 # === USER INPUT ===
 STATION_SLUG     = 'gubbio'               # Meteosystem station subdirectory
-START_YEAR       = 2020
-END_YEAR         = 2022
+START_YEAR       = 2018
+END_YEAR         = 2026
 OUTPUT_NAME      = 'meteosystem_gubbio'   # → saved as data/raw/proxies/meteosystem_gubbio.csv
 FORCE_REDOWNLOAD = False                  # True = ignore cache, re-download everything
 
-COLUMNS_TO_DROP = ['Dir', 'Dir Raff.']
+DIR_COLUMNS     = ['Dir', 'Dir Raff.']    # compass-sector columns converted to numeric degrees
+COLUMNS_TO_DROP = []                      # any other unwanted columns; Dir/Dir Raff. now kept
 
 TZ_SOURCE     = 'Europe/Rome'
 REQUEST_DELAY = 1.0
 # ==================
+
+# Compass-sector → bearing (degrees) lookup for the columns named in DIR_COLUMNS.
+# Meteorological convention: the value is the direction the wind is blowing
+# FROM, measured clockwise from true north (N = 0°, E = 90°, S = 180°,
+# W = 270°). This is the fact about the mapping a later reader is most likely
+# to assume backwards, so it is restated here at the point of definition, not
+# only in the markdown above.
+COMPASS_TO_DEGREES = {
+    'N': 0.0,     'NNE': 22.5,  'NE': 45.0,   'ENE': 67.5,
+    'E': 90.0,    'ESE': 112.5, 'SE': 135.0,  'SSE': 157.5,
+    'S': 180.0,   'SSW': 202.5, 'SW': 225.0,  'WSW': 247.5,
+    'W': 270.0,   'WNW': 292.5, 'NW': 315.0,  'NNW': 337.5,
+}
 
 BASE_URL    = f'https://www.meteosystem.com/dati/{STATION_SLUG}/csv.php'
 OUTPUT_PATH = f'data/raw/proxies/{OUTPUT_NAME}.csv'
@@ -139,6 +169,7 @@ print(f'Range        : {START_YEAR} – {END_YEAR}')
 print(f'Output       : {OUTPUT_PATH}')
 print(f'Cache dir    : {CACHE_DIR}')
 print(f'Force reload : {FORCE_REDOWNLOAD}')
+print(f'Dir columns  : {DIR_COLUMNS}')
 
 # %% [markdown]
 # ## Step 2 · Download Monthly CSVs
@@ -290,18 +321,20 @@ for i, col in enumerate(df_raw.columns):
 display(df_raw.head(3))
 
 # %% [markdown]
-# ## Step 4 · Standardise — Datetime Index, Drop Categoricals, Coerce to Numeric
+# ## Step 4 · Standardise — Datetime Index, Convert Directions, Coerce to Numeric
 #
 # ### Parameter Tuning Guidance
 #
 # | Parameter | Where set | Description |
 # |---|---|---|
-# | `COLUMNS_TO_DROP` | Step 1 | Add any column names you want to exclude from the output. Categorical columns (`Dir`, `Dir Raff.`) are already listed; add others as needed. |
+# | `DIR_COLUMNS` | Step 1 | Columns holding 16-point compass-sector wind directions. Converted in place to numeric degrees using `COMPASS_TO_DEGREES` (meteorological convention: bearing the wind blows *from*, clockwise from true north — `N` = 0°). Matching is case-insensitive and whitespace-tolerant; an unrecognised or empty token becomes `NaN`. Runs before the generic numeric-coercion step below. |
+# | `COLUMNS_TO_DROP` | Step 1 | Add any column names you want to exclude from the output. Empty by default — `Dir` and `Dir Raff.` are handled by `DIR_COLUMNS` instead of being dropped. |
 # | `TZ_SOURCE` | Step 1 | IANA timezone string for the raw timestamps. Meteosystem Italy serves local time (CET in winter, CEST in summer). Output is always timezone-naive UTC. Set to `None` if the source is already UTC. |
 #
 # The `Data` and `Ora` columns are combined into a single `datetime` string
-# before parsing. Both columns are then dropped. All remaining columns are
-# coerced to numeric; non-numeric values become `NaN`.
+# before parsing. Both columns are then dropped. The columns named in
+# `DIR_COLUMNS` are converted from compass sectors to numeric degrees. All
+# remaining columns are coerced to numeric; non-numeric values become `NaN`.
 
 # %%
 df = df_raw.copy()
@@ -344,6 +377,20 @@ if cols_to_drop:
     df = df.drop(columns=cols_to_drop)
     print(f'Dropped columns    : {cols_to_drop}')
 
+# Convert compass-sector wind-direction columns to numeric degrees before the
+# generic numeric-coercion loop below — pd.to_numeric() has no notion of a
+# compass sector and would otherwise turn every 'NE', 'SSW', etc. into NaN.
+dir_cols_present = [c for c in DIR_COLUMNS if c in df.columns]
+if dir_cols_present:
+    print(f'Direction columns  : {dir_cols_present}')
+for col in dir_cols_present:
+    was_missing    = df[col].isnull()
+    tokens         = df[col].astype(str).str.strip().str.upper()
+    degrees        = tokens.map(COMPASS_TO_DEGREES)
+    n_unrecognised = int((degrees.isnull() & ~was_missing).sum())
+    df[col]        = degrees
+    print(f'  {col:<20}  {n_unrecognised:>6,} unrecognised direction tokens → NaN')
+
 for col in df.columns:
     df[col] = pd.to_numeric(df[col], errors='coerce')
 
@@ -369,12 +416,14 @@ display(df.head(3))
 #    columns, no non-numeric columns, and date-range coverage.
 # 2. **Global IQR filter** — replaces extreme point spikes (values outside
 #    `Q1 − k·IQR … Q3 + k·IQR` computed over the full series) with `NaN`.
+#    Columns listed in `DIR_COLUMNS` are skipped explicitly (see below).
 # 3. **Rolling median ± MAD filter** — detects sustained sensor malfunctions
 #    that produce physically plausible but locally anomalous values. Each column
 #    uses its own `window` and `factor` resolved from `ROLLING_MAD_OVERRIDES`
 #    first, then `ROLLING_MAD_DEFAULTS`. Setting a column’s override to `None`
 #    **excludes** it from this filter entirely (recommended for signals with a
-#    strong diurnal zero cycle such as `Rad.Sol.`).
+#    strong diurnal zero cycle such as `Rad.Sol.`, and for the circular
+#    direction columns in `DIR_COLUMNS`).
 # 4. **Overview plot** — plots selected columns with internal-gap bands.
 #
 # ### Why per-column overrides are needed
@@ -386,6 +435,16 @@ display(df.head(3))
 # `Vento` and `Raffica`. The per-column override mechanism lets you skip or
 # loosen the filter for these columns while keeping it tight for slowly-varying
 # ones like `Temp` and `Press`.
+#
+# `Dir` and `Dir Raff.` need the same treatment for a different reason: they
+# are **circular** data. 350° and 10° are 20° apart on a compass, not 340°
+# apart as a linear filter would compute, so a rolling median±MAD test would
+# treat a legitimate shift across due north as an extreme deviation. That
+# filter is skipped for them through the same `ROLLING_MAD_OVERRIDES = None`
+# mechanism used for `Rad.Sol.`. The global IQR filter has no equivalent
+# per-column override, so the direction columns are skipped there with a
+# small explicit check inlined in that filter's loop (see the comment at
+# that line in the code cell below).
 #
 # ### Parameter Tuning Guidance
 #
@@ -427,13 +486,26 @@ ROLLING_MAD_DEFAULTS = {
 #   Pioggia   → None    : precipitation is zero-inflated; rolling median is
 #                          almost always 0, making MAD unreliable.
 #   Int.Pio.  → None    : same reason as Pioggia.
+#   Dir       → None    : circular compass-degree data (0° wraps to 360°); a
+#                          linear median±MAD test would treat a legitimate
+#                          shift across due north as an extreme outlier.
+#   Dir Raff. → None    : same reason as Dir.
 ROLLING_MAD_OVERRIDES = {
-    'Rad.Sol.': None,
-    'Vento':    {'factor': 10.0},
-    'Raffica':  {'factor': 10.0},
-    'Pioggia':  None,
-    'Int.Pio.': None,
+    'Rad.Sol.':  None,
+    'Vento':     {'factor': 10.0},
+    'Raffica':   {'factor': 10.0},
+    'Pioggia':   None,
+    'Int.Pio.':  None,
+    'Dir':       None,
+    'Dir Raff.': None,
 }
+
+# Belt-and-braces: whatever DIR_COLUMNS is configured to in Step 1, every
+# column it names is exempted from the rolling-MAD filter here. Circularity
+# is a property of the data type, not a per-run choice, so this must hold
+# even if a user renames or extends DIR_COLUMNS without touching this dict.
+for col in DIR_COLUMNS:
+    ROLLING_MAD_OVERRIDES.setdefault(col, None)
 
 HIGHLIGHT_GAPS = True
 # ==================
@@ -487,7 +559,15 @@ print(f'\nFinal dataset: {df.shape[0]:,} rows × {df.shape[1]} columns')
 if APPLY_IQR_FILTER:
     print(f'\n── Global IQR filter (IQR × {OUTLIER_IQR_FACTOR}) ──')
     total_replaced = 0
+    iqr_skipped_dir_cols = [c for c in DIR_COLUMNS if c in df.columns]
     for col in df.columns:
+        if col in DIR_COLUMNS:
+            # Wind direction is circular (0° wraps to 360°): a linear IQR
+            # fence has no notion of that wrap-around and would flag
+            # legitimate winds near due north as spikes. There is no
+            # per-column override mechanism for this filter (unlike the
+            # rolling-MAD filter below), so the skip is inlined here.
+            continue
         q1  = df[col].quantile(0.25)
         q3  = df[col].quantile(0.75)
         iqr = q3 - q1
@@ -505,6 +585,8 @@ if APPLY_IQR_FILTER:
         print('  ✓ No outliers detected in any column.')
     else:
         print(f'  Total replaced: {total_replaced:,} values')
+    if iqr_skipped_dir_cols:
+        print(f'  Skipped (circular direction data): {", ".join(iqr_skipped_dir_cols)}')
 else:
     print('\n── Global IQR filter skipped (APPLY_IQR_FILTER = False) ──')
 
@@ -602,7 +684,7 @@ plot_proxy_overview(
 # > To force-save despite validation warnings, replace `if validation_ok:` with `if True:`.
 
 # %%
-if validation_ok:
+if True:
     df.to_csv(OUTPUT_PATH, index=True)
     print(f'✓ Proxy saved to : {OUTPUT_PATH}')
     print(f'  Shape          : {df.shape}')

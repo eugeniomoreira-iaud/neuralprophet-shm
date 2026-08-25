@@ -1,0 +1,625 @@
+% ---------------------------------------------------------------------------
+% Study report · The external forcings: air temperature and solar radiation
+%
+% Build:  pdflatex proxy_forcing_report.tex  (twice, for the ToC)
+% Figures and table bodies are read from ../outputs/ and are produced by the
+% paired notebook, which must be run first.
+%
+% Structural draft. The sections below state the report's intended content and
+% retain visible placeholders for information and figures that the analysis has
+% not yet produced.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{The external forcings at Gubbio}
+
+\input{../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.2cm}\textbf{The external forcings: air temperature and solar
+radiation}\\[2mm] \large Characterisation of ERA5 and the Gubbio meteorological station, and their compatibility with the on-structure measurements}
+\author{Study report · \texttt{studies/proxy\_forcing\_characterization/}}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+Air temperature and solar radiation are candidate environmental drivers of the monitored wall response, but their on-structure records do not cover the full monitoring period. This report characterises two longer external sources---ERA5 reanalysis retrieved through Oikolab and observations from the Meteosystem station in Gubbio---before comparing them with the final valid on-structure values produced by Study~01. The comparison is restricted to air temperature and solar radiation and asks whether either external source is sufficiently compatible with the local measurements to substitute for them where the local record is absent. Compatibility is assessed without treating the three sources as physically equivalent measurements.
+\end{abstract}
+
+\tableofcontents
+
+% ===========================================================================
+\section{Introduction}
+\label{sec:introduction}
+
+The structural interpretation developed after Study~01 requires environmental
+series that extend across the monitoring period. The measurements made at the
+wall cannot provide that continuity. The on-structure air-temperature channel
+contains substantial gaps, while solar radiation was introduced only with the
+current instrument package and includes periods rejected by the quality tests in
+Study~01. External data are therefore considered as possible substitutes, but
+their greater coverage does not by itself establish that they represent the
+thermal forcing at the wall.
+
+This report considers two external sources. ERA5 is a gridded atmospheric
+reanalysis and represents an area rather than the monitored surface. The
+Meteosystem record is produced by a meteorological station in Gubbio and is a
+point observation, but it is not made at the wall and its exposure differs from
+that of the on-structure instruments. Each source is first characterised on its
+own terms, including its provenance, variables, coverage, complete time series,
+and summer and winter mean daily cycles. A later comparison then brings ERA5,
+the meteorological station, and the on-structure measurements onto a common
+hourly grid.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{2.1cm}L{3.0cm}L{2.0cm}L{2.4cm}Y}
+\toprule
+\textbf{Source} & \textbf{Nature} & \textbf{Native interval} &
+\textbf{Documented extent} & \textbf{Role in this study} \\
+\midrule
+ERA5 through Oikolab & Gridded atmospheric reanalysis, representing a grid-cell
+average around the monitoring coordinates & 1 hour &
+1 Jan 2018--12 Aug 2026 & Long-coverage proxy for air temperature and solar
+radiation \\
+Meteosystem Gubbio & Ground-based meteorological station in Gubbio; a point
+measurement away from the monitored wall & 30 minutes &
+17 Oct 2018--12 Aug 2026 & Local meteorological proxy for air temperature and
+solar radiation \\
+\bottomrule
+\end{tabularx}
+\caption{The two external sources. The extents are those recorded in the current
+repository data dictionary and will be recomputed from the input files when the
+study is executed. Coverage percentages are reported separately for each
+variable because a source may exist while an individual channel is missing.}
+\label{tab:external_sources}
+\end{table}
+
+
+% ===========================================================================
+\section{ERA5 reanalysis}
+\label{sec:era5}
+
+\subsection{Nature and coverage}
+
+ERA5 combines numerical weather prediction with assimilated observations to
+produce a spatially continuous reconstruction of atmospheric conditions. The
+series used here was extracted at the monitoring coordinates
+($43.353430^{\circ}$ N, $12.582047^{\circ}$ E) and is described in the
+repository as representing a grid cell of approximately nine kilometres. It is
+hourly and currently spans 1 January 2018 to 12 August 2026. The repository data
+dictionary reports approximately 99.5\,\% coverage for the ERA5 variables used
+by this study; the executed analysis will replace that provisional figure with
+counts measured directly from the input file.
+
+The gridded value is not expected to reproduce the microclimate of a
+sun-exposed instrument enclosure or masonry surface. Its possible value is
+instead continuity: if its temperature and radiation retain a stable relation
+with the on-structure measurements over their shared window, ERA5 may provide a
+consistent forcing proxy outside that window.
+
+\subsection{Retrieval and repository organisation}
+
+The paired notebook and script \texttt{auxiliary/oiko.ipynb} and
+\texttt{auxiliary/oiko.py} retrieve the data from the authenticated Oikolab
+weather API. The script requests hourly means in six-month chunks, concatenates
+the responses, removes duplicate timestamps and provider metadata columns, and
+appends only dates later than the current local export. The consolidated file is
+written to \texttt{data/raw/proxies/oikolab\_weather.csv}; Study~02 reads that
+file without making a new network request. Timestamps are supplied in UTC.
+
+\subsection{Variables}
+
+Table~\ref{tab:era5_variables} records the variables requested by the retrieval
+script that are retained for this report and their interpretation. Every
+variable in the table is included in the source characterisation. Only air
+temperature and surface solar radiation subsequently enter the three-source
+comparison.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{4.4cm}L{1.7cm}Y}
+\toprule
+\textbf{Oikolab variable} & \textbf{Unit} & \textbf{Meaning} \\
+\midrule
+\texttt{temperature} & \degC & Near-surface air temperature; compared with the
+on-structure and Meteosystem air-temperature series. \\
+\texttt{relative\_humidity} & fraction & Relative humidity. It is multiplied by
+100 on loading when expressed as a fraction. \\
+\texttt{dewpoint\_temperature} & \degC & Temperature at which the represented
+air mass reaches saturation. \\
+\texttt{surface\_solar\_radiation} & W/m$^2$ & Downward short-wave solar
+radiation at the surface; compared with the other radiation series. \\
+\texttt{total\_precipitation} & mm water equivalent & Accumulated liquid and
+solid precipitation expressed as water depth. \\
+\texttt{wind\_speed} & m/s & Magnitude of the near-surface wind. \\
+\texttt{wind\_direction} & [angular convention required] & Direction from
+which the wind originates. It will be normalised to degrees and treated as a
+circular variable. \\
+\bottomrule
+\end{tabularx}
+\caption{ERA5 variables retained for characterisation. The unit, zero direction,
+and rotation convention of wind direction must be confirmed from the API
+response metadata before the table is finalised.}
+\label{tab:era5_variables}
+\end{table}
+
+\subsection{Complete time series}
+
+The complete ERA5 record is shown before any restriction to the on-structure
+measurement window. The seven retained variables occupy separate vertically
+aligned panels with a shared time axis, each panel named by its own title and
+carrying its unit on the axis. They are ordered air temperature, relative
+humidity, solar radiation, wind speed, wind direction, dew-point temperature and
+total precipitation: the first five are the channels the daily-cycle figures
+draw, in the same order, so that a reader moving between the figures of this
+report finds each channel where it was left. Gaps remain visible rather than
+being connected across, and wind direction is drawn on a circular angular scale.
+This view establishes the actual extent, missing intervals, long-term range, and
+seasonal envelope of every retained variable.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F01_era5_series.png}
+\caption{Complete ERA5 record, one panel for each of the seven retained
+variables on a shared time axis. Wind direction is drawn as its daily circular
+mean, since eight years of hourly bearings fill a panel solid.}
+\label{fig:era5_series}
+\end{figure}
+
+\subsection{Summer and winter mean daily cycles}
+
+Mean daily cycles are computed separately for summer and winter from the
+complete valid ERA5 record. Summer is provisionally June--August and winter is
+provisionally December--February, matching Study~01. Each mean is supported by
+its contributing day count so that a poorly covered hour is not presented as
+equally certain to a well-covered one. Scalar variables use ordinary hourly
+means. Wind direction uses a circular hourly mean after its angles have been
+normalised to one documented convention.
+
+The two seasons are drawn in one figure rather than two, a channel to a row and
+a season to a column, and the two panels of a row share one vertical scale. The
+seasonal difference in a channel's day is then a difference in the drawn shape,
+rather than one a reader must reconstruct from two axes with different limits on
+two separate pages. Five of the seven retained channels are drawn: the two
+forcings this study is about, the humidity that accompanies them, and the wind
+that ventilates the surface. Dew point and precipitation keep their place in the
+complete-record figure of Section~\ref{sec:era5} and in the tabulated diurnal
+profile, both of which cover every retained channel; what is narrowed here is the
+figure, not the characterisation.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F02_era5_diurnal_seasons.png}
+\caption{ERA5 mean daily cycles, by channel and season. Air temperature,
+relative humidity, solar radiation, wind speed and wind direction, one to a row,
+with summer in the left column and winter in the right. Every contributing day
+is drawn in gray behind its mean, and each panel names the days its mean rests on
+and the peak-to-trough amplitude of that mean.}
+\label{fig:era5_diurnal_seasons}
+\end{figure}
+
+% ===========================================================================
+\section{The Gubbio meteorological station}
+\label{sec:ground_station}
+
+\subsection{Nature and coverage}
+
+The Meteosystem source is a ground-based station in Gubbio. In contrast to the
+spatial average represented by ERA5, it records conditions at one location.
+That location is closer to the monitored structure than a regional grid is, but
+distance alone does not establish representativeness: elevation, surrounding
+surfaces, shading, sensor height, and screen exposure may all separate the
+station record from the microclimate at the wall.
+
+The downloaded record is natively half-hourly and currently spans 17 October
+2018 to 12 August 2026. The repository data dictionary reports 88.6\,\% coverage
+for air temperature and 88.7\,\% for solar radiation. These values will be
+recomputed by the study because the source is updated month by month and the two
+variables need not share the same missing intervals.
+
+\panel{Information required}{Insert the station's coordinates, elevation,
+distance and height difference from the monitored wall, sensor models,
+meteorological exposure, calibration information, operator, and maintenance or
+relocation history.}
+
+\subsection{Retrieval and repository organisation}
+
+The paired notebook and script \texttt{auxiliary/meteosystem\_italy.ipynb} and
+\texttt{auxiliary/meteosystem\_italy.py} retrieve one CSV file per calendar
+month from the Meteosystem website. Each response is retained in
+\texttt{auxiliary/data/raw/proxies/\_cache/gubbio/}, allowing later cleaning and
+assembly without another download. The monthly files are concatenated,
+deduplicated, and converted from Italian civil time to UTC. The current
+preparation script removes all categorical direction fields before writing
+\texttt{data/raw/proxies/meteosystem\_gubbio.csv}. For this characterisation it
+will be revised to retain \texttt{Dir}, convert its compass sectors to a
+documented angular convention, and remove only the unselected fields. Study~02
+aggregates scalar half-hourly observations to hourly means and computes wind
+direction by a circular hourly mean.
+
+\subsection{Variables}
+
+Table~\ref{tab:ground_variables} describes the fields supplied by the station.
+Every field in the table is included in the station characterisation. Air
+temperature and solar radiation alone enter the later compatibility study with
+ERA5 and the on-structure measurements.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{2.4cm}L{1.7cm}Y}
+\toprule
+\textbf{Raw field} & \textbf{Unit} & \textbf{Meaning} \\
+\midrule
+\texttt{Temp} & \degC & Air temperature; compared with ERA5 and the
+on-structure air-temperature series. \\
+\texttt{Umid} & \% & Relative humidity. \\
+\texttt{Dew pt} & \degC & Dew-point temperature. \\
+\texttt{Vento} & m/s & Mean wind speed. \\
+\texttt{Dir} & compass sector & Mean wind direction. Compass sectors will be
+converted to angles and treated as circular data. \\
+\texttt{Press} & hPa & Atmospheric pressure. \\
+\texttt{Pioggia} & mm & Precipitation depth. \\
+\texttt{Int.Pio.} & [unit required] & Precipitation intensity. \\
+\texttt{Rad.Sol.} & W/m$^2$ & Solar radiation; compared with ERA5 and the
+on-structure radiation series. \\
+\bottomrule
+\end{tabularx}
+\caption{Variables in the Meteosystem monthly files. The reporting interval and
+unit of precipitation intensity require confirmation from the station
+documentation.}
+\label{tab:ground_variables}
+\end{table}
+
+\subsection{Complete time series}
+
+The complete station record is shown independently of the shorter on-structure
+record, on the layout and the channel order used for ERA5 in
+Figure~\ref{fig:era5_series}: air temperature, relative humidity, solar
+radiation, wind speed, wind direction, dew-point temperature, precipitation
+depth and atmospheric pressure, each panel named by its own title and carrying
+its unit on the axis. The plot preserves missing intervals and uses the
+half-hourly observations after the quality-control decisions that produce the
+consolidated source file. Wind direction is shown on a circular angular scale.
+
+Precipitation intensity is the ninth retained channel and is not drawn. It is
+the precipitation depth of the panel beside it divided by the reporting
+interval, so the two panels would carry one measurement at two scales. It
+remains in the channel inventory and in the tabulated diurnal profile, both of
+which cover all nine.
+
+The precipitation panel is drawn on a clipped vertical axis. The station's
+precipitation depth contains a single reading of $1.70\times10^{9}$\,mm in one
+hour, and its intensity channel contains five readings of the same order; the
+largest depth that is physically possible is the next value down, at
+30.1\,mm. An axis scaled to the defective sample renders the entire eight-year
+record as a flat line beneath one spike, so the axis is bounded by the values
+inside the channel's documented plausible range and the panel carries a note, in
+the accent colour, stating how many samples fall outside it and how far. The
+clipping is a display choice: no value is removed from the data, and the
+implausible readings are counted and reported in the channel inventory
+(Table~\ref{tab:ground_variables} describes the fields; the executed inventory
+records one implausible depth and five implausible intensities).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F04_gs_series.png}
+\caption{Complete Meteosystem record, one panel for each of eight retained
+variables on a shared time axis, in the channel order used for ERA5.
+Precipitation intensity is omitted as a rescaling of the precipitation depth
+above it. The precipitation axis is clipped to the channel's plausible range,
+with a note giving the sample it excludes. Wind direction is drawn as its daily
+circular mean.}
+\label{fig:gs_series}
+\end{figure}
+
+\subsection{Summer and winter mean daily cycles}
+
+The seasonal profiles are computed from the complete valid station record,
+before restricting it to timestamps shared with the on-structure instruments.
+The season definitions and display conventions match those used for ERA5, so
+differences between the two characterisations reflect the records rather than
+different summaries. Scalar variables use ordinary hourly means. Wind direction
+uses a circular hourly mean of the converted angles.
+
+The layout is the one used for ERA5 in Figure~\ref{fig:era5_diurnal_seasons} and
+draws the same five channels in the same order, so that the two sources can be
+read against each other panel by panel. The station's four remaining
+channels---dew-point temperature, atmospheric pressure, precipitation depth and
+precipitation intensity---keep their place in the complete-record figure of this
+section and in the tabulated diurnal profile, both of which cover all nine.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F05_gs_diurnal_seasons.png}
+\caption{Meteosystem mean daily cycles, by channel and season. Air temperature,
+relative humidity, solar radiation, wind speed and wind direction, one to a row,
+with summer in the left column and winter in the right, on the layout and the
+channel order used for ERA5. Every contributing day is drawn in gray behind its
+mean, and each panel names the days its mean rests on and the peak-to-trough
+amplitude of that mean.}
+\label{fig:gs_diurnal_seasons}
+\end{figure}
+
+% ===========================================================================
+\section{The two external sources against each other}
+\label{sec:cross_source}
+
+Both external sources are now on the common hourly grid, and each has been
+characterised on its own terms. Before either is measured against the wall, they
+are measured against each other, over every quantity they both report.
+
+This comparison answers a question the on-structure comparison cannot. The wall
+record is short, and for radiation it is trustworthy over a narrower window
+still, so a disagreement found there says little about how the two sources
+behave outside it. Against each other they have their entire shared record and
+every quantity in it, not only the two forcings. What that establishes is the
+kind of source each one is: where a grid-cell average of roughly nine kilometres
+departs from a point observation, in which direction, and whether the departure
+is the same in summer as in winter. A quantity on which the two agree closely is
+one where the later choice between them will not matter much; a quantity on which
+they diverge is one where the verdict of
+Section~\ref{sec:comparison} has to be earned rather than assumed.
+
+Agreement is reported against the station, so that a positive bias reads as the
+reanalysis running high with respect to the local observation. Neither source is
+a reference in the sense the on-structure record is: this is a comparison of two
+proxies, not the validation of one against a truth. Every pair uses its own
+overlap, and no value is interpolated to manufacture one. Each quantity is
+reported over the whole shared record and then separately for each season,
+because a bias that is stable across the year and a bias that changes sign with
+the season are indistinguishable in a statistic pooled over both.
+
+The scores are computed on values inside each quantity's documented plausible
+range. This is the one place in the study where the implausible readings of
+Section~\ref{sec:ground_station} are set aside rather than merely counted, and
+the reason is that a score cannot survive them: a single rainfall reading of
+order a billion millimetres dominates every mean square it enters, and the
+resulting row would look like a result while being an artefact of one defective
+sample. Nothing is deleted. The readings remain in the frame every other step of
+the study uses, remain counted in the channel inventory, and remain visible in
+the complete-record figure; what is excluded here is their effect on a
+correlation and a root mean square, and the number of values excluded is
+reported with the table.
+
+Precipitation carries one further exclusion, and it is of a different kind. The
+station's heaviest recorded hour, 30.1\,mm, is real weather: it is well inside
+the plausible range, roughly twice the next largest hour in eight years, and is
+the sole occupant of the upper two thirds of its panel's axis. For this
+comparison alone the precipitation channels are bounded at 20\,mm in the hour,
+which excludes that single observation, so that the row and the panel describe
+the behaviour the two sources ordinarily produce rather than one storm. This is
+a decision about what the comparison covers, not the removal of a defect, and it
+is stated here because a reader who assumed otherwise would misread the
+precipitation row. The hour is retained everywhere else in this report, and the
+bound is a parameter of the study: widening it puts the observation back.
+
+Wind direction is differenced on the circle, as everywhere else in this study.
+Its bias and correlation are the columns to read on that row: the amplitude ratio
+and the phase lag are computed by the same shared machinery as for the scalar
+quantities, where for a bearing they do not carry a meaningful peak-to-trough
+distance, and the ratio is reported as missing. It is missing for precipitation
+too, whose daily cycle has no amplitude to take a ratio of on a day without
+rain.
+
+Three figures accompany the table, each answering a question the others
+average away. The first is the marginal view: every hour on which both sources
+report, one quantity to a panel, against the 1:1 line. A constant offset appears
+as a cloud displaced parallel to the diagonal, and a source that compresses the
+range of a quantity appears as a cloud flatter than the diagonal --- which is
+what an amplitude ratio below one looks like before it is reduced to a number.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F16_cross_source_scatter.png}
+\caption{ERA5 against the Meteosystem station, every paired hour, one panel per
+shared quantity. The dashed line is 1:1 and the bias and correlation printed in
+each panel are the whole-record values of Table~\ref{tab:cross_source}, not a
+second computation. Darker hexagons hold more samples, on a logarithmic count
+scale. Precipitation is bounded at 20\,mm in the hour, excluding the station's
+single heaviest observation.}
+\label{fig:cross_source_scatter}
+\end{figure}
+
+The second asks whether the disagreement holds still. This is the question that
+decides whether a source may substitute for another: a constant offset can be
+subtracted and the substitution documented, while an offset that changes with
+the season cannot, and the two are indistinguishable in any statistic pooled over
+the whole record.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F17_cross_source_stability.png}
+\caption{The difference between the two sources, month by month, one panel per
+shared quantity. The band is the interquartile range of the difference within
+each month, so a drift and a widening can be told apart. Positive is ERA5
+reading high.}
+\label{fig:cross_source_stability}
+\end{figure}
+
+The third asks about the day. Two sources may agree on the level of a quantity
+and still disagree about when it peaks and how far it travels between its
+extremes, and neither of the first two figures can show that, because both
+average the time of day away.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F18_cross_source_diurnal.png}
+\caption{Mean daily cycle of each shared quantity in each season, both sources
+on one axes. The sources are distinguished by line style, since colour carries
+the identity of the quantity throughout this report. The two panels of a row
+share a vertical scale.}
+\label{fig:cross_source_diurnal}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrrrrrrr}
+\toprule
+\textbf{Quantity} & \textbf{Split} & \textbf{N} & \textbf{Bias} & \textbf{MAE} &
+\textbf{RMSE} & \textbf{r} & \textbf{Amp Ratio} & \textbf{Phase Lag} \\
+\midrule
+\input{../outputs/PF_T14_cross_source.tex}\\
+\bottomrule
+\end{tabular}
+\caption{ERA5 against the Meteosystem station, over every quantity both sources
+report, on their shared hourly record. The station is the reference, so a
+positive bias is the reanalysis reading high. Each quantity appears once over the
+whole record and once for each season. Units are those of the quantity itself,
+given in Tables~\ref{tab:era5_variables} and~\ref{tab:ground_variables}.}
+\label{tab:cross_source}
+\end{table}
+
+% ===========================================================================
+\section{Comparison with the on-structure measurements}
+\label{sec:comparison}
+
+The comparison brings together ERA5, the Meteosystem station, and the final
+values produced by Study~01. It does not repeat the on-structure data-quality
+study. Air temperature is read from its final joined and corrected
+\texttt{tair} column. Solar radiation is read from \texttt{n\_sr\_ok}, with all
+timestamps on days marked by \texttt{sr\_suspect} excluded. Where Study~01
+classified a radiation value as \texttt{night}, the corrected value of
+$0\,\mathrm{W/m^2}$ in \texttt{n\_sr\_ok} is used; the original non-zero sensor
+floor is not restored.
+
+All three sources will be expressed in common units and placed on an hourly UTC
+grid. The twenty-minute on-structure values and the half-hourly Meteosystem
+values will be aggregated by hourly mean, while ERA5 is already hourly. Every
+valid on-structure value will remain eligible for comparison. Pairwise
+statistics will use the overlap with each external source, and direct
+three-source figures will use the timestamps on which all three are available.
+No proxy value will be interpolated to manufacture an overlap.
+
+\subsection{Air temperature}
+
+The temperature comparison will align the three series over every valid
+on-structure observation. It will show their absolute levels, common temporal
+variation, and differences. Agreement will be summarised with bias, error,
+correlation, and differences in daily amplitude and phase, reported by season
+where the coverage supports that division.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F08_tair_series.png}
+\caption{Aligned three-source air-temperature time series over the valid on-structure timestamps.}
+\label{fig:tair_series}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F09_tair_scatter.png}
+\caption{Direct comparison scatter plots of each air-temperature proxy against the on-structure values.}
+\label{fig:tair_scatter}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F10_tair_diurnal.png}
+\caption{Air-temperature diurnal cycles across sources.}
+\label{fig:tair_diurnal}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F11_tair_stability.png}
+\caption{Air-temperature stability and difference analysis.}
+\label{fig:tair_stability}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrrrrrrrrr}
+\toprule
+\textbf{Source} & \textbf{Season} & \textbf{N} & \textbf{Bias} & \textbf{MAE} & \textbf{RMSE} & \textbf{r} & \textbf{Amp (On)} & \textbf{Amp (Prx)} & \textbf{Amp Ratio} & \textbf{Phase Diff} \\
+\midrule
+\input{../outputs/PF_T10_tair_agreement.tex}\\
+\bottomrule
+\end{tabular}
+\caption{Air-temperature agreement metrics.}
+\label{tab:tair_agreement}
+\end{table}
+
+\subsection{Solar radiation}
+
+The radiation comparison will apply the Study~01 validity decisions before any
+alignment. It will therefore include corrected night-time zeros, retain valid
+daylight measurements, and exclude rejected samples and suspect days. Because
+radiation is strongly controlled by time of day and season, agreement will be
+examined both over the full valid set and within the seasonal daily cycle.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F12_sr_series.png}
+\caption{Aligned three-source solar-radiation time series over the valid on-structure timestamps.}
+\label{fig:sr_series}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F13_sr_scatter.png}
+\caption{Direct comparison scatter plots of each solar-radiation proxy against the on-structure values.}
+\label{fig:sr_scatter}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F14_sr_diurnal.png}
+\caption{Solar-radiation diurnal cycles across sources.}
+\label{fig:sr_diurnal}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{PF_F15_sr_stability.png}
+\caption{Solar-radiation stability and difference analysis.}
+\label{fig:sr_stability}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrrrrrrrrr}
+\toprule
+\textbf{Source} & \textbf{Season} & \textbf{N} & \textbf{Bias} & \textbf{MAE} & \textbf{RMSE} & \textbf{r} & \textbf{Amp (On)} & \textbf{Amp (Prx)} & \textbf{Amp Ratio} & \textbf{Phase Diff} \\
+\midrule
+\input{../outputs/PF_T11_sr_agreement.tex}\\
+\bottomrule
+\end{tabular}
+\caption{Solar-radiation agreement metrics.}
+\label{tab:sr_agreement}
+\end{table}
+
+\subsection{Compatibility and substitution}
+
+The final assessment will state separately whether ERA5 or Meteosystem is a
+defensible substitute for on-structure air temperature and for on-structure
+solar radiation. A source may be useful without being interchangeable with the
+local measurement: a stable bias or amplitude difference may permit a documented
+transformation, whereas an unstable seasonal relation, inconsistent phase, or
+poor correspondence during the valid local window would rule out substitution.
+The verdict will specify the accepted source, any required transformation, the
+period over which the evidence applies, and the limitations carried into the
+later inclination analysis.
+
+% ===========================================================================
+\section{Conclusions}
+\label{sec:conclusions}
+
+This section will summarise the character of the two external records and give
+the source verdict for each of the two forcings. It will distinguish evidence
+that supports filling the missing on-structure coverage from evidence that only
+supports using a source as a broader environmental covariate. Any unresolved
+metadata or unsupported substitution will remain explicit rather than being
+converted into an assumption.
+
+\end{document}

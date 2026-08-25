@@ -1,0 +1,757 @@
+% ---------------------------------------------------------------------------
+% Study report · The thermomechanical response of the wall
+%
+% Build:  pdflatex thermomechanical_response_report.tex  (twice, for the ToC)
+% Figures and table bodies are read from ../outputs/ and are produced by the
+% paired notebook, which must be run first.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{The thermomechanical response at Gubbio}
+
+\input{../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.2cm}\textbf{The thermomechanical response: what moves the wall,
+and how long it takes}\\[2mm] \large A lag-and-gain screen of every candidate
+driver, against the on-structure sensors, ERA5 and the Gubbio station}
+\author{Study report · \texttt{studies/03\_thermomechanical\_response/}}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+Study~01 established what the monitoring record contains and Study~02
+characterised the external sources that describe the weather at the site.
+Neither measured how the wall itself responds. This report screens every
+candidate driver the project has against one response---the compensated,
+cleaned inclination---in three rounds, one for each source family: the sensors
+on the structure, the ERA5 reanalysis, and the meteorological station in Gubbio
+town. Each pair is scanned over the operators its physics admits---a transport
+delay and a thermal time constant, jointly, because a filter and a shift can
+produce the same peak correlation while meaning different things---and fitted at
+the operator the scan selects, on the levels and on the diurnal band separately,
+with Newey--West standard errors and a negative control carried through every
+table.
+Air temperature is the strongest driver in every round and its association is
+negative, as the site geometry predicts; the response follows the on-structure
+air temperature with no resolvable delay at hourly resolution, follows solar
+radiation by one hour, and \emph{leads} the wall-temperature probe by two. The
+screen is reported with its own noise floor, which turns out not to be silent,
+and with the time constants it could not identify, which turn out to be most of
+them.
+\end{abstract}
+
+\tableofcontents
+
+% ===========================================================================
+\section{Introduction}
+\label{sec:introduction}
+
+A grey-box model of this structure cannot be specified until three things are
+known about each candidate driver: whether the wall responds to it at all, after
+how long, and in which direction. This report measures those three quantities.
+
+The question is not new to the project, but the answers on record are not
+usable. Section~7.5 of \texttt{docs/raw-data-format.md} states the expectation
+that the site geometry imposes---the valley face of the embankment is the more
+exposed, so daytime heating expands it and tips the wall towards the mountain,
+which is a \emph{negative} change by the instrument's convention---and records
+against it a measured positive slope on the raw channel, on two different units
+of hardware. Both statements come from studies now retired to
+\texttt{studies/obsolete/}, whose conclusions this project does not build upon.
+
+This study therefore re-measures the coupling on trusted ground: the response
+and the on-structure drivers come from Study~01's exported archive, the external
+drivers are read through the same loaders and channel maps Study~02 uses, and
+every function that computes anything lives in \texttt{studies/shmlib/}.
+
+\paragraph{What this report does not do.} It does not re-open the raw-versus-%
+compensated contradiction of Section~7.5. The response screened here is
+\texttt{inc\_comp\_cleaned}, Study~01's analysis column, and nothing else. The
+contradiction remains recorded where it is recorded; the numbers below are
+measured on the compensated series and describe that series.
+
+% ===========================================================================
+\section{Method}
+\label{sec:method}
+
+\subsection{The response}
+
+\texttt{inc\_comp\_cleaned} on the hourly UTC grid. Three of Study~01's
+decisions are consumed and none is revisited: the compensation, the join across
+the February~2025 instrument change, and the spike verdict, which marks the
+samples Study~01 replaced by interpolation. Those samples are dropped before any
+hour is averaged. An interpolated value is the interpolator's output rather than
+the instrument's, and a coupling measured against one would be partly a coupling
+to Study~01's cleaning.
+
+The absolute level of this column means nothing---it is fixed by how the
+instrument sat in its mount and by the anchors Study~01 applied---so only its
+changes carry structural information.
+
+\subsection{The two bands}
+
+Every series is screened twice: as its level, and as its diurnal band, defined
+as the series minus its 24-hour centred rolling mean. The two answer different
+questions. A correlation on the levels is dominated by whatever slow variation
+the two series share; a correlation on the band is a statement about the daily
+forcing cycle alone. The filter is one line of arithmetic rather than a designed
+band-pass, so that its definition is reproducible and no unstated phase response
+sits between the data and the lags measured afterwards. Figure~\ref{fig:bands}
+shows what the separation does to one week of the response.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{TR_F01_response_bands.png}
+\caption{The response over one week, as recorded and after the band separation.
+The upper panel carries the level, whose position on the axis is set by an
+arbitrary anchor; the lower panel carries the diurnal band, in which only the
+daily excursion survives.}
+\label{fig:bands}
+\end{figure}
+
+\subsection{Two things can delay a response, and they are not the same thing}
+
+A \emph{transport delay} shifts a driver in time without changing its shape: it
+is the time a thermal front takes to travel from the exposed face to the depth
+that governs the movement. A \emph{thermal inertia} low-passes it: masonry does
+not follow the air around it, it integrates it, and the discrete form of that
+lumped-capacitance response is a one-pole filter with a time constant $\tau$.
+
+The two are not interchangeable, and a scan over delay alone cannot tell them
+apart: a filter with the right time constant and no delay, and a delay with no
+filter, produce very similar peak correlations while implying entirely different
+physics. Every pair in this report is therefore scanned over both, and the whole
+grid is kept, because the maximum of such a grid is usually not a peak but a
+ridge---delay and time constant substitute for one another over a wide range,
+and a single winning cell quoted alone claims a resolution the record does not
+have.
+
+Two restrictions on that grid are load-bearing.
+
+\paragraph{The diurnal band is scanned over delay alone.} On a band holding
+essentially one period the two parameters are not separately identifiable at
+all. A one-pole filter applied to a signal of one frequency is exactly an
+amplitude scaling and a phase shift, and a delay is also a phase shift, so every
+combination on a line of constant total phase fits equally well. Scanned jointly
+there, the search rotates the phase past a half cycle and reports the flipped
+sign as its optimum: the two external air temperatures, which stand at
+$r = -0.81$ and $-0.79$ against the response, came back as $+0.82$ at a delay of
+five hours and $\tau$ of eighteen. That is an artefact of fitting an
+unidentifiable parameter, not a finding, and pinning the band's grid to
+$\tau = 0$ removes it.
+
+\paragraph{On the levels the grid stops at three days, by a stated prior.} The
+mass whose temperature governs the inclination is a wall face and its effective
+time constant is hours to a couple of days. Left unbounded the scan does not
+settle on anything of that order: run out to 2160~h, the optimum for the
+external drivers slides to between 720 and 1440~h---a month to two
+months---at which point the filtered driver is no longer weather but season, and
+what it correlates with is the response's own annual drift. The negative control
+slides the same way. Section~\ref{sec:operator} reports which time constants
+survived that bound and which did not.
+
+\subsection{Lags, and the bound on them}
+
+Each pair is scanned over integer-hour delays, the driver shifted forward so
+that a positive lag means the response follows. The scan maximises $|r|$ rather than
+$r$: the expected association here is negative, and a search maximising the
+signed correlation would walk away from the optimum it was sent to find.
+
+External forcings are scanned over $0$ to $12$~hours. Both bounds are physical.
+A forcing must precede the response it causes, so a negative optimum against one
+is not a measurement of anything. Twelve hours is where a delay stops being
+distinguishable from a lead: on a near-periodic daily signal a delay of $d$
+hours and a lead of $24-d$ produce the same alignment, and a lead cannot be
+represented by a causal filter or used by a forecast.
+
+Wall temperature is exempt and is scanned over $\pm 24$~hours. It is not a
+forcing but an internal state variable at an unknown depth, and nothing requires
+it to precede the deformation: a shallow probe would be led by the wall's motion
+and a deep one would follow it.
+
+\subsection{Gains, and their uncertainty}
+
+At the selected operator---both the delay and the time constant---the response
+is regressed on the driver by ordinary least squares, and the slope is reported
+in millidegrees per unit of the driver. Fitting against the operator that won,
+rather than against the driver as recorded, is not a detail: on a synthetic pair
+built with a known gain of $-2.5$ and a six-hour time constant, regressing on
+the unfiltered driver returns $-0.78$. Its
+standard error is Newey--West with a one-day truncation. This is not a
+refinement: the residuals of an hourly geophysical regression are strongly
+autocorrelated, and the ordinary standard error of such a fit understates the
+uncertainty by enough to make a coincidence look significant.
+
+\subsection{The strata, and the negative control}
+
+Every scan is run over the whole record, over each instrument era, and over each
+season, on the season definitions Studies~01 and~02 use. Supply voltage is
+carried through every round as a negative control. A bounded search over a
+near-periodic pair returns an optimum for every candidate, so what separates a
+coupling from that background is not the size of $|r|$ alone but its size
+relative to a channel that has no mechanism by which it could move a wall.
+Section~\ref{sec:control} reports what the control actually did, which is not
+what was expected of it.
+
+% ===========================================================================
+\section{What the record supports}
+\label{sec:coverage}
+
+The three source families do not cover the same record. The on-structure air
+temperature, humidity and supply voltage run the length of the post-outage archive; solar
+radiation and wall temperature exist only in the current instrument era and are
+further reduced by Study~01's verdicts, leaving roughly five thousand and
+roughly forty-eight hundred paired hours respectively against some
+twenty-one thousand for air temperature. Every result below is reported with
+the paired hours it rests on, and the two current-era channels are read in that
+light.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrll}
+\toprule
+\textbf{Driver} & \textbf{Hours} & \textbf{Paired} & \textbf{First} & \textbf{Last} \\
+\midrule
+\input{../outputs/TR_T01_driver_coverage.tex}\\
+\bottomrule
+\end{tabular}
+\caption{What each driver has to work with: the hours it carries, the hours it
+shares with the response, and the extent of that overlap.}
+\label{tab:coverage}
+\end{table}
+
+% ===========================================================================
+\section{Round 1 · the on-structure drivers}
+\label{sec:round1}
+
+The channels measured at the wall are the closest thing to a local forcing the
+project has, and each carries a caveat Study~01 established: the air temperature
+is recorded inside a sun-exposed housing rather than a meteorological screen,
+the radiation exists only on the current-era days Study~01 did not condemn, and
+the wall-temperature probe is absent on more than half the days of that era.
+
+On the diurnal band the housing air temperature is the strongest association in
+the whole study, $r = -0.957$ at zero lag, with a gain of
+$-2.79$~\mdegC. Solar radiation follows at $r = -0.867$ with a delay of one hour
+and a gain of $-0.026$~mdeg per watt per square metre. Both signs are the sign the
+site's geometry predicts, and neither needs an operator: their time constants
+are zero and the instantaneous fit is what the winning cell reproduces.
+
+On the levels the on-structure radiation behaves differently. Its instantaneous
+fit explains almost nothing, $R^2 = 0.17$, and a 48-hour time constant lifts that
+to $0.29$ --- $\Delta R^2 = 0.122$, the largest operator gain of any driver whose
+optimum is not against a bound. Read with Section~\ref{sec:operator}, that is a
+statement about the slow band being dominated by variation neither the wall nor
+the radiation resolves, rather than a measurement of the wall's thermal mass.
+
+The wall temperature is the interesting case. On the diurnal band its optimum
+sits at $-2$~hours and on the levels at $-4$~hours with a time constant of four,
+and both say the same thing: the inclination \emph{leads} the probe. Under the
+reading of Section~7.5 that is the signature of a probe sitting deep enough that
+the layers actually driving the movement---those nearest the sun-exposed valley
+face---reach their extremes before it does. It is a measurement, not an error.
+
+It is also the one driver whose operator is worth what it costs. On the band the
+delay buys $\Delta R^2 = 0.214$ over the instantaneous fit; on the levels the
+delay and the time constant together buy $0.071$, and both parameters land
+inside their grids rather than against a bound, so this is the only external
+driver in the study whose thermal time constant the record actually identifies.
+
+What the clamp costs can now be stated rather than asserted. Restricting the
+search to non-negative delays---the restriction any forecast is under, since a
+lead would need the probe's future values at the moment of issue---gives up
+$\Delta R^2 = 0.068$ on the band and $0.024$ on the levels. That is the price of
+using this channel predictively, and it is small enough to pay.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{TR_F02_lag_curves_str.png}
+\caption{Round~1. Correlation against lag for each on-structure driver, diurnal
+band, current era. The marked point on each curve is the optimum the scan
+selected. The supply voltage is drawn with the rest: it is the negative control,
+and its curve is the floor the others are read against.}
+\label{fig:lags_str}
+\end{figure}
+
+% ===========================================================================
+\section{Round 2 · ERA5}
+\label{sec:round2}
+
+ERA5 is a nine-kilometre grid average: its air temperature is not the air
+temperature at the wall and its radiation is not the radiation the wall
+receives. What it offers instead is a record with no gaps across the whole
+archive, which is precisely what the on-structure channels lack.
+
+On the diurnal band its air temperature reaches $r = -0.787$ at zero lag with a
+gain of $-2.04$~\mdegC, and its radiation $r = -0.873$, also at zero lag. Both
+are weaker than their on-structure counterparts and both keep the expected sign.
+The attenuation is what a spatial average should do to a local signal, and it is
+consistent with Study~02's finding that the three sources are not replicates of
+one quantity.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{TR_F03_lag_curves_era5.png}
+\caption{Round~2. Correlation against lag for the ERA5 channels, diurnal band,
+whole record.}
+\label{fig:lags_era5}
+\end{figure}
+
+% ===========================================================================
+\section{Round 3 · the town station}
+\label{sec:round3}
+
+The Gubbio station is a point observation from a standard screen, neither a grid
+average nor a box bolted to the wall. On the diurnal band its radiation gives
+the strongest external association of the study, $r = -0.879$ at zero lag with a
+gain of $-0.035$~mdeg per watt per square metre, and its air temperature
+$r = -0.807$ with a gain of $-2.23$~\mdegC. Both sit between the on-structure
+channels and ERA5, which is where a town-centre screen ought to sit.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{TR_F04_lag_curves_gs.png}
+\caption{Round~3. Correlation against lag for the Gubbio station channels,
+diurnal band, whole record.}
+\label{fig:lags_gs}
+\end{figure}
+
+% ===========================================================================
+\section{What the operator scan settled, and what it did not}
+\label{sec:operator}
+
+Scanning delay and time constant jointly was meant to answer whether the wall's
+response is delayed, damped, or neither. It answered that for two drivers and
+refused to answer it for the rest, and the refusal is the more useful half.
+
+\paragraph{Two time constants are identified.} The wall temperature settles at
+$\tau = 4$~h on the levels and the on-structure radiation at $\tau = 48$~h, both
+strictly inside the grid, both buying real explanatory power over the
+instantaneous fit ($\Delta R^2 = 0.071$ and $0.122$). The radiation's placement
+is the weaker of the two: its surface is nearly flat from 36 to 72~h
+($R^2 = 0.285$, $0.288$, $0.287$), so what that panel establishes is that the
+coupling is inertial rather than instantaneous, not that the time constant is
+two days. On the diurnal band every
+driver's time constant is zero by construction, and the delays are zero or one
+hour, so the daily coupling is instantaneous at hourly resolution.
+
+\paragraph{Every other time constant on the levels is unidentified.} Fifteen
+of the twenty-two drivers pin against the three-day bound rather than settling
+inside it, which means the scan stopped where the grid did and not where the
+physics did. Figures~\ref{fig:operator_grid_era5} and~\ref{fig:operator_grid_gs}
+show what that looks like: ten panels, ten surfaces climbing monotonically to
+the top row, not one of them turning over inside the grid. Extending the grid does not fix this: run to 2160~h the optima
+slide to 720--1440~h, where a ``filtered driver'' is an annual cycle and its
+correlation with the response is a statement about season. The negative control
+does exactly the same, $r = -0.47$ at the bound, which is the tell---a channel
+with no mechanism cannot acquire one by being smoothed, so what the smoothing
+found is variation the whole site shares.
+
+The consequence for the report is a restriction on what the levels are allowed
+to say. On that band the study reports the instantaneous association and the two
+identified operators, and treats a bound-pinned time constant as missing rather
+than as measured. The diurnal band carries the coupling result.
+
+\paragraph{This also corrects the source of the idea.} The retired study in
+\texttt{studies/obsolete/inclination\_prediction/}, whose figures prompted this
+scan, capped its own grid at 168~h and reported radiation gaining
+$\Delta R^2 = 0.43$ from a time constant sitting exactly on that cap. That is
+the same slide, unremarked. The method it demonstrates is sound and this report
+adopts it; the number it produced is an artefact of where its grid ended.
+
+\subsection{How to read one of these grids}
+\label{sec:reading}
+
+The three figures that follow are the study's only two-dimensional ones and
+they carry most of what the tables cannot. This subsection says how to read
+them.
+
+\paragraph{What is drawn.} Each cell is one operator. Its horizontal position
+is a transport delay in hours, its vertical position a thermal time constant in
+hours, and its colour the $R^2$ of the driver---put through that delay and that
+time constant---regressed on the response, over the hours the two series share
+at that operator. Dark is a high $R^2$, following the project's rule that the
+meaningful end of a scalar map is the dark one. The dot marks the winning cell
+and the panel title repeats its coordinates and its $R^2$. The bottom-left cell,
+$(0,0)$, is the instantaneous case: no delay, no inertia, the driver exactly as
+recorded.
+
+\paragraph{Two things the panels do not say, and one they do.} The vertical
+axis is a list of chosen time constants drawn at equal spacing, not a linear
+scale, so a step from 48 to 72~h occupies the same height as one from 0 to 1~h
+and vertical distance is not proportional to hours. And $R^2$ discards the sign:
+a panel cannot distinguish a driver that heats the wall from one that cools it,
+and the sign must be read from the $r$ column of Table~\ref{tab:level}
+or~\ref{tab:diurnal}.
+
+What the panels do say, and this is deliberate, is how the drivers compare. All
+three figures are drawn on one colour scale, running from 0 to the largest
+$R^2$ any of their panels reaches, rounded up---0.90, set by the on-structure
+air temperature. A shade therefore means the same number in every panel of
+every one of the three figures, and nothing is clipped. The price is that a weak
+panel occupies only the bottom of the range and shows little of its own
+structure: the station's pressure is a uniform pale field because it explains
+between $0.6$ and $1.0$~per cent of the variance everywhere on its grid, and
+that flatness is the finding rather than a defect of the drawing.
+
+\paragraph{The shapes, and what each one means.} A grid is read by its shape
+before its maximum, because the shape says whether the maximum means anything.
+
+\begin{itemize}
+\item \textbf{A bright corner at $(0,0)$, fading in both directions.} The
+coupling is instantaneous: neither a delay nor an inertia improves it. The
+on-structure air temperature is this, and it is the cleanest result in the
+study.
+
+\item \textbf{A bright band along the bottom row, away from zero.} A pure
+transport delay: the response reproduces the driver's shape, later. Nothing in
+this study is cleanly of this kind, which is itself informative.
+
+\item \textbf{A bright band up the left column, at zero delay.} A pure
+inertia: the response follows a smoothed driver rather than a shifted one. The
+on-structure radiation on the levels is this, rising from $R^2 = 0.166$ at
+$\tau = 0$ to $0.288$ at $\tau = 48$~h. Note how weakly the maximum is placed
+even so---$0.285$, $0.288$ and $0.287$ at 36, 48 and 72~h---so the shape is
+established and the exact time constant is not.
+
+\item \textbf{A diagonal ridge.} The two parameters are trading off: a longer
+delay with a shorter time constant fits about as well as the reverse, because
+both mostly move the driver's phase. Only the combination is resolved, and the
+winning pair is one point on a ridge rather than a measurement of either
+parameter. Wall temperature shows this around its optimum, where the four best
+cells---$(-4, 4)$, $(-4, 3)$, $(-5, 4)$ and $(-5, 6)$---lie within $0.002$ of
+each other in $R^2$.
+
+\item \textbf{A surface that climbs to the top row and stops there.} The
+optimum is the bound, not a turning point: the scan was stopped by the grid
+rather than by the physics, and the time constant is unidentified. All ten
+external panels of Figures~\ref{fig:operator_grid_era5}
+and~\ref{fig:operator_grid_gs} are this shape. Such a cell must not be quoted
+as a measured time constant, and the tables flag it.
+
+\item \textbf{Two bright regions about twenty-four hours apart.} Aliasing. On
+a near-periodic signal a delay of $d$ and a delay of $d \pm 24$ produce almost
+the same alignment, so a scan wide enough to contain both will report whichever
+happens to score higher. Wall temperature, scanned over signed delays, peaks at
+$-4$~h with $R^2 = 0.802$ and again at $+19$~h with $0.777$: the second is the
+first wearing a different sign of delay, and an unbounded scan that returned it
+would describe the wall as following its own probe by most of a day.
+
+\item \textbf{A pale, featureless panel.} No coupling at any operator, and on
+the shared scale that pallor is directly comparable with every other panel
+rather than relative to the panel's own contents. Station pressure is this, and
+so, more surprisingly, is the on-structure radiation on the levels: its interior
+maximum is real but it sits at $R^2 = 0.29$, against $0.89$ for the air
+temperature beside it.
+\end{itemize}
+
+\paragraph{Reading a panel with the tables.} The figure locates the optimum;
+two columns of the tables say whether it is worth anything.
+$\Delta R^2$ is the winning cell's $R^2$ minus the instantaneous cell's, so a
+small value means the operator is decoration however confident the panel title
+looks---the on-structure air temperature's is exactly zero. For a driver scanned
+over signed delays, $R^2$ lost to causality is what disappears when the search
+is restricted to the non-negative half of the panel, which is the half a
+forecast is allowed to use.
+
+\paragraph{One panel, end to end.} Take the wall temperature in
+Figure~\ref{fig:operator_grid}. The bright region is a ridge, so the delay and
+the time constant are not separately sharp. Its maximum sits at a \emph{negative}
+delay, so the response leads the probe, which Section~7.5 reads as a probe
+mounted deeper than the layers that drive the movement. There is a second bright
+region near $+19$~h, which is that maximum's daily alias and not a second
+mechanism. The maximum is inside the grid on both axes, so unlike every external
+driver this time constant is identified. Table~\ref{tab:level} then supplies
+what the panel discarded: the association is negative, $r = -0.895$, the gain is
+$-2.95$~mdeg per degree, the operator is worth $\Delta R^2 = 0.071$ over the
+instantaneous fit, and restricting it to causal delays costs $0.024$.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{TR_F07_operator_grid_str.png}
+\caption{The delay-by-time-constant grid for the four on-structure drivers with
+a mechanism, on the levels, current era. Each panel is titled with its own
+winning cell, marked in the accent colour. All three grid figures share one
+colour scale, 0 to 0.90, taken from the strongest panel among them so that
+nothing is clipped and a shade means the same number throughout. What the table
+cannot show is here: where the bright region is a ridge rather than a
+peak, the delay and the time constant are trading off against one another and
+the winning pair is one point on that ridge. The wall temperature's second ridge,
+around a delay of twenty hours, is the 24-hour alias of its optimum at $-4$ and
+is what the signed scan's bound exists to keep out of the answer.}
+\label{fig:operator_grid}
+\end{figure}
+
+The same grid for the two external source families says something the
+on-structure one does not, and it says it at a glance.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{TR_F08_operator_grid_era5.png}
+\caption{The grid for the ERA5 channels, on the levels, whole record. Every
+panel has the same shape: the surface climbs monotonically with the time
+constant and never turns over, so its maximum lies on the top row of the grid
+rather than inside it. That is the visible form of a time constant the record
+does not identify---the scan is not finding an optimum, it is being stopped by
+the bound. Compare the on-structure panels of
+Figure~\ref{fig:operator_grid}, where the wall temperature and the radiation
+have an interior maximum with structure around it.}
+\label{fig:operator_grid_era5}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{TR_F09_operator_grid_gs.png}
+\caption{The grid for the Gubbio station channels, on the same terms and the
+same shared colour scale. The picture is the reanalysis's: five channels, five
+maxima on the bound. Because the scale is shared with
+Figure~\ref{fig:operator_grid}, the comparison between the families can be made
+by eye---these panels are pale where the on-structure ones are dark, and the
+station's pressure, coupled to nothing, is the palest field in the study.}
+\label{fig:operator_grid_gs}
+\end{figure}
+
+% ===========================================================================
+\section{Across the rounds}
+\label{sec:across}
+
+The point of screening three source families rather than one is that the three
+disagree, measurably so in Study~02, and a coupling that survives the
+disagreement is a statement about the wall rather than about a file.
+
+Air temperature survives it. It is the leading or near-leading driver in every
+round, always at zero lag on the diurnal band, always negative, with gains of
+$-2.79$, $-2.23$ and $-2.04$~\mdegC{} for the housing, the station and ERA5
+respectively. The ordering is the exposure ordering: the channel closest to the
+wall gives the largest gain, and the spatial average the smallest.
+
+Solar radiation survives it too, at zero to one hour on the diurnal band, with
+gains between $-0.026$ and $-0.035$~mdeg per watt per square metre. On the
+levels all three radiation channels want a long time constant and two of the
+three want more than the grid allows, which Section~\ref{sec:operator} reads as
+a seasonal covariation rather than a thermal one.
+
+Relative humidity appears in every round with a \emph{positive} association of
+$r \approx +0.69$ to $+0.79$. This is not an independent finding. Humidity at
+this site is largely the inverse of the daily temperature cycle, and its
+correlation with the response carries the sign that inversion implies. It is
+reported because the screen reports what it measures, not because a
+moisture mechanism has been demonstrated.
+
+The tables below give the full screen, one row per driver, pooled over the whole
+record.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrrrrll}
+\toprule
+\textbf{Driver} & \textbf{Lag} & \textbf{$\tau$} & \textbf{r} &
+\textbf{$\Delta R^2$} & \textbf{Slope} & \textbf{N} & \textbf{Clears} &
+\textbf{Sign} \\
+\midrule
+\input{../outputs/TR_T03_coupling_level.tex}\\
+\bottomrule
+\end{tabular}
+\caption{The screen on the levels. \textbf{Lag} and \textbf{$\tau$} in hours,
+\textbf{$\Delta R^2$} what the operator bought over the instantaneous fit,
+\textbf{Slope} in millidegrees per unit of the driver, \textbf{Clears} whether
+the driver exceeds the negative control, \textbf{Sign} whether its slope points
+the way the site's geometry predicts. A $\tau$ of 72~h is the grid's bound and
+means the time constant was not identified; see Section~\ref{sec:operator}.}
+\label{tab:level}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrrrrll}
+\toprule
+\textbf{Driver} & \textbf{Lag} & \textbf{$\tau$} & \textbf{r} &
+\textbf{$\Delta R^2$} & \textbf{Slope} & \textbf{N} & \textbf{Clears} &
+\textbf{Sign} \\
+\midrule
+\input{../outputs/TR_T04_coupling_diurnal.tex}\\
+\bottomrule
+\end{tabular}
+\caption{The same screen on the diurnal band, where the time constant is fixed
+at zero because it is not identifiable against a single period. The band is
+where the daily forcing lives, and where every association in this study is
+strongest.}
+\label{tab:diurnal}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{TR_F05_leading_driver_scatter.png}
+\caption{The response against the strongest surviving driver at the lag the scan
+selected, diurnal band, with the fitted gain and its interval.}
+\label{fig:scatter}
+\end{figure}
+
+% ===========================================================================
+\section{Stability}
+\label{sec:stability}
+
+A gain fitted over a whole record is a single number that a single season can
+produce on its own. Re-fitting the same lag month by month separates a coupling
+from a coincidence: a real one holds its slope, within its uncertainty, across
+months in which the driver's own range changes.
+
+The on-structure air temperature holds a median gain of $-2.48$~\mdegC{} across
+thirty-five months, ranging between $-3.63$ and $-1.88$. The two external air
+temperatures behave the same way about their own medians. Solar radiation is
+stable to within a factor of about three across the same window. The
+wall-temperature and on-structure radiation gains rest on nine months only,
+which is the whole current era, and their stability is correspondingly weakly
+established.
+
+Wind speed channels are visibly unstable: ERA5 wind speed ranges from $-0.84$ to
+$-14.6$~mdeg per m/s and station wind speed from $0.09$ to $3.02$ across months.
+Neither should be carried forward as a driver on the strength of a pooled fit.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{TR_F06_gain_stability.png}
+\caption{Gain re-fitted month by month at the lag the pooled scan selected, with
+its Newey--West interval. One panel per driver: the gains are in different units
+and an axis holding several of them would say nothing about any.}
+\label{fig:stability}
+\end{figure}
+
+% ===========================================================================
+\section{The control is not silent}
+\label{sec:control}
+
+The supply voltage was carried as a negative control on the reasoning that no
+mechanism moves a wall by battery voltage, so whatever it scored would be the
+study's noise floor. It did not behave as a null channel. On the levels over the
+post-outage record it reaches $r = -0.472$, and on the diurnal band it reaches
+$-0.673$ within the post-outage legacy era and $+0.549$ within the current one.
+
+On the levels it also takes the largest time constant the grid offers, landing
+at $r = -0.47$ against the bound exactly as the candidate drivers do.
+
+The explanation is not that the wall responds to the battery. It is that the
+battery responds to the same daily cycle as everything else---a solar-charged
+supply in a sun-exposed housing carries the day in its voltage---and, on the
+slow band, to the same annual one. The control sliding to the bound alongside
+the candidates is what identifies that bound as an artefact rather than a
+measurement, and it is the clearest thing the control did in this study. The control is
+therefore not mechanism-free, and the floor it sets is a \emph{conservative}
+one---too high rather than too low. A driver that clears it has cleared a
+channel that itself carries the diurnal forcing, which makes clearing a stronger
+statement than it was designed to be; a driver that fails to clear it has not
+thereby been shown to be uncoupled.
+
+Read that way, thirteen of the twenty-two screened drivers clear the control on
+the diurnal band; the channels that do not include precipitation, the wind
+direction components, station pressure, and ERA5 dew point.
+
+A better control for a future study would be a channel with a comparable
+sampling history and no thermal exposure at all. The project does not currently
+record one.
+
+% ===========================================================================
+\section{Verdict}
+\label{sec:verdict}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrrrrrrlll}
+\toprule
+\textbf{Band} & \textbf{Driver} & \textbf{Lag} & \textbf{$\tau$} &
+\textbf{r} & \textbf{$\Delta R^2$} & \textbf{Slope} & \textbf{N} &
+\textbf{Clears} & \textbf{Signif.} & \textbf{Sign} \\
+\midrule
+\input{../outputs/TR_T06_verdict.tex}\\
+\bottomrule
+\end{tabular}
+\caption{The verdict, pooled over the whole record. The three conditions are
+reported separately rather than combined, because a driver can fail one and pass
+another and the distinction matters to what a later study may do with it.}
+\label{tab:verdict}
+\end{table}
+
+What a later study may take from this report:
+
+\begin{itemize}
+\item \textbf{Air temperature is the driver.} Negative, at zero lag on the
+diurnal band, in all three source families, with a gain between $-2.0$ and
+$-2.8$~\mdegC{} that is stable over thirty-five months. Where the
+on-structure channel is present it is the strongest of the three; where it is
+absent, either external source carries the same sign and lag at a reduced gain.
+
+\item \textbf{Solar radiation couples at zero to one hour} with a gain of order
+$-3\times10^{-2}$~mdeg per watt per square metre, and the external radiation
+channels reproduce the on-structure one closely enough to stand in for it
+outside the certified window.
+
+\item \textbf{Wall temperature leads nothing.} The inclination leads it by two
+hours on the diurnal band and by four, with a four-hour time constant, on the
+levels. It is the only driver whose time constant this record identifies. Use
+the measurement as a diagnostic of probe depth; clamping the lead to zero, which
+any forecast requires, costs $\Delta R^2 = 0.068$ on the band and $0.024$ on the
+levels.
+
+\item \textbf{No thermal inertia is identified for the external drivers.} Their
+level-band time constants pin against the grid's bound and are reported as
+missing. A model built on this study should carry them instantaneously, at the
+delays the diurnal band measured, and should not inherit a time constant from
+Table~\ref{tab:level}.
+
+\item \textbf{The sign agrees with the site's structural convention} for every
+heating driver in every round, on the compensated response. This does not
+resolve the contradiction of Section~7.5, which concerns the raw channel, and it
+must not be quoted as though it did.
+\end{itemize}
+
+% ===========================================================================
+\section{Limitations}
+\label{sec:limitations}
+
+\begin{itemize}
+\item \textbf{The compensated response is not an independent measurement of the
+structure.} Section~7.2's compensation subtracts a fixed
+5~\mdegC{} from a channel whose own thermal slope is of comparable size, so
+part of what is measured here as a structural response is the residual of that
+subtraction. Screening the raw channel alongside it was deliberately left out of
+scope; it is the obvious next study.
+
+\item \textbf{Zero lag at hourly resolution is a bound, not a value.} A response
+that follows its driver by twenty minutes and one that follows it instantly are
+the same number on this grid. Study~01's archive is on a twenty-minute grid and
+could support a finer scan.
+
+\item \textbf{The levels cannot separate inertia from season.} Section
+\ref{sec:operator} sets this out: fifteen of twenty-two time constants pin
+against the grid's bound, and the negative control pins with them. A record of
+three years contains only three realisations of the annual cycle, which is not enough
+to tell a slow thermal response from a seasonal coincidence. Nothing short of a
+different experiment---or a driver whose annual cycle differs from the
+response's---will settle it.
+
+\item \textbf{The current-era channels rest on nine months.} Wall temperature
+and on-structure radiation carry roughly five thousand paired hours against
+twenty-one thousand for air temperature, and their stability is established
+correspondingly weakly.
+
+\item \textbf{The negative control is thermally exposed}, as
+Section~\ref{sec:control} sets out. The floor it defines is conservative and the
+screen inherits that.
+
+\item \textbf{Correlation between drivers is not addressed.} Air temperature,
+dew point, humidity and radiation share one daily cycle, and this study screens
+each against the response separately rather than fitting them together. Which of
+them a model should carry, and with what collinearity treatment, is a question
+for the modelling study, not for this screen.
+\end{itemize}
+
+\end{document}

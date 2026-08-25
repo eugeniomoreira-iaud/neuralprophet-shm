@@ -1,0 +1,494 @@
+{
+  "01_data_exploration/data_exploration_study.py": {
+    "mtime": 1787326806.110443,
+    "seen": 1787338637.058889,
+    "ast_hash": "3d083bfd52fbacfb3e015de9a59b5c40",
+    "semantic_hash": "3d083bfd52fbacfb3e015de9a59b5c40"
+  },
+  "01_data_exploration/de_lib.py": {
+    "mtime": 1787384265.1331534,
+    "seen": 1787385953.077893,
+    "ast_hash": "d4f9dc03cb5c467af0c59f5f3f8ef881",
+    "semantic_hash": "d4f9dc03cb5c467af0c59f5f3f8ef881"
+  },
+  "01_data_exploration/tests/test_report_span_highlights.py": {
+    "mtime": 1787285172.537593,
+    "seen": 1787338637.058892,
+    "ast_hash": "f932ac6bff6fc0789566493b2a72f35d",
+    "semantic_hash": "f932ac6bff6fc0789566493b2a72f35d"
+  },
+  "01_data_exploration/tests/test_wall_temperature_filter.py": {
+    "mtime": 1787177686.795264,
+    "seen": 1787338637.058892,
+    "ast_hash": "40d0ba7142c559ae5401c1b1c87c5389",
+    "semantic_hash": "40d0ba7142c559ae5401c1b1c87c5389"
+  },
+  "02_proxy_forcing_characterization/proxy_forcing_characterization_study.py": {
+    "mtime": 1787383146.006735,
+    "seen": 1787385953.077999,
+    "ast_hash": "ee45c5d4c1b6580a080fa2e17a412b7a",
+    "semantic_hash": "ee45c5d4c1b6580a080fa2e17a412b7a"
+  },
+  "shmlib/__init__.py": {
+    "mtime": 1787385057.9135196,
+    "seen": 1787385953.078007,
+    "ast_hash": "43eeec42daa569bfa464f45001d527e1",
+    "semantic_hash": "43eeec42daa569bfa464f45001d527e1"
+  },
+  "shmlib/adc.py": {
+    "mtime": 1787321029.4944963,
+    "seen": 1787338637.0588942,
+    "ast_hash": "d7f3622ac825a130d6202e64670ae65b",
+    "semantic_hash": "d7f3622ac825a130d6202e64670ae65b"
+  },
+  "shmlib/site.py": {
+    "mtime": 1787351073.5003808,
+    "seen": 1787381266.08186,
+    "ast_hash": "a5fbd260e6073acc45b7cee4f81d3fb4",
+    "semantic_hash": "a5fbd260e6073acc45b7cee4f81d3fb4"
+  },
+  "shmlib/solar.py": {
+    "mtime": 1787350109.5272665,
+    "seen": 1787381266.081861,
+    "ast_hash": "f4624ef680b62b8e7bbe177ff8744159",
+    "semantic_hash": "f4624ef680b62b8e7bbe177ff8744159"
+  },
+  "shmlib/tables.py": {
+    "mtime": 1787350393.7161303,
+    "seen": 1787381266.081861,
+    "ast_hash": "549ceafbf59a11aa687725271642cd3b",
+    "semantic_hash": "549ceafbf59a11aa687725271642cd3b"
+  },
+  "shmlib/tests/test_shmlib.py": {
+    "mtime": 1787378827.482195,
+    "seen": 1787381266.081861,
+    "ast_hash": "5e3b2d47456bf2d9fb74ba4c41898567",
+    "semantic_hash": "5e3b2d47456bf2d9fb74ba4c41898567"
+  },
+  "shmlib/viz.py": {
+    "mtime": 1787382655.5620167,
+    "seen": 1787385953.078295,
+    "ast_hash": "bb9aaf1909425abfb2ee548bb77b9c87",
+    "semantic_hash": "bb9aaf1909425abfb2ee548bb77b9c87"
+  },
+  "01_data_exploration/README.md": {
+    "mtime": 1787321972.6292448,
+    "seen": 1787338637.0588958,
+    "ast_hash": "eb89f6ef0f66ce015168f4cd9de02d8e",
+    "semantic_hash": "eb89f6ef0f66ce015168f4cd9de02d8e"
+  },
+  "01_data_exploration/report/for-review.md": {
+    "mtime": 1787281869.5258489,
+    "seen": 1787338637.0588958,
+    "ast_hash": "34664ccbedad60a7c92ee64856722a91",
+    "semantic_hash": "34664ccbedad60a7c92ee64856722a91"
+  },
+  "02_proxy_forcing_characterization/README.md": {
+    "mtime": 1787351098.008646,
+    "seen": 1787381266.081862,
+    "ast_hash": "e300149411707b63f465f9f39cd6dc46",
+    "semantic_hash": "e300149411707b63f465f9f39cd6dc46"
+  },
+  "README.md": {
+    "mtime": 1787398012.764657,
+    "seen": 1787398116.285512,
+    "ast_hash": "abbcb78285c02585d849de585b25b1c8",
+    "semantic_hash": ""
+  },
+  "01_data_exploration/report/data_exploration_report.pdf": {
+    "mtime": 1787285771.612485,
+    "seen": 1787338637.0588968,
+    "ast_hash": "7a6ff063be57d49d0b335edae296c04e",
+    "semantic_hash": "7a6ff063be57d49d0b335edae296c04e"
+  },
+  "01_data_exploration/outputs/DE_F01_stations_map.png": {
+    "mtime": 1786812946.2333436,
+    "seen": 1787338637.0588968,
+    "ast_hash": "cf8977f9dcb2ad143d5c028c0831e9d3",
+    "semantic_hash": "cf8977f9dcb2ad143d5c028c0831e9d3"
+  },
+  "01_data_exploration/outputs/DE_F02_st02_sketch.png": {
+    "mtime": 1786813261.3072057,
+    "seen": 1787338637.0588968,
+    "ast_hash": "fb04942a785d3db74a7d676518dc5802",
+    "semantic_hash": "fb04942a785d3db74a7d676518dc5802"
+  },
+  "01_data_exploration/outputs/DE_F03_inclination_coverage.png": {
+    "mtime": 1787326824.60254,
+    "seen": 1787338637.058898,
+    "ast_hash": "c8e17d694a562a4e63eea301b9ad8661",
+    "semantic_hash": "c8e17d694a562a4e63eea301b9ad8661"
+  },
+  "01_data_exploration/outputs/DE_F03_inclination_coverage.svg": {
+    "mtime": 1787326824.6599936,
+    "seen": 1787338637.058898,
+    "ast_hash": "860b2f5aa7e185f50a17127924c48d58",
+    "semantic_hash": "860b2f5aa7e185f50a17127924c48d58"
+  },
+  "01_data_exploration/outputs/DE_F04_st02_inclination.png": {
+    "mtime": 1787326824.8228977,
+    "seen": 1787338637.058898,
+    "ast_hash": "ba8161d3c6bae167b947d35f0390d262",
+    "semantic_hash": "ba8161d3c6bae167b947d35f0390d262"
+  },
+  "01_data_exploration/outputs/DE_F05_st02_summer2026_anomaly.png": {
+    "mtime": 1787326825.0474744,
+    "seen": 1787338637.058899,
+    "ast_hash": "5c3bb0be641e1a26fd47a657266ea8c5",
+    "semantic_hash": "5c3bb0be641e1a26fd47a657266ea8c5"
+  },
+  "01_data_exploration/outputs/DE_F06_st02_summer2026_filtered.png": {
+    "mtime": 1787326825.3749325,
+    "seen": 1787338637.058899,
+    "ast_hash": "58a1ec94f8b5cca587bd013f29148620",
+    "semantic_hash": "58a1ec94f8b5cca587bd013f29148620"
+  },
+  "01_data_exploration/outputs/DE_F07_st02_inclination_cleaned.png": {
+    "mtime": 1787326825.5222392,
+    "seen": 1787338637.058899,
+    "ast_hash": "fd17619658120934693bf2360236e6c1",
+    "semantic_hash": "fd17619658120934693bf2360236e6c1"
+  },
+  "01_data_exploration/outputs/DE_F08_st02_diurnal_cycles.png": {
+    "mtime": 1787326825.9634225,
+    "seen": 1787338637.0588999,
+    "ast_hash": "496f8aa0beff70c7940f3d92cbefbea5",
+    "semantic_hash": "496f8aa0beff70c7940f3d92cbefbea5"
+  },
+  "01_data_exploration/outputs/DE_F09_st02_tair.png": {
+    "mtime": 1787326826.2434638,
+    "seen": 1787338637.0588999,
+    "ast_hash": "c633677c9bd58888a2c7f17cd95f9a58",
+    "semantic_hash": "c633677c9bd58888a2c7f17cd95f9a58"
+  },
+  "01_data_exploration/outputs/DE_F09_st02_tair.svg": {
+    "mtime": 1787326826.2740607,
+    "seen": 1787338637.0588999,
+    "ast_hash": "188804ccb099bc435c04ba2dd60b9a66",
+    "semantic_hash": "188804ccb099bc435c04ba2dd60b9a66"
+  },
+  "01_data_exploration/outputs/DE_F10_st02_tair_diurnal_cycles.png": {
+    "mtime": 1787326826.6854696,
+    "seen": 1787338637.0588999,
+    "ast_hash": "571689d118feecf1bf8c01e16923e754",
+    "semantic_hash": "571689d118feecf1bf8c01e16923e754"
+  },
+  "01_data_exploration/outputs/DE_F11_st02_rh.png": {
+    "mtime": 1787326826.9693866,
+    "seen": 1787338637.058901,
+    "ast_hash": "71b0100f3c9795763bd88eb150a785a0",
+    "semantic_hash": "71b0100f3c9795763bd88eb150a785a0"
+  },
+  "01_data_exploration/outputs/DE_F11_st02_rh.svg": {
+    "mtime": 1787326826.9994605,
+    "seen": 1787338637.058901,
+    "ast_hash": "02ccd9d0a3d2b9343e5324bbb1e1346b",
+    "semantic_hash": "02ccd9d0a3d2b9343e5324bbb1e1346b"
+  },
+  "01_data_exploration/outputs/DE_F12_st02_rh_diurnal_cycles.png": {
+    "mtime": 1787326827.395809,
+    "seen": 1787338637.058901,
+    "ast_hash": "977c7404b0956f72b5afd8f3d4138e7b",
+    "semantic_hash": "977c7404b0956f72b5afd8f3d4138e7b"
+  },
+  "01_data_exploration/outputs/DE_F13_st02_batt.png": {
+    "mtime": 1787326827.7043533,
+    "seen": 1787338637.058902,
+    "ast_hash": "4d7f3eb48d0d855c4c10641716384f40",
+    "semantic_hash": "4d7f3eb48d0d855c4c10641716384f40"
+  },
+  "01_data_exploration/outputs/DE_F14_st02_anomaly_channels.png": {
+    "mtime": 1787326828.0197222,
+    "seen": 1787338637.058902,
+    "ast_hash": "01de84b33149eb12fd980cbf1fbcab33",
+    "semantic_hash": "01de84b33149eb12fd980cbf1fbcab33"
+  },
+  "01_data_exploration/outputs/DE_F14_st02_anomaly_channels.svg": {
+    "mtime": 1787326828.1133482,
+    "seen": 1787338637.058902,
+    "ast_hash": "a7ba422d33423e0f0708f875743fa152",
+    "semantic_hash": "a7ba422d33423e0f0708f875743fa152"
+  },
+  "01_data_exploration/outputs/DE_F15_st02_current_era_coverage.png": {
+    "mtime": 1787326828.3906028,
+    "seen": 1787338637.058902,
+    "ast_hash": "69c92378890f92cee097695c9fc32393",
+    "semantic_hash": "69c92378890f92cee097695c9fc32393"
+  },
+  "01_data_exploration/outputs/DE_F16_st02_twall_raw.png": {
+    "mtime": 1787326828.4973428,
+    "seen": 1787338637.058903,
+    "ast_hash": "6ec49d202f1624ed981063333e65e7ed",
+    "semantic_hash": "6ec49d202f1624ed981063333e65e7ed"
+  },
+  "01_data_exploration/outputs/DE_F17_st02_twall_filtered.png": {
+    "mtime": 1787326828.708972,
+    "seen": 1787338637.058903,
+    "ast_hash": "b937c6bc2d09e4902c684e1e088a6537",
+    "semantic_hash": "b937c6bc2d09e4902c684e1e088a6537"
+  },
+  "01_data_exploration/outputs/DE_F18_st02_twall_final_segment_anomalies.png": {
+    "mtime": 1787326828.8249552,
+    "seen": 1787338637.058903,
+    "ast_hash": "f6b76a63b088c14df4021c32399ca0bc",
+    "semantic_hash": "f6b76a63b088c14df4021c32399ca0bc"
+  },
+  "01_data_exploration/outputs/DE_F19_st02_twall_final_segment_filtered.png": {
+    "mtime": 1787326828.9339616,
+    "seen": 1787338637.0589042,
+    "ast_hash": "b437b68c529504550ad582aec9a06eda",
+    "semantic_hash": "b437b68c529504550ad582aec9a06eda"
+  },
+  "01_data_exploration/outputs/DE_F20_st02_twall_diurnal_cycles.png": {
+    "mtime": 1787326829.0692027,
+    "seen": 1787338637.0589042,
+    "ast_hash": "57ca15ef047fa2a92e4ecf72e84a10ee",
+    "semantic_hash": "57ca15ef047fa2a92e4ecf72e84a10ee"
+  },
+  "01_data_exploration/outputs/DE_F21_st02_sr.png": {
+    "mtime": 1787326829.2970119,
+    "seen": 1787338637.0589042,
+    "ast_hash": "91f6c1261dfa746eff8dcd17f22f5a97",
+    "semantic_hash": "91f6c1261dfa746eff8dcd17f22f5a97"
+  },
+  "01_data_exploration/outputs/DE_F22_st02_sr_failure.png": {
+    "mtime": 1787326829.515764,
+    "seen": 1787338637.0589051,
+    "ast_hash": "543739b7967733395797ce98539fc097",
+    "semantic_hash": "543739b7967733395797ce98539fc097"
+  },
+  "01_data_exploration/outputs/DE_F23_st02_sr_diurnal_cycles.png": {
+    "mtime": 1787326829.6622837,
+    "seen": 1787338637.0589051,
+    "ast_hash": "d2cf1937bbc43883445852e401c2af33",
+    "semantic_hash": "d2cf1937bbc43883445852e401c2af33"
+  },
+  "01_data_exploration/outputs/DE_F24_st02_phase_chain.png": {
+    "mtime": 1787326829.826883,
+    "seen": 1787338637.0589051,
+    "ast_hash": "48759f8a6fa7e9a6fa57cdcc36b49a33",
+    "semantic_hash": "48759f8a6fa7e9a6fa57cdcc36b49a33"
+  },
+  "01_data_exploration/outputs/DE_F24_st02_phase_chain.svg": {
+    "mtime": 1787326829.8547769,
+    "seen": 1787338637.0589051,
+    "ast_hash": "e32d63d8b48d650358a7c86375fff55e",
+    "semantic_hash": "e32d63d8b48d650358a7c86375fff55e"
+  },
+  "02_proxy_forcing_characterization/tests/test_shmlib_study02.py": {
+    "mtime": 1787382372.5334663,
+    "seen": 1787385953.078,
+    "ast_hash": "d77fdd06f607a1e4a2606caea6e41368",
+    "semantic_hash": "d77fdd06f607a1e4a2606caea6e41368"
+  },
+  "shmlib/compare.py": {
+    "mtime": 1787351081.951299,
+    "seen": 1787381266.0818582,
+    "ast_hash": "fccc90dc59ed2c1026e1d90b5ce949cd",
+    "semantic_hash": "fccc90dc59ed2c1026e1d90b5ce949cd"
+  },
+  "shmlib/figures.py": {
+    "mtime": 1787396502.9852722,
+    "seen": 1787398116.285505,
+    "ast_hash": "8b15ab389587193547dec0dd6ec2f5ec",
+    "semantic_hash": ""
+  },
+  "shmlib/meteo.py": {
+    "mtime": 1787383535.1216867,
+    "seen": 1787385953.0781069,
+    "ast_hash": "769d47f893caa6f7c1a7693ba015c124",
+    "semantic_hash": "769d47f893caa6f7c1a7693ba015c124"
+  },
+  "shmlib/proxies.py": {
+    "mtime": 1787382373.7006278,
+    "seen": 1787385953.0781078,
+    "ast_hash": "128abf7e2beeac774d0c6e9750db90f7",
+    "semantic_hash": "128abf7e2beeac774d0c6e9750db90f7"
+  },
+  "shmlib/quality.py": {
+    "mtime": 1787382301.0174825,
+    "seen": 1787385953.078109,
+    "ast_hash": "31154151d8868de2da3eb89645e3303c",
+    "semantic_hash": "31154151d8868de2da3eb89645e3303c"
+  },
+  "02_proxy_forcing_characterization/report/proxy_forcing_report.pdf": {
+    "mtime": 1787383210.4253564,
+    "seen": 1787398116.2855139,
+    "ast_hash": "0e376f9768623a709dfc2a26e539b37d",
+    "semantic_hash": ""
+  },
+  "01_data_exploration/outputs/DE_F04_st02_inclination.svg": {
+    "mtime": 1787326824.8520312,
+    "seen": 1787351596.336757,
+    "ast_hash": "9cb92a40344a47ace4dc8158c0cfb8be",
+    "semantic_hash": ""
+  },
+  "01_data_exploration/outputs/DE_F05_st02_summer2026_anomaly.svg": {
+    "mtime": 1787326825.0889983,
+    "seen": 1787351596.336758,
+    "ast_hash": "a243d80e80bec7d73173afb899e284f2",
+    "semantic_hash": ""
+  },
+  "01_data_exploration/outputs/DE_F06_st02_summer2026_filtered.svg": {
+    "mtime": 1787326825.4061487,
+    "seen": 1787351596.336758,
+    "ast_hash": "93e54cf7478e60952c2faa83e9640a75",
+    "semantic_hash": ""
+  },
+  "01_data_exploration/outputs/DE_F07_st02_inclination_cleaned.svg": {
+    "mtime": 1787326825.55532,
+    "seen": 1787385953.078311,
+    "ast_hash": "0f578985b582e75bf50a98d8048c5aec",
+    "semantic_hash": "0f578985b582e75bf50a98d8048c5aec"
+  },
+  "01_data_exploration/outputs/DE_F08_st02_diurnal_cycles.svg": {
+    "mtime": 1787326826.062176,
+    "seen": 1787385953.078312,
+    "ast_hash": "10d2c5421b34450c0f7e53e7d62fe6c6",
+    "semantic_hash": "10d2c5421b34450c0f7e53e7d62fe6c6"
+  },
+  "01_data_exploration/outputs/DE_F10_st02_tair_diurnal_cycles.svg": {
+    "mtime": 1787326826.7837045,
+    "seen": 1787385953.078314,
+    "ast_hash": "9186fb296d10574f232321fca8c2b24d",
+    "semantic_hash": "9186fb296d10574f232321fca8c2b24d"
+  },
+  "01_data_exploration/outputs/DE_F12_st02_rh_diurnal_cycles.svg": {
+    "mtime": 1787326827.4942477,
+    "seen": 1787385953.078315,
+    "ast_hash": "58157372e5fe792570e86d31f3f8f57d",
+    "semantic_hash": "58157372e5fe792570e86d31f3f8f57d"
+  },
+  "01_data_exploration/outputs/DE_F13_st02_batt.svg": {
+    "mtime": 1787326827.7330139,
+    "seen": 1787385953.078316,
+    "ast_hash": "6a2bb091101fb09ab44eba21993b0723",
+    "semantic_hash": "6a2bb091101fb09ab44eba21993b0723"
+  },
+  "01_data_exploration/outputs/DE_F15_st02_current_era_coverage.svg": {
+    "mtime": 1787326828.4108489,
+    "seen": 1787385953.078319,
+    "ast_hash": "945549f892ccb28497de7a40f8b15e41",
+    "semantic_hash": "945549f892ccb28497de7a40f8b15e41"
+  },
+  "01_data_exploration/outputs/DE_F16_st02_twall_raw.svg": {
+    "mtime": 1787326828.5224757,
+    "seen": 1787385953.078321,
+    "ast_hash": "1d68a5a721a7d5a369498de6058275a5",
+    "semantic_hash": "1d68a5a721a7d5a369498de6058275a5"
+  },
+  "01_data_exploration/outputs/DE_F17_st02_twall_filtered.svg": {
+    "mtime": 1787326828.733217,
+    "seen": 1787385953.078322,
+    "ast_hash": "f40437926b6421cc918429aacf74e90f",
+    "semantic_hash": "f40437926b6421cc918429aacf74e90f"
+  },
+  "01_data_exploration/outputs/DE_F18_st02_twall_final_segment_anomalies.svg": {
+    "mtime": 1787326828.8493493,
+    "seen": 1787385953.078327,
+    "ast_hash": "852800b7b3e8af8ac8568ed112482792",
+    "semantic_hash": "852800b7b3e8af8ac8568ed112482792"
+  },
+  "01_data_exploration/outputs/DE_F19_st02_twall_final_segment_filtered.svg": {
+    "mtime": 1787326828.9547904,
+    "seen": 1787385953.078332,
+    "ast_hash": "7a4aa34d428cbf97b520d46fe081871a",
+    "semantic_hash": "7a4aa34d428cbf97b520d46fe081871a"
+  },
+  "01_data_exploration/outputs/DE_F20_st02_twall_diurnal_cycles.svg": {
+    "mtime": 1787326829.1048527,
+    "seen": 1787385953.078337,
+    "ast_hash": "031e06400c70125bffe512caa2ec8996",
+    "semantic_hash": "031e06400c70125bffe512caa2ec8996"
+  },
+  "01_data_exploration/outputs/DE_F21_st02_sr.svg": {
+    "mtime": 1787326829.328265,
+    "seen": 1787385953.078342,
+    "ast_hash": "4371f90d21c839734ca1172dc4998336",
+    "semantic_hash": "4371f90d21c839734ca1172dc4998336"
+  },
+  "01_data_exploration/outputs/DE_F22_st02_sr_failure.svg": {
+    "mtime": 1787326829.540229,
+    "seen": 1787385953.078343,
+    "ast_hash": "8dae6cba2cbc3e416a67385d75f79988",
+    "semantic_hash": "8dae6cba2cbc3e416a67385d75f79988"
+  },
+  "01_data_exploration/outputs/DE_F23_st02_sr_diurnal_cycles.svg": {
+    "mtime": 1787326829.699799,
+    "seen": 1787385953.0783439,
+    "ast_hash": "9b61b40f570473f7344fcd7e1af5ac33",
+    "semantic_hash": "9b61b40f570473f7344fcd7e1af5ac33"
+  },
+  "03_thermomechanical_response/tests/test_shmlib_study03.py": {
+    "mtime": 1787384374.3399506,
+    "seen": 1787385953.0780008,
+    "ast_hash": "3083b083aca8ad6ad557ece369b5dffd",
+    "semantic_hash": "3083b083aca8ad6ad557ece369b5dffd"
+  },
+  "03_thermomechanical_response/thermomechanical_response_study.py": {
+    "mtime": 1787396348.705149,
+    "seen": 1787398116.285501,
+    "ast_hash": "7422d3381d2c84f904d3d19d327b43c7",
+    "semantic_hash": ""
+  },
+  "shmlib/coupling.py": {
+    "mtime": 1787396241.9675522,
+    "seen": 1787398116.285504,
+    "ast_hash": "4c2de32d2d834f9b03b83b2b208ee495",
+    "semantic_hash": ""
+  },
+  "03_thermomechanical_response/README.md": {
+    "mtime": 1787395991.5384216,
+    "seen": 1787398116.285512,
+    "ast_hash": "25aff8d3eb58f9b25ba29437fd359264",
+    "semantic_hash": ""
+  },
+  "04_neuralprophet_inclination_prediction/neuralprophet_inclination_prediction_study.py": {
+    "mtime": 1787397716.420661,
+    "seen": 1787398116.285502,
+    "ast_hash": "bddd0315c852eeecb46a6f92e820cfeb",
+    "semantic_hash": ""
+  },
+  "04_neuralprophet_inclination_prediction/tests/test_prediction.py": {
+    "mtime": 1787396221.46346,
+    "seen": 1787398116.285502,
+    "ast_hash": "bd07bcbf24c2436fdf60d01e85e50ef7",
+    "semantic_hash": ""
+  },
+  "shmlib/prediction.py": {
+    "mtime": 1787396249.0888133,
+    "seen": 1787398116.285506,
+    "ast_hash": "7c3f1dae5fc139d2a22cabcb47d82107",
+    "semantic_hash": ""
+  },
+  "04_neuralprophet_inclination_prediction/README.md": {
+    "mtime": 1787398003.4105332,
+    "seen": 1787398116.285512,
+    "ast_hash": "21d5f5bbe623497ac8c7db213a825767",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260822_081118_what_connects_compensated_inclination__solar_radia.md": {
+    "mtime": 1787386278.035931,
+    "seen": 1787398116.285513,
+    "ast_hash": "cd052291fc140c85d9c4f98668b9cf38",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260822_102044_implement_study_04_using_neuralprophet_to_predict.md": {
+    "mtime": 1787394044.973178,
+    "seen": 1787398116.285513,
+    "ast_hash": "abbf933ffb6a45b5279fdcffed1864e6",
+    "semantic_hash": ""
+  },
+  "03_thermomechanical_response/report/thermomechanical_response_report.pdf": {
+    "mtime": 1787396582.371744,
+    "seen": 1787398116.285515,
+    "ast_hash": "196551716b8e8c5aee2ca1ae87c5a840",
+    "semantic_hash": ""
+  },
+  "04_neuralprophet_inclination_prediction/report/neuralprophet_inclination_prediction_report.pdf": {
+    "mtime": 1787398046.0002506,
+    "seen": 1787398116.285515,
+    "ast_hash": "a802c526a5973e176bf2548607ab6b3d",
+    "semantic_hash": ""
+  }
+}

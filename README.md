@@ -65,10 +65,14 @@ heritageshm/                        # Repository root
 │
 ├── auto_watcher.py                 # Jupytext file watcher (auto-syncs .py → .ipynb)
 ├── auto_watcher instructions.md    # Instructions for using the auto-watcher
+├── verify_env.py                   # Post-installation environment health check
+├── .vscode/                        # Shared VS Code tasks and workspace settings
 ├── jupytext.toml                   # Jupytext pairing configuration
 ├── environment.yml                 # Conda environment specification
 ├── file_structure.md               # Extended file structure reference
-├── CLAUDE.md                       # Instructions for AI coding agents
+├── instructions-pipeline.md        # Instructions for AI coding agents (shared, harness-neutral)
+├── CLAUDE.md                       # Claude Code entry point — imports the file above
+├── GEMINI.md                       # Antigravity / Gemini entry point — imports the file above
 └── LICENSE
 ```
 
@@ -78,9 +82,11 @@ heritageshm/                        # Repository root
 
 ## 🚀 Installation & Execution
 
+> These instructions assume Conda is already installed and initialised for your shell (`conda init zsh` on macOS, `conda init powershell` on Windows). [Miniforge](https://github.com/conda-forge/miniforge/releases) is the recommended distribution, since it is preconfigured for the `conda-forge` channel that `environment.yml` targets.
+
 ### 1. Create the Conda Environment
 
-The environment is fully specified in `environment.yml`. To create it from scratch:
+The environment is fully specified in `environment.yml`, which targets the `conda-forge` channel and resolves to the same package versions on macOS (Apple Silicon and Intel), Windows and Linux. To create it from scratch:
 
 ```bash
 conda env create -f environment.yml
@@ -88,6 +94,33 @@ conda activate neuralprophet_env
 ```
 
 This installs all required dependencies, including `neuralprophet`, `xgboost`, `jupytext`, `statsmodels`, and the full scientific Python stack.
+
+Verify the result before opening any notebook:
+
+```bash
+python verify_env.py
+```
+
+The script checks every package version, the numpy constraint required by `neuralprophet`, and whether a model can actually be trained. Anything other than `RESULT: PASSED` is covered in the troubleshooting table below.
+
+Four constraints in `environment.yml` are load-bearing and should not be relaxed. Each one corresponds to a failure that was observed on a clean install:
+
+- **`conda-forge` as the only channel.** The Anaconda `defaults` channel publishes no `osx-arm64` build of `jupyterlab-github`, so environment creation fails outright on Apple Silicon when `defaults` is used.
+- **`numpy>=1.25,<2`.** `neuralprophet` 0.8.0 requires numpy below 2.0. Without the pin, Conda installs numpy 2.x and the pip step then downgrades it, leaving `scipy`, `xgboost`, `statsmodels` and `pandas` compiled against a numpy ABI that is no longer present.
+- **`setuptools<81`.** setuptools 81 removed `pkg_resources`, which `pytorch-lightning` 1.9.x imports at module level. Without the pin, both `pytorch_lightning` and `neuralprophet` fail to import.
+- **`torch<2.6`.** PyTorch 2.6 changed the default of `weights_only` in `torch.load` to `True`. The checkpoint that `pytorch-lightning` 1.9.x restores during NeuralProphet's learning-rate finder contains config objects, so every fit aborts with `UnpicklingError: Weights only load failed`. Since `neuralprophet` 0.8.0 caps `pytorch-lightning` below 2.0, the lightning side cannot be upgraded out of the problem.
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `CondaToSNonInteractiveError: Terms of Service have not been accepted` | Conda 25.x requires explicit acceptance for Anaconda-hosted channels, commonly `pkgs/msys2` on Windows, even when the environment file requests only `conda-forge`. | Run the `conda tos accept` command printed in the error, or use Miniforge, which does not configure those channels. |
+| `PackagesNotFoundError: jupyterlab-github` | The `defaults` channel has no `osx-arm64` build. | Keep `conda-forge` as the only channel in `environment.yml`. |
+| `ImportError`, or `ValueError: numpy.dtype size changed` | numpy was downgraded underneath packages compiled against numpy 2. | `conda env remove -n neuralprophet_env`, then recreate from `environment.yml`. |
+| `No module named 'pkg_resources'` when importing `pytorch_lightning` or `neuralprophet` | setuptools 81 or newer removed `pkg_resources`. | `conda install -c conda-forge "setuptools<81"` in the environment. |
+| `UnpicklingError: Weights only load failed` during a NeuralProphet fit | torch 2.6 or newer, whose `torch.load` defaults to `weights_only=True`. | `pip install "torch<2.6"` in the environment, then rerun `verify_env.py`. |
+| `Error: 'jupytext' command not found` from `auto_watcher.py` | That terminal is not inside the environment. | `conda activate neuralprophet_env`, then restart the watcher. |
+| `FileNotFoundError` on a `data/...` path | The git-ignored data tree is absent or incomplete. | See "Supplying the Data" below. |
 
 ### 2. Update an Existing Environment
 
@@ -125,10 +158,19 @@ Commit `environment.yml` to Git to keep the specification up to date.
 
 ### 4. Supplying the Data
 
-Due to size and privacy limits, the `data/` and `outputs/` directories are tracked locally but ignored by Git. To run this pipeline:
+Due to size and privacy limits, the `data/` and `outputs/` directories are tracked locally but ignored by Git. They therefore never arrive with a clone and must be created by hand. To run this pipeline:
 
-1. Place your target static sensor data into `data/raw/sensor/`.
-2. Place your environmental proxy data into `data/raw/proxies/` as CSV files.
+1. Create the directory tree:
+
+```bash
+mkdir -p data/raw/sensor data/raw/proxies data/interim/sensor data/interim/aligned \
+         data/processed outputs/figures outputs/tables outputs/models
+```
+
+2. Place your target static sensor data into `data/raw/sensor/`.
+3. Place your environmental proxy data into `data/raw/proxies/` as CSV files.
+
+A `FileNotFoundError` on these paths in a fresh checkout is expected behaviour, not a code defect.
 
 ### 5. Running the Pipeline
 
@@ -137,6 +179,8 @@ The methodology is executed sequentially via the Jupyter Notebooks. Launch Jupyt
 ```bash
 jupyter lab
 ```
+
+Alternatively, open the repository root in VS Code with the Python and Jupyter extensions installed, select the `neuralprophet_env` interpreter, and use the shared tasks under **Terminal → Run Task…** (`Start Jupytext watcher`, `Verify environment`, `Sync all notebook pairs`). The `# %%` markers in the paired `.py` files make them runnable cell by cell in the Interactive Window.
 
 Execute the notebooks in order from `00` to `04` to replicate the full analytical workflow:
 

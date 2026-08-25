@@ -1,16 +1,38 @@
 name: neuralprophet_env
+
+# Channel policy: conda-forge only.
+#   1. The Anaconda "defaults" channel has no osx-arm64 build of jupyterlab-github,
+#      so `conda env create` fails outright on Apple Silicon when defaults is used.
+#   2. conda-forge provides identical coverage on win-64, osx-arm64, osx-64 and
+#      linux-64, which is what makes this file genuinely cross-platform.
+#   3. Using conda-forge also avoids the Anaconda Terms of Service acceptance
+#      prompt that conda 25.x raises for the defaults channel.
 channels:
-  - defaults
+  - conda-forge
 
 dependencies:
   - python=3.10
+
+  # numpy is pinned below 2.0 deliberately. neuralprophet 0.8.0 requires
+  # numpy>=1.25,<2.0. Without this pin, conda installs numpy 2.x and the later
+  # `pip install neuralprophet` step silently downgrades it to 1.26, while
+  # scipy, xgboost, statsmodels and pandas remain compiled against the numpy 2
+  # ABI. The result is import-time crashes that look unrelated to numpy.
+  - numpy>=1.25,<2
+  # pandas 3 is not supported by neuralprophet 0.8.0 (requires >=2.0,<3.0).
+  - pandas>=2.0,<3
+
+  # setuptools 81 and later no longer ship `pkg_resources`, which
+  # pytorch-lightning 1.9.x imports at module level. Without this pin, both
+  # pytorch_lightning and neuralprophet fail to import with
+  # "No module named 'pkg_resources'". Verified against setuptools 84.
+  - setuptools<81
+
   - ipykernel
   - tqdm
   - statsmodels
   - requests
   - matplotlib
-  - numpy
-  - pandas
   - scipy
   - seaborn
   - jinja2
@@ -21,5 +43,18 @@ dependencies:
   - xgboost
   - scikit-learn
   - watchdog
+
+  - pip
   - pip:
-    - neuralprophet
+      # torch must stay below 2.6. PyTorch 2.6 changed the default of the
+      # `weights_only` argument of torch.load from False to True, and the
+      # checkpoint that pytorch-lightning 1.9.x restores during NeuralProphet's
+      # learning-rate finder contains neuralprophet config objects. With torch
+      # 2.6 or newer, every fit aborts with
+      # "UnpicklingError: Weights only load failed". neuralprophet 0.8.0 caps
+      # pytorch-lightning below 2.0, so the lightning side cannot be upgraded
+      # out of the problem. Verified working: torch 2.5.1.
+      - torch<2.6
+      # Pinned: neuralprophet drives the whole grey-box decomposition, and an
+      # unpinned upgrade would change the numeric results reported in the paper.
+      - neuralprophet==0.8.0

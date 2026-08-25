@@ -1,0 +1,103 @@
+% ---------------------------------------------------------------------------
+% Study report · NeuralProphet inclination prediction
+%
+% Build: pdflatex neuralprophet_inclination_prediction_report.tex (twice)
+% Figures and numerical results are produced by the paired notebook.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{NeuralProphet prediction of inclination change}
+
+\input{../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.2cm}\textbf{Can the on-structure sensors predict inclination?}\\[2mm]
+\large A chronological NeuralProphet experiment on same-time estimation,
+one-week forecasting and missing-hour reconstruction}
+\author{Study report · \texttt{studies/04\_neuralprophet\_inclination\_prediction/}}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+
+
+\tableofcontents
+
+
+
+% ===========================================================================
+\section{Introduction}
+
+Study~01 read the raw archive, decided which of the recorded values are
+measurements, and exported the verdict-aware archive that every later study
+reads. Its final inclination product --- compensated for temperature, anchored
+once across the whole record, cleaned of impulsive noise, and carrying a flag
+that marks every value it replaced by interpolation --- is the only inclination
+series used here. The intermediate versions of that channel are not used, and no
+value the flag marks as an interpolation is treated as a measurement. This study
+inherits that verdict rather than revisiting it.
+
+The subject is one sensor at one place: the inclinometer at station~02, on the
+medieval wall at Porta di Sant'Ubaldo. The question is operational rather than
+diagnostic. Given the record as it actually stands, can the next value of the
+inclination be predicted --- from the inclination's own history, from the other
+variables the instrument package on the structure measures beside it, or from
+external environmental proxies?
+
+The record is not taken whole. The archive contains a 271-day outage that begins
+on 23~September 2022 and whose last missing day is 20~June 2023, across which
+nothing at all about the structure's behaviour was recorded. This study works
+only on what follows: the stretch running from the resumption of recording in
+June~2023 to the end of the archive. The choice has two reasons. That stretch is
+the part of the record closest to the present, and therefore the part a
+monitoring system deployed today would actually have to work with. It is also
+the only part over which the complete instrument package is available, since the
+wall-temperature probe and the pyranometer were installed on 21~February 2025
+and record nothing before that date.
+
+Choosing that window does not buy a continuous series. Four further whole-day
+outages fall inside it --- 40~days from 5~May 2024, 42~days from 28~August 2024,
+17~days from 26~September 2025, and 103~days from 7~March 2026 --- and beneath
+them lies a population of shorter dropouts whose size is not yet known. Over the
+27,769 hourly slots the window spans, the inclinometer returns an accepted value
+in 76.2\% of them, and air temperature and relative humidity in 78.4\%. The
+wall-temperature probe and the pyranometer reach only 17.7\% and
+18.9\%: they exist for less than half the window to begin with, and they are
+interrupted inside the part where they do exist. What none of those numbers says
+is how the missing time is \emph{distributed}: whether it arrives as isolated
+absent samples, as hours, or as days. Study~01 recorded the omission explicitly,
+noting that the anatomy of the gaps is a natural extension of it and was not
+attempted in it. Establishing that anatomy is the first task of this study,
+because the shape of the missing data decides what kind of statistical problem
+filling it is: recovering a scattered sample from its immediate neighbours is a
+different proposition from reconstructing a season.
+
+The study therefore proceeds in four movements. It first looks at the window
+whole, plotting every variable the on-structure package records over it on one
+shared clock, with the gaps left as gaps and nothing interpolated before
+drawing. It then inventories those gaps, classifying the missing time by
+duration so that the scattered absences are separated from the outages. It then
+weighs the ways each class might be filled, and what it would cost to be wrong.
+Only then does it put the prediction question: what the next inclination value
+can be inferred from, using the on-structure measurements.
+
+This updated study specifically executes this fourth movement using a refined NeuralProphet architecture. Relying on air temperature as a single predictor (after confirming a zero phase lag, $d=0$\,h, in previous analyses), the pipeline incorporates a contemporaneous nowcast alongside 12-hour lagged regressors. It maps sensitivity across horizons up to 168 hours, establishing a definitive 48-hour limit of positive skill against a seasonal naive baseline. Furthermore, it achieves rigorously calibrated uncertainty bounds using 90\,\% pinball quantiles and horizon-adaptive block-bootstrapping.
+
+\begin{figure}[H]
+\centering
+\includegraphics{NP_F01_on_structure_record.png}
+\caption{Every variable the instrument package on the wall records, over the
+window this study works on, on one shared clock. Nothing is interpolated and
+nothing is dropped before drawing: a gap in the record is a gap in the figure.
+Inclination, air temperature and relative humidity run from the resumption of
+recording in June~2023; wall temperature and solar radiation begin only with the
+package installed on 21~February 2025, and are themselves interrupted after it.
+The package also records its own supply voltage, which is instrument
+housekeeping rather than a measurement of the wall or of its environment, and is
+not drawn here.}
+\label{fig:on-structure-record}
+\end{figure}
+
+\end{document}

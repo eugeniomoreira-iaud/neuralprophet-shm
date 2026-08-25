@@ -1,7 +1,43 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(awk -F: '{print $1\" -> \"$NF}')",
+      "Bash(sort -t: -k2)",
+      "Bash(uniq -c -f0)",
+      "Bash(python3 -)",
+      "Bash(grep -n \"TWALL_HAMPEL_WINDOW\\\\`, \\\\`TWALL_HAMPEL_SIGMAS\" data_exploration_study.py)",
+      "WebFetch(domain:github.com)",
+      "Bash(python3 -V)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(/usr/bin/python3 -V)",
+      "Bash(conda env *)",
+      "Bash(conda --version)",
+      "Bash(chmod +x ~/graphify-kg/sync.sh)",
+      "Bash(~/graphify-kg/sync.sh)",
+      "Bash(brew --version)",
+      "Bash(/Users/eugenio/anaconda3/bin/python -V)",
+      "Read(//opt/homebrew/Caskroom/miniforge/base/bin/**)",
+      "Bash(/Users/eugenio/anaconda3/bin/pip install *)",
+      "Bash(/Users/eugenio/anaconda3/bin/graphify install *)",
+      "Bash(echo \"--- exit:$? ---\")",
+      "Bash(graphify --version)",
+      "Bash(python3 *)",
+      "Bash(graphify query *)",
+      "Bash(conda run *)",
+      "Bash(cd *)",
+      "Bash(grep -n \"^# Figures$\" studies/02_proxy_forcing_characterization/pf_lib.py)",
+      "Bash(awk -F: '{print}')",
+      "Bash(grep -n \"import\\\\|__all__\\\\|^| \\\\`\" shmlib/__init__.py)",
+      "Bash(md5 *.csv *.tex)",
+      "Bash(md5)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(rm -f pf_lib.py)",
+      "Bash(rm -rf __pycache__ tests/__pycache__)",
+      "Bash(git status *)",
+      "Bash(timeout 600 graphify update)",
+      "Bash(graphify update *)"
     ]
   }
 }

@@ -1,0 +1,909 @@
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{Study 2 — Temperature compensation, legacy era, 2021}
+\input{../../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.4cm}\bfseries Is the documented temperature compensation good for
+the prediction system?\\[4pt]
+\large\mdseries Study 2 --- the legacy instrument era, station 02, calendar year 2021\\
+\large\mdseries Medieval walls of Gubbio, static structural health monitoring}
+\author{}
+\date{Notebook executed 11 August 2026 \quad$\cdot$\quad
+Data window 1 January -- 31 December 2021 \quad$\cdot$\quad
+Hourly analysis grid}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+%% ==========================================================================
+\section*{Summary}
+\addcontentsline{toc}{section}{Summary}
+
+This report asks the same questions as its companion study on the current instrument
+era, on different data. The correction under test is the fixed thermal correction that
+\texttt{00\_Sensor\_Preprocessing} applies before any other stage sees the signal:
+%
+\begin{equation}
+I_{\text{comp}}(t) \;=\; I(t) \;-\; \bigl(T_{\text{air}}(t) - T_{\text{air}}(t_0)\bigr)
+\cdot c \cdot 1000 ,
+\qquad c = 0.005 .
+\label{eq:comp}
+\end{equation}
+%
+Where the current-era study had four environmental channels but only half an annual
+cycle, this one has a \emph{full calendar year} and only two channels. That trade is
+the reason to run it: the seasonal response is observable here and was not observable
+there.
+
+\panel{Verdict on the correction: it fails all three criteria, on independent data}{%
+\begin{tabularx}{\linewidth}{@{}Y R{4.3cm} l@{}}
+\toprule
+\textbf{Criterion} & \textbf{Measured} & \textbf{Result}\\
+\midrule
+Thermal dependence is reduced
+  & $|r|$: $0.238 \rightarrow 0.738$
+  & \fail\\
+Coefficient is near the variance-minimising value
+  & $5.00$ vs $1.00$ \mdegC
+  & \fail\\
+Forecast improves under a controlled contrast
+  & penalty $+0.7\,\%$ to $+47.4\,\%$
+  & \fail\\
+\bottomrule
+\end{tabularx}%
+\medskip
+
+\noindent Three for three, matching the current-era study on a different instrument and
+a different set of regressors.}
+
+\panel{The finding only a full year could produce: the structure \emph{leads} the air}{%
+Over 2021 the inclination correlates with air temperature at $0.238$ in \textbf{levels}
+but $0.866$ in \textbf{first differences}. The reason is a phase difference, and its
+direction is the important part. A 30-day mean of the inclination peaks on
+\textbf{7 June}; a 30-day mean of air temperature peaks on \textbf{5 August}. The
+structure reaches its seasonal maximum \textbf{59 days before} the air does, and a
+constrained daily cross-correlation independently puts the lead at 89 days.\par\medskip
+\textbf{No thermal lag can represent this.} A causal filter can only delay a driver,
+never advance it, and the scan confirms it: every time constant from 1 to 168 hours
+makes the annual fit monotonically \emph{worse}, from $R^2 = 0.056$ at $\tau = 0$ down
+to $0.000$. The annual movement of this wall is not a delayed response to air
+temperature at all.\par\medskip
+It is, however, what the physical hypothesis predicts. If the forcing is solar gain on
+an exposed vertical face, its annual maximum arrives well before the annual maximum of
+air temperature, because irradiance on a vertical surface peaks when the sun is lower
+than at the solstice. Air temperature is a good proxy for the forcing from hour to hour
+--- at the diurnal scale it explains $91.5\,\%$ of the variance, instantaneously --- and
+a poor one from month to month.}
+
+\noindent\textbf{Recommendation.} Remove the fixed compensation from Notebook 00. Beyond
+that, the two timescales need different treatment: the daily response can be carried by
+instantaneous air temperature, while the seasonal component must be left to the
+decomposition's own annual term or driven by a radiation-like variable, because no
+coefficient and no lag on air temperature can reproduce a lead.
+
+\medskip
+{\small\tableofcontents}
+
+\clearpage
+%% ==========================================================================
+\section{What differs from the current-era study}
+
+\begin{table}[H]
+\centering
+\caption{The two studies, side by side.}
+\begin{tabularx}{\linewidth}{@{}L{4.2cm} Y Y@{}}
+\toprule
+& \textbf{Current era (Study 1)} & \textbf{Legacy era (this study)}\\
+\midrule
+Period & from 2025-02-21 & before 2025-02-21\\
+Environmental channels & \texttt{tair}, \texttt{rh}, \texttt{sr}, \texttt{twall} & \texttt{tair}, \texttt{rh} only\\
+Usable span & 197 days in two blocks & a full calendar year\\
+Seasonal response & not observable & observable\\
+Gap structure & two multi-month outages & 84 gaps, none over 24 hours\\
+Instrument & installed 2025-02-21 & legacy block \texttt{b2}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The legacy record shares no baseline with the current one: the 2025 installation was a
+physical reinstallation, so the absolute levels are unrelated. That is not a limitation
+here, because every quantity this report relies on --- correlations, slopes, variances,
+forecast errors --- is invariant to the arbitrary offset.
+
+\medskip
+\noindent\textbf{Sampling.} As in the companion study, the record is aggregated from its
+native 20-minute rate to one hour immediately after parsing, matching the hourly rate of
+every external proxy the pipeline aligns against. An hour is kept only if at least two
+of its three raw samples survived cleaning.
+
+\medskip
+\noindent\textbf{Shared tests.} The acceptance tests, coefficient sweep, slope fitting,
+lag and inertia analysis and forecasting experiment are \emph{imported} from the sibling
+study rather than reimplemented: \texttt{lc\_lib.py} adds only the legacy loader, the
+year-completeness scan, the decomposition and the imputation. Any difference in results
+between the two reports is therefore a difference in the data, not in the method.
+
+%% ==========================================================================
+\section{Choosing the year}
+
+Whole-day file counts mislead here, because a day can exist as a file while station
+02's own block is written as zeros throughout it. The scan measures what the study
+actually needs: hourly intervals in which the inclinometer, air temperature and
+humidity are \emph{all} present.
+
+Only three years required measuring. From the archive audit, 2018 covers 159 days
+(acquisition began in July), 2022, 2023 and 2024 miss 212, 171 and 82 whole days
+respectively, and the legacy record ends 51 days into 2025.
+
+\begin{table}[H]
+\centering
+\caption{Usable completeness by year, station 02, on the hourly grid.}
+\begin{tabular}{@{}l R{2.0cm} R{2.2cm} R{2.6cm} R{3.4cm} l@{}}
+\toprule
+\textbf{Year} & \textbf{Hours} & \textbf{Complete} & \textbf{Complete [\%]} &
+\textbf{Longest run [days]} & \textbf{Verdict}\\
+\midrule
+\textbf{2021} & 8\,737 & 8\,516 & $\mathbf{97.47}$ & 66.6 & \textbf{selected}\\
+2019 & 8\,737 & 7\,505 & $85.90$ & 34.0 & \\
+2020 & 8\,761 & 7\,270 & $82.98$ & 43.8 & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\includegraphics{S2_02_st02_year_completeness.png}
+\caption{Left, per-channel availability by year --- the three channels fail and recover
+together, so the losses are acquisition outages rather than individual sensor faults.
+Right, usable completeness, the quantity that decides the selection.}
+\label{fig:years}
+\end{figure}
+
+The equal bar heights in the left panel are informative in themselves: the three
+channels are available in exactly the same proportion in every year, which is the
+signature of whole-station dropouts rather than channel-specific failure. Nothing needs
+to be modelled channel by channel.
+
+2021 is not merely the most complete year, it is the best-shaped one, and that matters
+more than the headline percentage.
+
+\begin{table}[H]
+\centering
+\caption{Gap profile of the inclinometer channel in 2021, on the hourly grid. The other
+two channels are identical.}
+\begin{tabular}{@{}l R{2.4cm} R{2.4cm} R{2.4cm}@{}}
+\toprule
+\textbf{Gap length} & \textbf{Gaps} & \textbf{Hours lost} & \textbf{Share of year}\\
+\midrule
+Single hour & 44 & 44 & $0.5\,\%$\\
+Up to 6 h & 33 & 108 & $1.2\,\%$\\
+6--24 h & 7 & 69 & $0.8\,\%$\\
+\midrule
+\textbf{Total} & \textbf{84} & \textbf{221} & $\mathbf{2.5\,\%}$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{No gap in 2021 exceeds 24 hours}, and the longest unbroken run is 66.6 days.
+That is what makes the NeuralProphet imputation in Section~4 genuine interpolation
+between known values rather than extrapolation from a seasonal model.
+
+%% ==========================================================================
+\section{The year as recorded}
+
+\begin{table}[H]
+\centering
+\caption{Channel coverage over 2021 (8\,737 hourly intervals).}
+\begin{tabular}{@{}l R{2.0cm} R{2.0cm} R{1.8cm} R{1.8cm} R{1.8cm} R{1.8cm}@{}}
+\toprule
+\textbf{Channel} & \textbf{Present} & \textbf{Available} & \textbf{Min} & \textbf{Max}
+& \textbf{Mean} & \textbf{Std}\\
+\midrule
+\texttt{batt} & 8\,516 & 97.5\,\% & 3.400 & 4.690 & 3.891 & 0.297\\
+\texttt{tair} & 8\,516 & 97.5\,\% & $-4.63$ & 38.48 & 13.710 & 8.818\\
+\texttt{rh}   & 8\,516 & 97.5\,\% & 19.65 & 99.94 & 71.908 & 22.111\\
+\texttt{inc}  & 8\,516 & 97.5\,\% & $-338.67$ & $-205.42$ & $-272.46$ & 33.891\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The inclination standard deviation over the full year, $33.9$ mdeg, is more than twice
+the $14.6$ mdeg measured over the current era's Window A. The difference is not
+instrumental --- it is the annual cycle, which Window A only samples in part. The spike
+screen removed nothing from this year: with a robust $\sigma$ of $43.3$ mdeg the
+threshold sits at $346$ mdeg, and no hourly value approaches it.
+
+\begin{figure}[H]
+\includegraphics{S2_05_st02_overview.png}
+\caption{The 2021 record: inclination, air temperature, relative humidity and battery
+voltage on a common time axis.}
+\label{fig:ov}
+\end{figure}
+
+Figure~\ref{fig:ov} shows the shape the rest of the report analyses, and the central
+fact is already visible. The inclination rises through spring, reaches its highest
+values in late May and June, and then turns down --- while air temperature is still
+climbing towards its August maximum. The two series do not peak together. Section~5
+measures the difference.
+
+%% ==========================================================================
+\section{Decomposition and imputation}
+
+\subsection{NeuralProphet decomposition of every series}
+
+Each series is fitted \emph{without} autoregression, so that every component is a
+function of time alone. That restriction is deliberate: it keeps the components
+interpretable, and it is what allows the same fit to be used for imputation, since a
+model with autoregressive terms cannot produce a value inside a gap.
+
+\begin{figure}[H]
+\includegraphics[width=0.78\linewidth]{S2_06_st02_decomposition_inc.png}
+\caption{Inclination, decomposed. From the top: observed and fitted, trend, annual
+term, weekly term, daily term.}
+\label{fig:decinc}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics[width=0.78\linewidth]{S2_06_st02_decomposition_tair.png}
+\caption{Air temperature, decomposed on the same basis.}
+\label{fig:dectair}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics[width=0.78\linewidth]{S2_06_st02_decomposition_rh.png}
+\caption{Relative humidity, decomposed on the same basis.}
+\label{fig:decrh}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Decomposition summary. Component standard deviations are in the native units
+of each series.}
+\small
+\begin{tabular}{@{}l R{1.9cm} R{1.9cm} R{1.8cm} R{1.5cm} R{1.5cm} R{1.5cm} R{1.5cm}@{}}
+\toprule
+\textbf{Series} & \textbf{Var.\ obs.} & \textbf{Var.\ resid.} & \textbf{Explained} &
+\textbf{Trend} & \textbf{Yearly} & \textbf{Weekly} & \textbf{Daily}\\
+\midrule
+\texttt{inc}  & 1148.583 & 87.735  & 92.4\,\% & 14.035 & \textbf{36.131} & 0.487 & 6.438\\
+\texttt{tair} & 77.750   & 10.399  & 86.6\,\% & 2.551  & 8.398 & 0.155 & 2.554\\
+\texttt{rh}   & 488.902  & 208.520 & 57.3\,\% & 6.318  & 20.124 & 1.358 & 7.756\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three things follow.
+
+\begin{description}
+\item[The inclination is an annual signal first and a daily signal second.] Its yearly
+term has a standard deviation of $36.1$ mdeg against $6.4$ mdeg for the daily term ---
+a factor of five and a half. Trend and seasonality together explain $92.4\,\%$ of its
+variance. For a structure whose monitoring question is slow drift, that ratio is the
+most important number in the decomposition: the annual environmental cycle is the
+dominant thing any anomaly must be detected against.
+\item[The weekly term is negligible.] $0.487$ mdeg for the inclination and
+$0.155$\,\degC\ for air temperature, against daily terms thirteen to sixteen times
+larger. A structure with no human loading cycle and a rural weather station should have
+no weekly signature, and they do not. This is a free check that the decomposition is
+not manufacturing components.
+\item[Humidity is the least deterministic channel.] Only $57.3\,\%$ of its variance is
+explained by time alone, against $86.6\,\%$ for temperature. Humidity carries more
+weather-event content and less calendar content, which is worth remembering when it is
+used as a regressor.
+\end{description}
+
+\medskip
+\noindent\textbf{A caution on the trend panel, and a consequence.} NeuralProphet's
+split between a piecewise-linear trend and a Fourier annual term is not unique, and the
+two absorb each other: refitting the same series on a different sampling grid moved the
+inclination's trend standard deviation between $10$ and $47$ mdeg across runs of this
+study, with the annual term moving to compensate. The trend panel must therefore not be
+read as structural drift. It also means the fitted \texttt{season\_yearly} component is
+the wrong instrument for measuring seasonal \emph{phase}, which is why Section~5 uses a
+plain 30-day rolling mean for that purpose instead.
+
+\subsection{Imputation of the regressors}
+
+Only the regressors are filled, and only with their own trend-plus-seasonal fit --- 221
+hours each, $2.5\,\%$ of the year. The inclinometer keeps its gaps throughout the
+descriptive analysis: imputing the target and then scoring a forecast against the
+imputed values would measure the imputation model rather than the forecast.
+
+\begin{figure}[H]
+\includegraphics{S2_08_st02_imputation_tair.png}
+\caption{Air temperature: the full year with imputed values overlaid (top), and the
+largest single gap with three days of context either side (bottom).}
+\label{fig:imptair}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics{S2_08_st02_imputation_rh.png}
+\caption{Relative humidity, filled on the same basis.}
+\label{fig:imprh}
+\end{figure}
+
+The detail panel is the honest view of what this imputation can and cannot do. Across
+the largest gap the fill reproduces the diurnal shape and joins smoothly to the observed
+data at both ends, which is what a trend-plus-seasonal model should achieve. What it
+cannot reproduce is that day's particular weather: the filled segment is a smooth
+climatological day, while the surrounding observed days carry sharp weather-driven
+excursions of several degrees. Filled values are therefore systematically less variable
+than observed ones.
+
+%% ==========================================================================
+\section{Is the response instantaneous?}
+\label{sec:lag}
+
+This is the section the full year makes possible, and its answer differs by timescale.
+
+\subsection{Correlation structure: levels against differences}
+
+\begin{table}[H]
+\centering
+\caption{Pearson correlations over 2021, on the hourly grid.}
+\begin{tabular}{@{}l R{3.2cm} R{3.6cm}@{}}
+\toprule
+\textbf{Pair} & \textbf{Levels} & \textbf{First differences}\\
+\midrule
+\texttt{inc} -- \texttt{tair} & $+0.238$ & $+0.866$\\
+\texttt{inc} -- \texttt{rh}   & $-0.405$ & $-0.696$\\
+\texttt{tair} -- \texttt{rh}  & $-0.692$ & $-0.706$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\includegraphics{S2_11_st02_corr_heatmaps.png}
+\caption{Correlation structure over 2021.}
+\label{fig:heat}
+\end{figure}
+
+Ordinarily a correlation in levels between two trending series is \emph{inflated} by the
+shared trend and falls under differencing. The inclination--temperature pair does the
+opposite, and by a wide margin: $0.238$ in levels against $0.866$ in differences. A
+relationship that is weak in levels and strong in differences is the signature of two
+series that move together at short timescales while their slow components are out of
+step.
+
+\subsection{Lag structure at the daily scale}
+
+\begin{figure}[H]
+\includegraphics{S2_13_st02_cross_correlation.png}
+\caption{Cross-correlation of the inclination against each driver over $\pm 120$ hours,
+on levels (left) and on first differences (right).}
+\label{fig:ccf}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Peak of each cross-correlation function at the daily scale.}
+\begin{tabular}{@{}l R{2.4cm} R{2.2cm} R{2.6cm} R{2.2cm}@{}}
+\toprule
+& \multicolumn{2}{c}{\textbf{Levels}} & \multicolumn{2}{c}{\textbf{First differences}}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+\textbf{Driver} & \textbf{Peak $r$} & \textbf{Lag} & \textbf{Peak $r$} & \textbf{Lag}\\
+\midrule
+\texttt{tair} & $+0.238$ & $0$ h & $+0.866$ & $0$ h\\
+\texttt{rh}   & $-0.405$ & $0$ h & $-0.696$ & $0$ h\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Both drivers peak exactly at zero lag on both views. At the daily scale the response is
+contemporaneous, and the instantaneous form of Equation~\eqref{eq:comp} is not the
+problem --- the same conclusion the current-era study reached from richer data.
+
+\subsection{Thermal inertia}
+
+\begin{figure}[H]
+\includegraphics{S2_36_st02_inertia_scan.png}
+\caption{Explained variance and fitted slope against thermal time constant, full
+signal, 2021.}
+\label{fig:tau}
+\end{figure}
+
+\begin{figure}[H]
+\includegraphics{S2_37_st02_inertia_scan_band.png}
+\caption{The same scan after removing a centred weekly mean, which restricts the
+comparison to the diurnal band.}
+\label{fig:tauband}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Best time constant per driver. Every scan returns zero, and every non-zero
+time constant makes the fit worse.}
+\small
+\begin{tabular}{@{}l R{1.7cm} R{1.9cm} R{1.9cm} R{1.7cm} R{1.9cm} R{1.9cm}@{}}
+\toprule
+& \multicolumn{3}{c}{\textbf{Full signal}} & \multicolumn{3}{c}{\textbf{Diurnal band}}\\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+\textbf{Driver} & \textbf{Best $\tau$} & \textbf{$R^2$, $\tau{=}0$} & \textbf{$R^2$, best}
+& \textbf{Best $\tau$} & \textbf{$R^2$, $\tau{=}0$} & \textbf{$R^2$, best}\\
+\midrule
+\texttt{tair} & 0 h & $0.056$ & $0.056$ & 0 h & $\mathbf{0.915}$ & $\mathbf{0.915}$\\
+\texttt{rh}   & 0 h & $0.164$ & $0.164$ & 0 h & $0.378$ & $0.378$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The contrast between the two halves of this table is the study's central measurement.
+At the \textbf{diurnal} scale, instantaneous air temperature explains $91.5\,\%$ of the
+variance of the inclination --- a very tight, undelayed relationship, matching the
+$93.2\,\%$ measured in the current era on a different instrument. At the \textbf{annual}
+scale it explains $5.6\,\%$. Adding a thermal time constant does not repair the annual
+fit; it degrades it monotonically, from $0.056$ at $\tau = 0$ to $0.000$ at
+$\tau = 168$ hours.
+
+\subsection{The seasonal scale: the structure leads the air}
+
+A lag scan reaching five days cannot address an annual relationship, and the obvious
+extension has a trap in it: the cross-correlation of two near-annual cycles is itself
+near-annual, so the largest \emph{absolute} correlation sits about half a year away
+where the two are simply in anti-phase. That is a property of periodicity, not a lag.
+Two estimators are therefore used, both immune to it.
+
+\begin{table}[H]
+\centering
+\caption{Seasonal phase, measured two ways. The rolling-mean estimator assumes nothing
+about the shape of the cycle; the cross-correlation is restricted to lags carrying the
+sign of the contemporaneous correlation.}
+\begin{tabular}{@{}l R{2.8cm} R{2.6cm} R{3.6cm}@{}}
+\toprule
+\textbf{Series} & \textbf{Peak of 30-day mean} & \textbf{Seasonal range} & \textbf{Lead over \texttt{tair}}\\
+\midrule
+\texttt{inc}  & 7 June 2021 & $90.0$ mdeg & $\mathbf{59}$ \textbf{days}\\
+\texttt{tair} & 5 August 2021 & $24.8$\,\degC & ---\\
+\texttt{rh}   & 11 January 2021 & $47.6$ \% & 206 days\\
+\midrule
+\multicolumn{4}{@{}l}{\itshape Constrained cross-correlation of daily means, $\pm 150$ days}\\
+\texttt{inc} vs \texttt{tair} & peak $r = +0.798$ & at $-89$ days & $r = +0.164$ at lag 0\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\includegraphics{S2_40_st02_cross_correlation_seasonal.png}
+\caption{Cross-correlation of daily means over $\pm 150$ days. The near-annual
+oscillation of the curve itself is the periodicity artefact described above; the
+physically meaningful feature is that the positive peak sits at a negative lag.}
+\label{fig:ccfseason}
+\end{figure}
+
+Both estimators agree on the sign and on the order of magnitude: \textbf{the inclination
+reaches its seasonal maximum roughly two to three months before air temperature does}.
+Three consequences follow, and they are the reason this study exists.
+
+\begin{description}
+\item[No thermal lag can produce this.] A causal filter delays; it never advances. That
+is why the inertia scan finds $\tau = 0$ and why every larger value is worse: the model
+family being searched cannot represent a lead, so the best it can do is not to move.
+\item[The annual movement is not a response to air temperature.] Whatever drives it
+arrives before the air does. Solar gain on an exposed face is the natural candidate,
+because irradiance on a vertical surface peaks well before the solstice, when the sun is
+lower and strikes the wall more squarely --- and the geometry of an embankment, with one
+face exposed and one restrained, is exactly the configuration that converts that gain
+into a tilt. This study cannot confirm it: the legacy era has no radiometer. It can only
+establish that air temperature is the wrong driver at this timescale, and say what to
+measure next.
+\item[One instantaneous coefficient cannot serve both timescales.] The daily response is
+tight, contemporaneous and worth $R^2 = 0.92$; the annual response is loose and
+phase-shifted. Equation~\eqref{eq:comp} applies a single constant to both.
+\end{description}
+
+%% ==========================================================================
+\section{How large is the thermal response over a full year?}
+
+\begin{table}[H]
+\centering
+\caption{Univariate regression of the inclination on each driver over 2021, with
+Newey--West standard errors. The documented coefficient implies $5.0$ \mdegC.}
+\begin{tabular}{@{}l R{2.4cm} R{3.6cm} R{1.8cm} R{1.6cm} R{1.8cm}@{}}
+\toprule
+\textbf{Driver} & \textbf{Slope} & \textbf{95\,\% CI} & \textbf{SE} & \textbf{$R^2$} & \textbf{$n$}\\
+\midrule
+\multicolumn{6}{@{}l}{\itshape Levels}\\
+\texttt{tair} & $0.9139$ & $0.6287$ -- $1.1991$ & $0.1455$ & $0.057$ & 8\,516\\
+\texttt{rh}   & $-0.6201$ & $-0.7355$ -- $-0.5046$ & $0.0589$ & $0.164$ & 8\,516\\[2pt]
+\multicolumn{6}{@{}l}{\itshape First differences}\\
+\texttt{tair} & $2.2603$ & $2.1804$ -- $2.3402$ & $0.0408$ & $0.750$ & 8\,432\\
+\texttt{rh}   & $-0.4729$ & $-0.5003$ -- $-0.4455$ & $0.0140$ & $0.484$ & 8\,432\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The two timescales give $0.91$ and $2.26$ \mdegC\ --- a factor of $2.5$ between them,
+and neither near $5.0$. The $R^2$ values tell the same story as Section~\ref{sec:lag}:
+instantaneous air temperature is a poor explanation of \emph{where} the inclination sits
+over a year ($0.057$) and an excellent explanation of \emph{how it is moving} from hour
+to hour ($0.750$).
+
+\begin{figure}[H]
+\includegraphics{S2_16_st02_thermal_scatter.png}
+\caption{Inclination against air temperature over 2021, with the fitted slope and the
+slope implied by the documented coefficient.}
+\label{fig:scatter}
+\end{figure}
+
+Figure~\ref{fig:scatter} is what a phase-shifted annual cycle looks like in a scatter
+plot: not a line with scatter about it but a broad loop. The same air temperature
+corresponds to inclinations tens of millidegrees apart depending on whether the year is
+warming or cooling at that moment. The relationship is genuinely multi-valued in levels,
+so no instantaneous scalar correction, at any coefficient, can collapse it.
+
+%% ==========================================================================
+\section{Acceptance tests}
+
+\begin{table}[H]
+\centering
+\caption{Acceptance tests over 2021. The target for every row is a \emph{lower} value
+after correction. Six of seven fail.}
+\begin{tabular}{@{}l R{2.4cm} R{2.8cm} R{2.2cm} l@{}}
+\toprule
+\textbf{Test} & \textbf{Raw} & \textbf{Compensated} & \textbf{Change} & \textbf{Verdict}\\
+\midrule
+Variance [mdeg$^2$]                    & $1148.58$ & $2381.76$ & $+107.4\,\%$ & \worse\\
+Standard deviation [mdeg]              & $33.891$ & $48.803$ & $+44.0\,\%$ & \worse\\
+Mean diurnal amplitude [mdeg]          & $21.039$ & $23.920$ & $+13.7\,\%$ & \worse\\
+$|r|$ with \texttt{tair}, levels       & $0.2378$ & $0.7383$ & $+210.5\,\%$ & \worse\\
+$|r|$ with \texttt{tair}, differenced  & $0.8657$ & $0.9026$ & $+4.3\,\%$ & \worse\\
+$|r|$ with \texttt{rh}, levels         & $0.4045$ & $0.3419$ & $-15.5\,\%$ & \better\\
+$|r|$ with \texttt{rh}, differenced    & $0.6960$ & $0.6972$ & $+0.2\,\%$ & \worse\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Signed correlations before and after correction. Both drivers reverse sign.}
+\begin{tabular}{@{}l R{2.6cm} R{3.2cm} c@{}}
+\toprule
+\textbf{Driver} & \textbf{Raw} & \textbf{Compensated} & \textbf{Sign reversed}\\
+\midrule
+\texttt{tair} & $+0.2378$ & $-0.7383$ & yes\\
+\texttt{rh}   & $-0.4045$ & $+0.3419$ & yes\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The single apparent improvement is again an artefact of passing through zero on the way
+to a large correlation of the opposite sign. The correction more than doubles the
+variance of the series it is supposed to clean.
+
+\begin{figure}[H]
+\includegraphics{S2_19_st02_compensation_effect.png}
+\caption{Effect of the documented correction over 2021. Top left, the full year before
+and after; top right, the first week in detail; bottom left, the thermal dependence;
+bottom right, the mean diurnal cycle.}
+\label{fig:effect}
+\end{figure}
+
+\begin{description}
+\item[Full year.] The raw series spans roughly $110$ mdeg peak to trough. The
+compensated series spans more than $200$, plunging to about $-170$ mdeg at the end of
+summer before recovering. The correction did not remove a seasonal excursion; it roughly
+doubled one and inverted its phase.
+\item[First week.] In January the raw and compensated traces are already near mirror
+images at daily scale.
+\item[Thermal dependence.] The raw cloud is the broad loop of Figure~\ref{fig:scatter}.
+The compensated cloud is a tighter, steeply descending band --- a stronger dependence on
+temperature than before, not a weaker one.
+\item[Mean diurnal cycle.] The raw profile rises from about $-10$ mdeg overnight to
+$+7$ mdeg at midday. The compensated profile is inverted and larger.
+\end{description}
+
+%% ==========================================================================
+\section{Where the documented coefficient sits}
+
+\begin{table}[H]
+\centering
+\caption{Selected points from the 2021 coefficient sweep.}
+\begin{tabular}{@{}l R{3.0cm} R{3.4cm} R{3.0cm}@{}}
+\toprule
+& \textbf{Coefficient [\mdegC]} & \textbf{Residual variance [mdeg$^2$]} & \textbf{$|r|$ with \texttt{tair}}\\
+\midrule
+                        & $-1.0$ & $1368.45$ & $0.456$\\
+No compensation         & $0.0$  & $1148.58$ & $0.238$\\
+                        & $0.8$  & $1084.65$ & $0.031$\\
+\textbf{Variance-minimising} & $\mathbf{1.0}$ & $\mathbf{1084.22}$ & $\mathbf{0.023}$\\
+                        & $1.2$  & $1090.00$ & $0.076$\\
+                        & $2.0$  & $1175.35$ & $0.279$\\
+                        & $3.0$  & $1421.99$ & $0.488$\\
+\textbf{Documented}     & $\mathbf{5.0}$ & $\mathbf{2381.76}$ & $\mathbf{0.738}$\\
+                        & $7.0$  & $3963.53$ & $0.852$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\includegraphics{S2_21_st02_coefficient_sweep.png}
+\caption{Residual variance and residual thermal correlation against the compensation
+coefficient over 2021, with the documented value marked.}
+\label{fig:sweep}
+\end{figure}
+
+Two readings, the second specific to the full-year setting.
+
+First, the documented coefficient is five times the variance-minimising one and sits far
+up the ascending branch. Applying it more than doubles the residual variance relative to
+leaving the signal alone --- $2382$ against $1149$ mdeg$^2$.
+
+Second, \textbf{even the optimal coefficient buys very little here}. The minimum,
+$1084$ mdeg$^2$, is under six per cent below the do-nothing value. In the current era
+the same sweep cut residual variance by seventy per cent. The reason is
+Section~\ref{sec:lag}: over a full year the dominant thermal component is out of phase
+with instantaneous temperature, and an instantaneous linear term cannot remove what is
+not aligned with it. The residual thermal correlation still falls almost to zero at the
+optimum ($0.023$), so the correction can null the \emph{correlation} while barely
+touching the \emph{variance} --- a useful reminder that those are different targets, and
+that a compensation tuned on one may be worth almost nothing on the other.
+
+%% ==========================================================================
+\section{The prediction experiment}
+
+The configurations, the raw-scale scoring rule and the ridge reference model are those
+of the companion study, with \texttt{tair} and \texttt{rh} as the only available
+regressors. C against D is the controlled contrast. Predictions of a compensated target
+have the correction added back before the error is computed, so all configurations are
+scored on the same physical quantity.
+
+\medskip
+\noindent\textbf{E and F degenerate here, and that is a result.} Configuration E shifts
+each driver to its measured best lag and F filters each through its measured best time
+constant. In this era both measurements returned zero for both drivers, so E and F are
+\emph{identical to A} by construction and score identically. Reporting them is the point:
+the physics-motivated configurations were given every chance to differ and the data
+declined to make them differ, at the timescale a forecasting model operates on.
+
+\begin{table}[H]
+\centering
+\caption{2021, one-hour-ahead ridge forecast, 5\,436 training and 2\,330 test samples.}
+\small
+\begin{tabular}{@{}l R{2.4cm} R{2.4cm} R{2.4cm}@{}}
+\toprule
+\textbf{Configuration} & \textbf{MAE [mdeg]} & \textbf{RMSE [mdeg]} & \textbf{vs best}\\
+\midrule
+A, E, F $\cdot$ raw + regressors      & $\mathbf{0.9878}$ & $1.5088$ & \textbf{best}\\
+D $\cdot$ raw, no regressors          & $1.0480$ & $1.5494$ & $+6.1\,\%$\\
+C $\cdot$ compensated, no regressors  & $1.5443$ & $2.2041$ & $+56.3\,\%$\\
+B $\cdot$ compensated + regressors    & $2.0760$ & $2.6780$ & $+110.2\,\%$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\includegraphics{S2_23_st02_experiment_h1.png}
+\caption{One-hour-ahead forecast, ridge model, 2021.}
+\label{fig:h1}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{2021, 24-hour-ahead ridge forecast, 5\,350 training and 2\,294 test samples.}
+\small
+\begin{tabular}{@{}l R{2.4cm} R{2.4cm} R{2.4cm}@{}}
+\toprule
+\textbf{Configuration} & \textbf{MAE [mdeg]} & \textbf{RMSE [mdeg]} & \textbf{vs best}\\
+\midrule
+A, E, F $\cdot$ raw + regressors      & $\mathbf{3.9242}$ & $5.1083$ & \textbf{best}\\
+D $\cdot$ raw, no regressors          & $4.0404$ & $5.2348$ & $+3.0\,\%$\\
+C $\cdot$ compensated, no regressors  & $4.0692$ & $5.2063$ & $+3.7\,\%$\\
+B $\cdot$ compensated + regressors    & $7.9082$ & $8.8802$ & $+101.5\,\%$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\includegraphics{S2_25_st02_experiment_h24.png}
+\caption{Twenty-four-hour-ahead forecast, ridge model, 2021.}
+\label{fig:h24}
+\end{figure}
+
+Unlike the current-era study, supplying the drivers helps here --- A beats D at both
+horizons. That is what a full annual cycle buys: with a whole year in the training split
+the model is not forced to extrapolate outside its training temperature range, and the
+confound that made the current-era A-versus-D comparison uninformative is absent.
+
+\begin{table}[H]
+\centering
+\caption{The controlled contrast, C against D.}
+\begin{tabular}{@{}l R{2.6cm} R{3.0cm} R{2.6cm}@{}}
+\toprule
+\textbf{Horizon} & \textbf{MAE raw (D)} & \textbf{MAE compensated (C)} & \textbf{Penalty}\\
+\midrule
+1 h  & $1.0480$ & $1.5443$ & $+47.4\,\%$\\
+24 h & $4.0404$ & $4.0692$ & $+0.7\,\%$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The penalty is large at one hour and almost nil at twenty-four. The reason is the same
+one that made the coefficient sweep so flat: at the daily horizon the error is dominated
+by the part of the signal that an instantaneous thermal term cannot describe either way,
+so compensating the target changes little. It still changes it for the worse, and
+configuration B --- compensated \emph{and} given the regressors --- remains catastrophic
+at $+101.5\,\%$, the double-correction signature seen in the current era.
+
+\subsection{Confirmation under NeuralProphet}
+
+\begin{table}[H]
+\centering
+\caption{2021, one hour ahead under NeuralProphet, 2\,600 scored points per
+configuration, fixed random seed.}
+\small
+\begin{tabular}{@{}l R{2.4cm} R{2.4cm} R{2.4cm}@{}}
+\toprule
+\textbf{Configuration} & \textbf{MAE [mdeg]} & \textbf{RMSE [mdeg]} & \textbf{vs best}\\
+\midrule
+A, E, F $\cdot$ raw + regressors      & $\mathbf{2.7765}$ & $3.5824$ & \textbf{best}\\
+D $\cdot$ raw, no regressors          & $3.0151$ & $3.7775$ & $+8.6\,\%$\\
+C $\cdot$ compensated, no regressors  & $3.2906$ & $4.0972$ & $+18.5\,\%$\\
+B $\cdot$ compensated + regressors    & $3.4718$ & $4.3762$ & $+25.0\,\%$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\includegraphics{S2_28_st02_experiment_neuralprophet.png}
+\caption{One-hour-ahead forecast under NeuralProphet, 2021.}
+\label{fig:np}
+\end{figure}
+
+Under the deployed model the ordering is the same as in the current era: both raw
+configurations beat both compensated ones. The margins are smaller than the ridge
+model's, as they should be --- NeuralProphet's own seasonal terms absorb part of what
+the correction damages.
+
+%% ==========================================================================
+\section{Verdict}
+
+\panel{Three criteria, three failures --- on independent data}{%
+\textbf{1. Thermal dependence is not reduced.} $|r|$ with air temperature rises from
+$0.238$ to $0.738$ and reverses sign.\par\medskip
+\textbf{2. The coefficient is not near the variance-minimising value.} $5.00$ against
+$1.00$ \mdegC, more than doubling residual variance relative to doing
+nothing.\par\medskip
+\textbf{3. The forecast does not improve.} The controlled-contrast penalty is
+$+47.4\,\%$ at one hour and $+0.7\,\%$ at twenty-four, and $+18.5\,\%$ under
+NeuralProphet. No horizon and no model favoured the compensated target.}
+
+\subsection{Across both eras}
+
+\begin{table}[H]
+\centering
+\caption{The same quantities, measured independently in each era.}
+\begin{tabular}{@{}l R{2.6cm} R{2.6cm} R{2.4cm}@{}}
+\toprule
+\textbf{Quantity} & \textbf{Legacy 2021} & \textbf{Current era} & \textbf{Documented}\\
+\midrule
+Fitted \texttt{tair} slope, levels [\mdegC]      & $0.91$ & $1.63$ & $\mathbf{5.0}$\\
+Fitted \texttt{tair} slope, differences [\mdegC] & $2.26$ & $2.17$ & $\mathbf{5.0}$\\
+Variance-minimising coefficient [\mdegC]         & $1.00$ & $1.60$ & $\mathbf{5.0}$\\
+Diurnal-band $R^2$, instantaneous \texttt{tair}  & $0.915$ & $0.932$ & ---\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two things are worth noting in this table. The differenced slopes agree closely across
+eras and instruments --- $2.26$ against $2.17$ \mdegC\ --- as do the diurnal-band $R^2$
+values, $0.915$ against $0.932$. \textbf{The fast thermal response of this wall is a
+stable, reproducible property.} The levels slopes do not agree, because they are
+dominated by the seasonal behaviour, which differs between a half cycle and a full one.
+
+Together with the three legacy stations measured from the supplied \texttt{Data.mat} ---
+$7.21$, $1.33$ and $9.66$ \mdegC\ --- there are now five independent estimates of the
+levels slope spanning $0.91$ to $9.66$. \textbf{No single constant serves them, and none
+is near $5.0$.}
+
+\subsection{Recommendation}
+
+\textbf{Remove the fixed compensation from Notebook 00.} The recommendation is unchanged
+from the current-era study and now rests on two independent datasets, two instruments,
+two regressor sets and two model families.
+
+Beyond that, this study says how the thermal response should be handled instead, and the
+answer is that the two timescales must be separated:
+
+\begin{itemize}
+\item \textbf{The daily response} is contemporaneous, tight and reproducible
+($R^2 = 0.92$ on the diurnal band, instantaneously). Instantaneous air temperature is an
+excellent regressor for it, and no lag or time constant improves on that.
+\item \textbf{The seasonal response} leads air temperature by roughly two months and
+cannot be represented by any coefficient or lag on it. It belongs in the decomposition's
+own annual term, or in a driver that carries the right phase. Installing a radiometer at
+the legacy stations, or reconstructing irradiance on the wall's actual orientation from
+a reanalysis product, is the measurement that would settle it.
+\end{itemize}
+
+%% ==========================================================================
+\section{Caveats}
+
+\begin{itemize}
+\item One calendar year gives exactly one pass through the annual cycle, so the seasonal
+lead is measured once and cannot be checked against a second cycle. Read it as a
+description of 2021. Two estimators agree on its sign and order of magnitude but differ
+on its size ($59$ against $89$ days), which is the honest precision available.
+\item The attribution of the seasonal lead to solar geometry is an interpretation, not a
+measurement. The legacy era has no radiometer; this study establishes only that air
+temperature is the wrong driver at that timescale.
+\item The trend and annual components of the decomposition are not separately
+identifiable, as Section~4.1 shows explicitly. Neither is read as structural drift.
+\item Only the regressors are imputed ($2.5\,\%$ of hours) and filled values are
+systematically smoother than observed ones. The inclinometer keeps its gaps.
+\item In the NeuralProphet experiment, gaps in the model input are bridged by
+interpolation so the autoregressive window has continuous history; scoring happens only
+at observed timestamps, identically for all configurations.
+\item \texttt{lc\_lib.py} imports from \texttt{../thermal\_compensation/tc\_lib.py}.
+Moving or renaming either study folder breaks that import.
+\end{itemize}
+
+%% ==========================================================================
+\appendix
+\section{Reproduction}
+
+\begin{verbatim}
+conda activate neuralprophet_env
+cd studies/thermal_compensation_legacy
+jupytext --to ipynb legacy_compensation_study.py
+jupyter nbconvert --to notebook --execute --inplace \
+        legacy_compensation_study.ipynb
+\end{verbatim}
+
+\noindent Edit the paired \texttt{.py} file, never the \texttt{.ipynb}. Setting
+\texttt{CONTEXT = 'paper'} in the parameter cell re-exports every figure at manuscript
+column size. The archive is never written to.
+
+\medskip
+\noindent\textbf{One library workaround is in force.} NeuralProphet 0.8.0 raises
+\texttt{UnboundLocalError: conditional\_cols} when a prediction frame ends in
+\texttt{NaN} and imputation is disabled --- the variable is bound only inside the
+imputation branch but is read again when trailing rows are restored. The hourly grid
+ends in a gap where the 20-minute grid did not, so \texttt{decompose\_series} trims the
+trailing gap before predicting and reindexes the components back onto the full span,
+leaving those hours empty.
+
+\section{Output inventory}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Artefacts produced by the notebook. Identifiers are stable names, not an
+ordering.}
+\begin{tabular}{@{}l L{9.2cm} c@{}}
+\toprule
+\textbf{Identifier} & \textbf{Contents} & \textbf{In this report}\\
+\midrule
+S2\_01 & Year completeness scan & Table 2\\
+S2\_02 & Year completeness figure & Fig.~\ref{fig:years}\\
+S2\_03 & Channel coverage, 2021 & Table 4\\
+S2\_04 & Gap profile & Table 3\\
+S2\_05 & Year overview & Fig.~\ref{fig:ov}\\
+S2\_06 & Decomposition, three series & Figs.~\ref{fig:decinc}--\ref{fig:decrh}\\
+S2\_07 & Decomposition summary & Table 5\\
+S2\_08 & Imputation, \texttt{tair} and \texttt{rh} & Figs.~\ref{fig:imptair}, \ref{fig:imprh}\\
+S2\_09, S2\_10 & Correlation matrices & Table 6\\
+S2\_11 & Correlation heatmaps & Fig.~\ref{fig:heat}\\
+S2\_12, S2\_31 & Cross-correlation peaks, differences and levels & Table 7\\
+S2\_13 & Lag structure figure & Fig.~\ref{fig:ccf}\\
+S2\_14, S2\_15 & Regression slopes & Table 10\\
+S2\_16 & Fitted versus documented thermal slope & Fig.~\ref{fig:scatter}\\
+S2\_17, S2\_18 & Acceptance tests and signed correlations & Tables 11, 12\\
+S2\_19 & Effect of the documented compensation & Fig.~\ref{fig:effect}\\
+S2\_20, S2\_21 & Coefficient sweep and figure & Table 13, Fig.~\ref{fig:sweep}\\
+S2\_22, S2\_24 & Ridge results, 1 h and 24 h & Tables 14, 15\\
+S2\_23, S2\_25 & Experiment figures & Figs.~\ref{fig:h1}, \ref{fig:h24}\\
+S2\_26 & Controlled contrast & Table 16\\
+S2\_27, S2\_28 & NeuralProphet results and figure & Table 17, Fig.~\ref{fig:np}\\
+S2\_29 & Verdict & Section 9\\
+S2\_30 & Cross-era comparison & Table 18\\
+S2\_32--S2\_35 & Inertia scans and best time constants & Table 8\\
+S2\_36, S2\_37 & Inertia scan figures & Figs.~\ref{fig:tau}, \ref{fig:tauband}\\
+S2\_38 & Lag summary & Section~\ref{sec:lag}\\
+S2\_39, S2\_41 & Seasonal lag and phase & Table 9\\
+S2\_40 & Seasonal cross-correlation figure & Fig.~\ref{fig:ccfseason}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

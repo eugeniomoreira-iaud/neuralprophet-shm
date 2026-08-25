@@ -1,0 +1,1198 @@
+% ---------------------------------------------------------------------------
+% Study report · Do three thermometers tell the same story?
+%
+% Build:  pdflatex proxy_comparison_report.tex  (twice, for the ToC)
+% Figures are read from ../outputs/ and are produced by the paired notebook.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{Proxy comparison · on-structure, ground station, ERA5}
+
+\input{../../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.2cm}\textbf{Do three thermometers tell the same story?}\\[2mm]
+\large On-structure logger, town weather station and ERA5 reanalysis,
+26 July 2018 to 13 August 2026}
+\author{Study report · \texttt{studies/proxy\_comparison/}}
+\date{13 August 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+Three independent sources now measure the environment at Gubbio and the project
+has used only one of them. They share channel names and they do not measure the
+same quantity: a housing on a sun-exposed wall, a standard screen in town, and an
+average over roughly nine kilometres of Apennine terrain.
+
+This comparison had to come before any of them is used to fill a gap. The
+study \texttt{unified\_dataset} established that the on-structure channels
+vanish with the target --- on 100\,\% of the hours the inclinometer is missing,
+so are its air temperature, humidity and battery --- so an independent source is
+the only escape. Whether that escape is real depends on whether the proxy carries
+the same relationship with the wall.
+
+\textbf{It largely does, and the availability is decisive.} During the hours the
+inclinometer is missing, the ground station is present on \textbf{94.3\,\%} and
+ERA5 on \textbf{99.6\,\%}. Against the on-structure sensor the ground station
+agrees to a mean absolute \textbf{1.12\,\degC} and ERA5 to \textbf{1.53\,\degC},
+with correlations of 0.988 and 0.978.
+
+\textbf{One expectation was overturned.} A gridded product was expected to
+under-represent the daily temperature swing. It does the opposite: ERA5's diurnal
+amplitude is \textbf{19\,\% larger} than the on-structure sensor's and the ground
+station's is 15\,\% larger. The sensor closest to the wall is the most
+\emph{damped} of the three, which is what a housing with thermal mass on a
+massive masonry wall should produce.
+
+\textbf{Agreement collapses under differencing.} Correlation between sources
+falls from 0.99 in levels to \textbf{0.70} in first differences for temperature,
+and from 0.88 to 0.55 for humidity. The level agreement is largely a shared
+annual cycle; the hour-to-hour movement, which is what the wall responds to,
+agrees far less well.
+
+\textbf{A defect is confirmed by triangulation.} The on-structure radiation
+channel agrees with neither proxy ($r \approx 0.74$), while the two proxies agree
+with each other at $r = 0.930$ and a slope of 0.998. Two independent instruments
+agreeing with each other and disagreeing with a third identify which one is
+wrong.
+
+\textbf{The relationship with the wall had to be measured inside contiguous
+blocks, and one defect had to be registered before it could be read at all.}
+Computed on the whole record at once, as an earlier version of this report did,
+the differenced relationship appears negligible for every source and the
+on-structure radiation channel appears to \emph{reverse} sign. Both are
+artefacts. Cut into blocks, kept inside one instrument era, and with 175 hours
+of single-hour acquisition faults registered and masked --- hours in which the
+inclination, the air temperature and the battery all fail together and recover
+on the next sample --- air temperature reaches $r = -0.95$ in levels and
+$-0.84$ in first differences against the calibrated inclination, and the
+radiation reversal disappears.
+
+\textbf{All three sources give the same sign}, no channel leads the deformation,
+and every driver optimises at \textbf{zero transport delay}. Only solar
+radiation needs an operator: a one- to two-hour thermal inertia lifts its
+explained variance from 0.570 to \textbf{0.708}. Radiation adds one to three
+points of explained variance beyond air temperature --- real, and small.
+\end{abstract}
+
+\tableofcontents
+
+% ===========================================================================
+\section{What is being compared, and why}
+\label{sec:intro}
+
+\subsection{Three sources, one name}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{l l Y}
+\toprule
+\textbf{Suffix} & \textbf{Source} & \textbf{What it measures} \\
+\midrule
+\texttt{\_str} & on-structure logger & Air inside the instrument housing on the
+monitored wall \\
+\texttt{\_gs} & ground station & Standard-exposure station in Gubbio town \\
+\texttt{\_era5} & ERA5 reanalysis & Average over a grid cell of roughly nine
+kilometres \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\textbf{They are not replicates.} Disagreement between them is not error to be
+minimised; it is the physical difference between three measurement situations,
+and the study's job is to measure it and say what it costs.
+
+\subsection{Why this had to come first}
+
+\panel{The deadlock this study exists to break}{%
+\texttt{studies/unified\_dataset/} established that every channel of the
+monitored station fails at once. On \textbf{100\,\%} of the hours the
+inclinometer is missing, the air temperature, humidity and battery are missing
+too. The missingness is outage-driven, so no method conditioned on an
+on-structure covariate can fill a real gap --- the covariates are gone with the
+target.
+
+\medskip
+An independent source does not share the station's power supply. That is the only
+escape available, and whether it works depends on two things: is the proxy
+\emph{there} when the target is not, and does it carry the \emph{same
+relationship} with the wall. This study answers both.}
+
+\subsection{Two rules}
+
+\textbf{The target is fixed.} The compensated inclination \texttt{inc\_comp} is
+the calibrated reading: the manufacturer's formula applied with the temperature
+measured at the transducer. That is an instrument calibration, not a regression.
+The transducer experiences the temperature at the transducer, so substituting a
+grid-cell or in-town temperature into the formula would be meaningless. Nothing
+in this study re-estimates the coefficient and no alternative target is built.
+That the on-structure temperature appears inside the target is a property of the
+calibrated measurement, stated here and not designed around.
+
+\textbf{The clock is measured, not assumed.} The sources do not share a time
+convention, and an uncorrected offset would misplace every diurnal phase in the
+study.
+
+% ===========================================================================
+\section{Harmonisation, and the clock}
+\label{sec:clock}
+
+\subsection{What arrived}
+
+All three sources are placed on the hourly grid under one naming scheme,
+\texttt{\{quantity\}\_\{source\}}, documented in
+\texttt{docs/proxy-data-dictionary.md} --- which is generated from the mapping
+tables in \texttt{pc\_lib} so that code and documentation cannot drift apart.
+
+Two unit hazards were found and corrected. ERA5 reports relative humidity as a
+\textbf{fraction} where the other two report per cent; left uncorrected it would
+have appeared as a 99\,\% dry bias. The ground station is natively half-hourly
+with 124 duplicated timestamps.
+
+Values outside a plausible physical range are \textbf{reported, not removed}. A
+radiation channel reading sixty watts at midnight is a finding about the sensor,
+and deleting it would hide the finding.
+
+\subsection{The radiation channels as measured}
+\label{sec:series}
+
+Every other figure in this report shows a statistic --- a mean profile, an
+agreement scatter, a correlation. Figure~\ref{fig:series} shows the
+measurements, and it is placed first because the strongest evidence against the
+on-structure pyranometer is visible in the raw channel before any statistic is
+computed.
+
+The panels are restricted to the period the on-structure pyranometer covers,
+21 February 2025 to 12 August 2026, because that is the only window over which
+the three sources can be compared at all. The proxies run from 2018; that
+difference in extent is what shapes the tiers in Section~\ref{sec:tiers} and is
+reported there, and drawing it here would leave seven eighths of the
+on-structure panel empty and hide the comparison this figure exists to make.
+
+\begin{figure}[H]
+\includegraphics{P_F09_radiation_series}
+\caption{Solar radiation as measured, by source, over the on-structure record.
+The upper three panels give one source each at hourly resolution; the black line
+is a thirty-day rolling maximum, drawn as a seasonal ceiling rather than as a
+smoothing of the values beneath it. Hours with no measurement are left as breaks
+rather than joined, so an outage appears as the gap it is. The shaded band marks
+the fortnight enlarged below, chosen as the fourteen days in which all three
+sources are jointly most complete. The bottom panel overlays all three at full
+hourly resolution over that fortnight, which is the only scale at which an
+individual hourly value can be read.}
+\label{fig:series}
+\end{figure}
+
+\textbf{The two proxies behave as a solar record should and the on-structure
+channel does not.} The ground station and ERA5 panels each show one clean annual
+arc, a ceiling near 1000\,W/m\textsuperscript{2} in summer falling to roughly
+450 in January and recovering, on 99.2\,\% and 99.5\,\% of the window
+respectively. The on-structure panel is present on \textbf{69.1\,\%} of the same
+window and does none of that.
+
+\textbf{It over-reads whenever it works.} Its peak is
+\textbf{1358\,W/m\textsuperscript{2}} against 1004 for the ground station and
+939 for ERA5, and in the enlarged fortnight its daily maxima run about
+\textbf{1.5 times} both proxies, day after day, in clear and overcast conditions
+alike. A clear-sky maximum above 1300\,W/m\textsuperscript{2} is not physically
+available at this latitude.
+
+\panel{The channel fails outright for two months, and under-reads for four more}{%
+The monthly maxima make the failure explicit. Through the first summer the
+on-structure channel runs above both proxies, as it does again in the second:
+1291, 1317 and 1326\,W/m\textsuperscript{2} in May, June and July 2025 against
+roughly 950 for each proxy, and 1353, 1312 and 1154 in June, July and August
+2026.
+
+\medskip
+\textbf{In August and September 2025 it collapses.} Its monthly maxima are
+\textbf{116} and \textbf{150}\,W/m\textsuperscript{2} while both proxies report
+a normal late summer near \textbf{890}. A pyranometer that never exceeds
+150\,W/m\textsuperscript{2} across an entire Umbrian August is not measuring
+sunlight.
+
+\medskip
+\textbf{From December 2025 to March 2026 it under-reads}, inverting its usual
+bias: 541, 496, 462 and 354\,W/m\textsuperscript{2} against proxy maxima that
+rise from about 480 back to 816 as the season turns. By February and March it
+sits \emph{below} both proxies, having been half again above them six months
+earlier.
+
+\medskip
+\textbf{This matters for the agreement statistics of
+Section~\ref{sec:absolute}.} The 368-day overlap on which \texttt{str}--\texttt{gs}
+and \texttt{str}--\texttt{era5} are computed contains both a period of total
+failure and a period of inverted bias. Their correlations near $r = 0.74$ are
+therefore not the precision of a working instrument with an offset; they are an
+average over an instrument that was working, an instrument that was dead, and an
+instrument that was wrong in the opposite direction.}
+
+\textbf{The two proxies track each other and the on-structure channel tracks
+neither.} In the enlarged panel the ground station and ERA5 traces are nearly
+superimposed, including on the broken days of 30 March and 6 April, while the
+on-structure trace departs from both in amplitude on every day. That is the
+triangulation Section~\ref{sec:absolute} quantifies, visible before any statistic
+is taken, and the conclusion it supports --- that this channel is not usable as a
+physical measurement without recalibration --- is reached here on the raw values
+alone.
+
+\subsection{The clock, settled two ways}
+
+Two independent tests are available and they do not have to agree.
+
+The \textbf{absolute} test compares each source's solar-radiation phase against
+solar noon computed from the site's longitude and the equation of time. It needs
+no reference sensor. The \textbf{relative} test cross-correlates each source
+against the on-structure channel; it needs a reference but works on any quantity.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.9cm}R{1.9cm}R{1.9cm}}
+\toprule
+\textbf{Source} & \textbf{Season} & \textbf{offset from solar noon} &
+\textbf{shift on \texttt{tair}} & \textbf{shift on \texttt{sr}} \\
+\midrule
+on-structure   & winter & $+0.77$ h & --- & --- \\
+on-structure   & summer & $+1.26$ h & --- & --- \\
+ground station & winter & $+0.09$ h & 0 h & 1 h \\
+ground station & summer & $+0.06$ h & 1 h & 1 h \\
+ERA5           & winter & $+0.51$ h & 0 h & 0 h \\
+ERA5           & summer & $+0.42$ h & 1 h & 1 h \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{The on-structure radiation channel fails its own consistency check}{%
+It places solar noon \emph{after} its own daily temperature maximum, which is
+impossible --- the wall cannot warm before the sun reaches its highest point. Its
+winter estimate has an interquartile range of \textbf{5.3 hours}, and it reads
+roughly \textbf{60 W/m\textsuperscript{2} at midnight}.
+
+\medskip
+The alignment is therefore taken from \textbf{air temperature}, which all three
+sources carry with good coverage and which is the quantity the rest of the study
+uses. On temperature the answer is unambiguous: the ground station and ERA5 agree
+with each other \emph{exactly} in both seasons, and both sit one hour from the
+on-structure logger \textbf{in summer only}.
+
+\medskip
+That is the signature of a daylight-saving mismatch --- one clock advances in
+spring and the other does not --- so the correction is applied by season. A
+single annual figure would have been wrong in both halves of the year. After
+correction the residual offset is zero on every source and season, which the
+notebook asserts.}
+
+\begin{figure}[H]
+\includegraphics{P_F01_clock}
+\caption{Mean diurnal solar radiation by source and season after alignment. The
+on-structure channel's non-zero night-time floor is visible directly.}
+\end{figure}
+
+% ===========================================================================
+\section{Absolute agreement}
+\label{sec:absolute}
+
+Three complementary views, because they answer different questions. Bias and
+RMSE say how large the disagreement is. The regression slope and intercept say
+what \emph{kind} it is --- a slope near one with a non-zero intercept is an
+offset, a slope away from one is a scale error, and they call for different
+remedies. The limits of agreement say how far a single substituted value might
+fall from the one it replaces.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.3cm}R{1.2cm}R{1.2cm}R{1.2cm}R{1.3cm}R{2.2cm}}
+\toprule
+& \textbf{pair} & \textbf{days} & \textbf{bias} & \textbf{MAE} &
+\textbf{slope} & \textbf{$r$} & \textbf{limits of agr.} \\
+\midrule
+\multicolumn{8}{l}{\itshape air temperature [\degC]} \\
+& str--gs   & 1958 & $+0.37$ & \textbf{1.12} & 0.942 & \textbf{0.988} & $-2.3$ to $+3.0$ \\
+& str--era5 & 2048 & $-0.57$ & 1.53 & 0.922 & 0.978 & $-4.2$ to $+3.0$ \\
+& gs--era5  & 2772 & $-0.92$ & 1.36 & 0.969 & 0.981 & $-4.0$ to $+2.1$ \\
+\addlinespace
+\multicolumn{8}{l}{\itshape relative humidity [\%]} \\
+& str--gs   & 1926 & $-6.51$ & 8.57 & 0.775 & 0.880 & $-26$ to $+13$ \\
+& str--era5 & 2048 & $-1.28$ & 9.41 & 0.686 & 0.822 & $-25$ to $+22$ \\
+& gs--era5  & 2690 & $+5.80$ & 8.80 & 0.745 & 0.806 & $-17$ to $+28$ \\
+\addlinespace
+\multicolumn{8}{l}{\itshape solar radiation [W/m\textsuperscript{2}]} \\
+& str--gs   &  368 & $-67.0$ & 153.9 & 0.577 & 0.744 & $-505$ to $+370$ \\
+& str--era5 &  368 & $-43.1$ & 153.1 & 0.606 & 0.738 & $-489$ to $+403$ \\
+& \textbf{gs--era5} & 2774 & $+29.1$ & \textbf{47.4} &
+\textbf{0.998} & \textbf{0.930} & $-152$ to $+211$ \\
+\addlinespace
+\multicolumn{8}{l}{\itshape solar radiation, daylight hours only} \\
+& str--gs   &  194 & $-48.8$ & 211.5 & 0.489 & 0.705 & $-600$ to $+503$ \\
+& str--era5 &  195 & $-7.3$  & 210.9 & 0.494 & 0.700 & $-564$ to $+549$ \\
+& gs--era5  & 1395 & $+54.1$ & \textbf{90.0} & 0.890 & \textbf{0.886} & $-190$ to $+298$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{Temperature substitutes well; humidity does not}{%
+\textbf{Air temperature is the one channel a proxy can stand in for.} The ground
+station tracks the on-structure sensor to a mean absolute \textbf{1.12\,\degC} at
+$r = 0.988$, and ERA5 to 1.53\,\degC\ at $r = 0.978$. The ground station is the
+closer of the two on every measure, as its position should imply.
+
+\medskip
+\textbf{Humidity is not interchangeable.} Correlations of 0.81--0.88 and limits
+of agreement spanning \textbf{fifty percentage points} mean a substituted
+humidity value carries no useful precision. Any use of humidity as a regressor
+must come from the source that will actually be available, not be swapped
+between them.}
+
+\panel{The radiation defect, confirmed by triangulation}{%
+The on-structure radiation channel agrees with neither proxy: $r = 0.744$ against
+the ground station, $0.738$ against ERA5, with mean absolute errors above
+150\,W/m\textsuperscript{2} and limits of agreement spanning nearly nine hundred.
+
+\medskip
+The two proxies, meanwhile, agree with \emph{each other} at $r = 0.930$, a slope
+of \textbf{0.998} and a mean absolute error of 47\,W/m\textsuperscript{2} --- a
+third of the disagreement either has with the on-structure sensor, over seven
+times the overlap.
+
+\medskip
+\textbf{Two independent instruments agreeing with each other and disagreeing with
+a third identify which one is wrong.} Combined with the night-time floor and the
+impossible solar-noon phase of Section~\ref{sec:clock}, the on-structure
+radiation channel should not be used as a physical measurement without
+recalibration.}
+
+\panel{Half of a radiation record is night, and it flatters every statistic}{%
+Roughly half of every solar-radiation series is a structural night-time zero.
+Those zeros are real measurements and are removed nowhere in this study, but a
+statistic computed over the whole day is computed largely on a block of samples
+on which all three sources agree trivially, because all three are reporting the
+same zero.
+
+\medskip
+Restricting to the hours the sun stands above the horizon --- a geometric mask
+taken from the site coordinates, independent of all three sources --- removes
+that flattery, and the effect is large. The correlation between the two proxies
+falls from \textbf{0.930 to 0.886} and their mean absolute difference nearly
+doubles, from \textbf{47.4 to 90.0}\,W/m\textsuperscript{2}; their regression
+slope falls from 0.998 to 0.890. The two comparisons involving the on-structure
+channel move less, from $r \approx 0.74$ to $r \approx 0.70$, because that
+channel disagrees with both proxies during the day as well as at night.
+
+\medskip
+\textbf{The daylight figures are the ones that describe how well a proxy could
+stand in for a radiation measurement}, since a reconstruction is only ever
+tested where there is something to reconstruct. The all-hours figures are kept
+beside them because they are what a naive comparison reports.
+
+\medskip
+The mask is geometry, not radiation. It takes no account of cloud, and none of
+the local horizon formed by the terrain around the site, so it marks when the
+sun is up rather than when the wall was lit.}
+
+\begin{figure}[H]
+\includegraphics{P_F02_agreement_tair}
+\caption{Air temperature. Top: each proxy against the on-structure sensor, with
+the identity line. Bottom: Bland--Altman, difference against mean, with the mean
+difference and the limits of agreement.}
+\end{figure}
+
+% ===========================================================================
+\section{Dynamic agreement}
+\label{sec:dynamic}
+
+A proxy can sit two degrees low and still drive the wall correctly, or match on
+average and miss every daily swing.
+
+\subsection{The daily cycle}
+
+\begin{center}
+\small
+\begin{tabular}{llR{2.1cm}R{2.1cm}R{1.5cm}}
+\toprule
+& \textbf{Source} & \textbf{diurnal amplitude} & \textbf{ratio to
+on-structure} & \textbf{peak hour} \\
+\midrule
+\multicolumn{5}{l}{\itshape air temperature [\degC]} \\
+& on-structure   & 3.31 & 1.00 & 13 \\
+& ground station & 3.80 & \textbf{1.15} & 13 \\
+& ERA5           & 3.94 & \textbf{1.19} & 14 \\
+\addlinespace
+\multicolumn{5}{l}{\itshape relative humidity [\%]} \\
+& on-structure   & 10.22 & 1.00 &  7 \\
+& ground station & 11.87 & 1.16 &  6 \\
+& ERA5           & 13.91 & 1.36 &  5 \\
+\addlinespace
+\multicolumn{5}{l}{\itshape solar radiation [W/m\textsuperscript{2}], daylight hours} \\
+& on-structure   & 291.9 & 1.00 & 12 \\
+& ground station & 243.0 & 0.83 & 12 \\
+& ERA5           & 282.6 & 0.97 & 12 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The radiation rows are computed over the daylight hours and carry no trough
+hour. Over the full day the trough of a radiation cycle is an arbitrary point
+inside the night --- the all-hours computation returns hours 23, 1 and 2 for the
+three sources, which are three different ways of saying ``dark'' --- and a
+number that arbitrary does not belong in a comparison. All three sources peak at
+hour 12, which is the one phase statement the radiation channels agree on.
+
+Radiation is also the one quantity where the on-structure sensor shows the
+\emph{largest} daily amplitude rather than the smallest. That is consistent with
+the defect established above rather than with the damping seen in temperature: a
+channel reading roughly 60\,W/m\textsuperscript{2} at midnight and disagreeing
+with both proxies has no claim to a physically meaningful amplitude.
+
+\panel{The expectation was that ERA5 would flatten the daily cycle. It does the
+opposite}{%
+A nine-kilometre grid average should smooth a microclimate away, so the
+reanalysis was expected to show the \emph{smallest} diurnal amplitude. It shows
+the \textbf{largest} --- 19\,\% above the on-structure sensor, with the ground
+station 15\,\% above.
+
+\medskip
+The sensor closest to the wall is the most \textbf{damped} of the three, and on
+reflection that is what the physics requires. The on-structure channel measures
+air inside an instrument housing mounted on a massive masonry wall. The housing
+has thermal mass and the wall behind it has a great deal more, so the air the
+sensor sees is buffered against the daily swing that a freely ventilated screen
+in a field records in full.
+
+\medskip
+\textbf{The consequence for imputation is favourable and was not anticipated.} A
+proxy that under-represented the daily cycle would have been unable to
+reconstruct it. Both proxies over-represent it instead, which is a scale
+difference --- correctable by regression --- rather than missing information.}
+
+ERA5's temperature peak falls one hour later than the other two. The humidity
+peaks spread over three hours, which is a further reason not to substitute
+humidity between sources.
+
+\begin{figure}[H]
+\includegraphics{P_F03_diurnal_tair}
+\caption{Mean diurnal cycle of air temperature by source. Left: absolute. Right:
+departure from each source's own daily mean, which isolates the shape.}
+\end{figure}
+
+\subsection{What survives differencing}
+
+The wall responds to change, not to level, and the first difference is the
+quantity invariant to every arbitrary constant in the chain.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.6cm}R{1.8cm}R{1.5cm}R{1.4cm}}
+\toprule
+& \textbf{pair} & \textbf{$r$ levels} & \textbf{$r$ differences} &
+\textbf{lost} & \textbf{slope} \\
+\midrule
+\multicolumn{6}{l}{\itshape air temperature} \\
+& str--gs   & 0.988 & \textbf{0.699} & $-0.29$ & 0.684 \\
+& str--era5 & 0.978 & \textbf{0.690} & $-0.29$ & 0.639 \\
+& gs--era5  & 0.981 & 0.731 & $-0.25$ & 0.679 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape relative humidity} \\
+& str--gs   & 0.880 & 0.546 & $-0.33$ & 0.542 \\
+& str--era5 & 0.822 & 0.489 & $-0.33$ & 0.498 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape solar radiation} \\
+& str--gs   & 0.744 & 0.491 & $-0.25$ & 0.343 \\
+& gs--era5  & 0.930 & 0.648 & $-0.28$ & 0.537 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{Most of the level agreement is a shared annual cycle}{%
+Differencing costs about \textbf{0.29} of correlation on every temperature pair
+and about 0.33 on humidity. Two sources correlating at 0.99 in levels agree only
+at 0.70 on what happened between one hour and the next.
+
+\medskip
+This is not a defect in either instrument. Two thermometers a few kilometres
+apart share the season and the synoptic weather almost perfectly, and differ on
+the local gust, the passing cloud and the sensor's own response time --- all of
+which live in the difference.
+
+\medskip
+\textbf{It sets the ceiling for proxy-driven reconstruction.} A model driven by a
+proxy can recover the part of the wall's movement that the proxy shares with the
+on-structure sensor, and that share is far smaller in the domain the wall
+actually responds to. The slopes below one --- 0.64 to 0.68 for temperature ---
+are partly regression dilution, since the reference carries measurement noise of
+its own, so they bound rather than measure the attenuation.}
+
+% ===========================================================================\section{Relationship with the inclination}
+\label{sec:target}
+
+Every statistic up to this point was computed on the joined frame: 26 July 2018
+to 13 August 2026, both instrument eras, and ragged throughout. No correlation
+against the target is computed that way below, for two reasons that this section
+establishes before it reports anything.
+
+\subsection{The windows this comparison can use}
+\label{sec:tiers}
+
+The prediction studies never correlate against the target on a span of that
+kind. They cut contiguous blocks of near-complete coverage, group them into
+tiers according to which channels a tier requires, and report every correlation,
+slope and operator inside a tier. This report now does the same, with one
+addition the sibling studies do not need: because it spans both eras, it must
+also keep them apart. The instrument at \texttt{st02} was physically reinstalled
+on 21 February 2025 and the two packages share no baseline, so no window here
+crosses that date.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{l L{3.4cm} R{1.4cm} R{2.6cm} R{1.9cm}}
+\toprule
+\textbf{Tier} & \textbf{Requires} & \textbf{Blocks} & \textbf{Longest block} &
+\textbf{Total days} \\
+\midrule
+P0 & target and all three sources & 7 & 86.6 d & 343.4 \\
+P1 & target and both proxies     & 7 & 86.6 d & 386.4 \\
+P2 & target and both proxies, legacy era & 23 & 107.8 d & 1271.2 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\noindent{\footnotesize Blocks are contiguous runs in which every required
+channel is present, interruptions up to six hours absorbed, minimum length
+twenty days --- the same parameters the prediction studies use, so the
+inventories are comparable. Full listing in \texttt{P\_13}.}
+
+\medskip
+\textbf{The radiation record sets the shape of the tiers by itself.}
+\texttt{sr\_str} begins on 21 February 2025, which is the era boundary, so a
+tier requiring the on-structure pyranometer cannot reach the legacy era at all.
+The three-source radiation comparison therefore lives entirely inside the
+current era, while the two proxies additionally carry a legacy era the
+on-structure channel can never enter. That is the whole of what ``solar
+radiation is available for only a fraction of the period'' means here, and it is
+a property of the tiers rather than a caveat attached to them.
+
+Tiers P0 and P1 differ only in whether the on-structure channels are required.
+P1 contains every hour of P0 and a little more, so the two are not independent
+samples and their agreement is weaker evidence than it looks. Where they differ
+at all below, the difference is one block.
+
+\subsection{A defect that had to be settled first}
+\label{sec:faults}
+
+Blocking alone did not reconcile this report with the prediction studies, and
+the reason turned out to be in the record rather than in the method.
+
+\panel{Single-hour acquisition faults, and why they had to be registered}{%
+The current era contains hours in which the calibrated inclination moves by
+hundreds of millidegrees and returns on the following sample. At
+\textbf{2025-05-10 14:00} the raw inclination moves $-220$\,mdeg, the air
+temperature rises $5.9\,\degC$ and the battery voltage dips --- all within the
+same hour, all recovering at the next. Three physically independent channels do
+not fail together for one sample because a wall moved.
+
+\medskip
+\textbf{The compensation is not the cause and differencing is not the cause.}
+The raw channel already carries 110 such hours in the current era against 47 in
+the legacy era; the calibrated channel carries 166 against 37, inheriting them
+and enlarging those where the temperature spiked as well. The index is a
+complete hourly grid, so no difference is ever taken across a gap.
+
+\medskip
+They matter because they live almost entirely in the first difference: one
+unreversed hour contributes two large differences of opposite sign. Left in
+place they do not merely add noise --- they reverse conclusions.
+
+\medskip
+\textbf{The hours are marked, not deleted.} A rolling median and a median
+absolute deviation over a one-day half-window score every hour, and those beyond
+eight robust standard deviations are entered in a register,
+\texttt{P\_23}, together with the evidence for each: the signed step, how many
+other channels were simultaneously anomalous, and whether the excursion reversed
+on the next hour. The register holds \textbf{175 hours, 0.248\,\%} of the grid.
+The mask is applied to the \emph{level}, so one decision governs the level
+statistics and the differenced ones rather than two separate rules, and a
+sustained shift --- a real re-levelling --- is not caught by it.}
+
+\begin{center}
+\small
+\begin{tabular}{lR{2.0cm}R{2.0cm}R{2.4cm}}
+\toprule
+& \textbf{$r$ unscreened} & \textbf{$r$ screened} & \textbf{sibling study} \\
+\midrule
+\multicolumn{4}{l}{\itshape tier P0, on-structure air temperature} \\
+\quad levels      & $-0.757$ & $\mathbf{-0.952}$ & $-0.956$ \\
+\quad differences & $-0.148$ & $\mathbf{-0.840}$ & $-0.886$ \\
+\addlinespace
+\multicolumn{4}{l}{\itshape tier P0, on-structure solar radiation} \\
+\quad differences & $\mathbf{+0.036}$ & $\mathbf{-0.533}$ & $-0.624$ \\
+\addlinespace
+\multicolumn{4}{l}{\itshape tier P2, on-structure air temperature} \\
+\quad differences & $-0.890$ & $-0.890$ & $-0.901$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Sibling figures from
+\texttt{studies/inclination\_prediction} for the current era and
+\texttt{studies/inclination\_prediction\_legacy} for the legacy era.}
+
+\medskip
+\textbf{The register changes the current era and leaves the legacy era alone.}
+Every legacy figure moves by 0.002 or less, which is why tier P2 reproduced its
+sibling study before any screening at all; the legacy faults exist but are fifty
+times smaller, a maximum step of 51\,mdeg against 1314. In the current era the
+correction is decisive in both domains, and it recovers the sibling studies'
+values from a record that had appeared to contradict them.
+
+\panel{A reversal that was not a defect}{%
+Unscreened, the on-structure radiation channel correlates \textbf{positively}
+with the target in first differences, $r = +0.036$, while both proxies stay
+negative. Read on its own that is a fourth symptom of a channel already known to
+be defective.
+
+\medskip
+It is not. Screened, the same channel gives $r = -0.533$, in agreement with both
+proxies and with the sibling study. \textbf{The apparent sign reversal was
+produced entirely by the acquisition faults}, and nothing in this report reopens
+the sign question of \texttt{docs/raw-data-format.md} §7.5.}
+
+\subsection{Correlation structure}
+\label{sec:corr}
+
+With the windows defined and the faults registered, the correlation matrix over
+the target and every channel a tier carries, on levels and on first differences.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.9cm}R{1.9cm}R{1.9cm}}
+\toprule
+& & \textbf{on-structure} & \textbf{ground station} & \textbf{ERA5} \\
+\midrule
+\multicolumn{5}{l}{\itshape air temperature} \\
+& P0 levels      & $-0.952$ & $-0.940$ & $-0.932$ \\
+& P0 differences & $-0.840$ & $-0.582$ & $-0.570$ \\
+& P2 levels      & $-0.541$ & $-0.543$ & $-0.539$ \\
+& P2 differences & $-0.890$ & $-0.668$ & $-0.569$ \\
+\addlinespace
+\multicolumn{5}{l}{\itshape solar radiation} \\
+& P0 levels      & $-0.142$ & $-0.442$ & $-0.460$ \\
+& P0 differences & $-0.533$ & $-0.430$ & $-0.527$ \\
+& P2 levels      & ---      & $-0.222$ & $-0.215$ \\
+& P2 differences & ---      & $-0.491$ & $-0.580$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Correlations between two trending series are inflated by the shared trend and
+say little about a driver--response relationship; the differenced matrix is the
+honest one for a signal with drift. Both are shown so the gap is visible, which
+is the convention the prediction studies use.
+
+\textbf{The two eras answer differently, and the difference is instructive.} In
+the current era the level correlation is the stronger one for temperature and
+the differenced correlation the weaker; in the legacy era it is the reverse. The
+legacy blocks are drawn from seven calendar years and no single block spans an
+annual cycle, so their levels carry less common trend to inflate them, while
+their hour-to-hour movement is measured on a quieter instrument.
+
+\textbf{Radiation is the one quantity that gains under differencing in both
+eras.} Its level correlation with the target is weak everywhere --- between
+$-0.14$ and $-0.46$ --- and its differenced correlation is stronger for every
+source in every tier. Radiation drives the daily cycle and carries almost none
+of the seasonal level, which is exactly the signature differencing exposes.
+
+\begin{figure}[H]
+\includegraphics{P_F06_correlations}
+\caption{Correlation structure by tier, on levels (left) and on first
+differences (right). The block of high mutual correlation among the drivers
+themselves is quantified in Section~\ref{sec:contribution}.}
+\end{figure}
+
+\subsection{Relationship with the target, by tier}
+\label{sec:byTier}
+
+Each source against the one target, in both domains, inside each tier's blocks.
+The slope describes the residual response that survives the calibration;
+\textbf{it is not a candidate compensation coefficient}.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.5cm}R{2.3cm}R{1.3cm}R{1.2cm}}
+\toprule
+& \textbf{Source} & \textbf{$r$} & \textbf{slope
+[\,mdeg\,unit$^{-1}$]} & \textbf{s.e.} & \textbf{$R^2$} \\
+\midrule
+\multicolumn{6}{l}{\itshape air temperature [\,mdeg\,\degC$^{-1}$], tier P0, levels} \\
+& on-structure   & $-0.952$ & $-4.602$ & 0.067 & 0.907 \\
+& ground station & $-0.940$ & $-4.842$ & 0.074 & 0.883 \\
+& ERA5           & $-0.932$ & $-4.766$ & 0.074 & 0.868 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape air temperature, tier P0, first differences} \\
+& on-structure   & $-0.840$ & $-3.010$ & 0.041 & 0.706 \\
+& ground station & $-0.582$ & $-2.391$ & 0.050 & 0.339 \\
+& ERA5           & $-0.570$ & $-2.336$ & 0.051 & 0.325 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape solar radiation [\,mdeg\,(W\,m$^{-2}$)$^{-1}$], tier P0, first differences} \\
+& on-structure   & $-0.533$ & $-0.0167$ & 0.0006 & 0.284 \\
+& ground station & $-0.430$ & $-0.0187$ & 0.0008 & 0.185 \\
+& ERA5           & $-0.527$ & $-0.0276$ & 0.0008 & 0.278 \\
+\addlinespace
+\multicolumn{6}{l}{\itshape air temperature, tier P2, first differences} \\
+& on-structure   & $-0.890$ & $-2.653$ & 0.020 & 0.792 \\
+& ground station & $-0.668$ & $-1.966$ & 0.024 & 0.447 \\
+& ERA5           & $-0.569$ & $-1.766$ & 0.023 & 0.323 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Standard errors are Newey--West at 24 lags. The full
+table, every quantity, every tier, both domains, and both the screened and the
+unscreened frame, is \texttt{P\_16}.}
+
+\panel{Every source agrees on the sign, and the proxies pay a measurable price}{%
+All twelve correlations above are \textbf{negative}, which is the direction the
+site's geometry requires: the valley face is the sun-exposed one, it expands
+more under heating, and the wall tips toward the mountain
+(\texttt{docs/raw-data-format.md} §7.5). No source and no tier reverses it.
+
+\medskip
+\textbf{The on-structure sensor retains substantially more of the differenced
+relationship than either proxy} --- $-0.840$ against $-0.582$ and $-0.570$ in
+the current era, $-0.890$ against $-0.668$ and $-0.569$ in the legacy era. That
+gap is the price of substitution, and it is the quantity a reconstruction study
+inherits: a proxy-driven model can recover the part of the wall's movement that
+the proxy shares with the wall's own sensor, and in the difference domain that
+share is roughly two thirds.
+
+\medskip
+\textbf{Solar radiation reaches roughly half the differenced correlation of air
+temperature}, $-0.53$ against $-0.84$ in tier P0, from sources that agree with
+each other far better than the radiation channels do. It is a real driver in the
+domain the wall responds to, not a residual.}
+
+\begin{figure}[H]
+\includegraphics{P_F07_relationship_tiers}
+\caption{Slope against the calibrated inclination, by tier and domain, for air
+temperature and solar radiation. Error bars are Newey--West standard errors at
+24 lags.}
+\end{figure}
+
+\subsection{Transport delay and thermal inertia, on two bands}
+\label{sec:operators}
+
+Before a driver is compared it is given the chance to act through the operator
+that suits it. A \textbf{transport delay} shifts the driver without changing its
+shape; a \textbf{thermal inertia} low-passes it through a single-pole filter.
+The two are scanned jointly over 13 delays and 16 time constants, because
+scanning either alone can attribute to one what belongs to the other, and the
+instantaneous case stays in the grid so that it competes rather than being
+assumed away.
+
+The scan runs on each tier's \emph{longest single block}, not on the union of
+its blocks. A delay is applied with a shift, a time constant with a recursive
+filter and the band limit with a rolling mean; all three read across adjacent
+rows, so a union would let a filter draw values from the far side of a
+months-long interruption.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.3cm}R{1.2cm}R{1.5cm}R{1.4cm}R{2.0cm}}
+\toprule
+\textbf{Tier} & \textbf{Driver} & \textbf{delay} & \textbf{$\tau$} &
+\textbf{$r$} & \textbf{$R^2$} & \textbf{$R^2$ at $d=\tau=0$} \\
+\midrule
+\multicolumn{7}{l}{\itshape diurnal band --- carried forward} \\
+P0 & \texttt{tair\_str}  & 0 h & 0 h & $-0.977$ & 0.955 & 0.955 \\
+P0 & \texttt{tair\_gs}   & 0 h & 0 h & $-0.930$ & 0.865 & 0.865 \\
+P0 & \texttt{tair\_era5} & 0 h & 0 h & $-0.916$ & 0.839 & 0.839 \\
+P0 & \texttt{sr\_str}    & 0 h & 1 h & $-0.542$ & 0.294 & 0.262 \\
+P0 & \texttt{sr\_gs}     & 0 h & 2 h & $-0.841$ & \textbf{0.708} & 0.570 \\
+P0 & \texttt{sr\_era5}   & 0 h & 1 h & $-0.829$ & 0.686 & 0.618 \\
+\addlinespace
+P2 & \texttt{tair\_str}  & 0 h & 0 h & $-0.964$ & 0.930 & 0.930 \\
+P2 & \texttt{sr\_gs}     & 0 h & 2 h & $-0.746$ & 0.556 & 0.437 \\
+P2 & \texttt{sr\_era5}   & 0 h & 1 h & $-0.711$ & 0.506 & 0.460 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Delays bounded at twelve hours per
+\texttt{docs/raw-data-format.md} §7.5: both air temperature and solar radiation
+are external forcings, and beyond half a diurnal cycle a delay is
+indistinguishable from a lead. Tier P1 reproduces P0 exactly, because the two
+share their longest block. Full-band results and the complete table are
+\texttt{P\_17} and \texttt{P\_18}.}
+
+\panel{No driver needs a transport delay; only radiation needs an inertia}{%
+\textbf{Every optimum sits at zero delay}, on both bands and in both eras. A
+grid cell averaged over nine kilometres was expected to show a different
+apparent lag from a sensor on the wall; it does not. A proxy therefore needs no
+phase correction before use, which is a simplification the scan earned rather
+than an assumption.
+
+\medskip
+\textbf{Air temperature also needs no inertia} --- its optimum is
+$\tau = 0$ for every source in every tier, and the operator adds nothing to the
+instantaneous fit.
+
+\medskip
+\textbf{Solar radiation does.} Both proxies optimise at a one- or two-hour time
+constant, and the gain is not marginal: for the ground station explained
+variance rises from \textbf{0.570 to 0.708}. Radiation heats a surface which
+then warms the air and the masonry, so a short lag between the forcing and the
+response it produces is what the physics predicts. This is the one place in the
+report where fitting an operator changes a conclusion.
+
+\medskip
+\textbf{The full band produced no boundary optimum.} The prediction study found
+solar radiation pinned at the last time constant in the grid, 168 hours, which
+it correctly diagnosed as a filter turning a daily cycle into a seasonal
+envelope. On these blocks that does not occur for any driver: no full-band
+optimum sits at the grid edge. The blocks here are shorter than an annual cycle,
+so there is no seasonal component for a week-wide filter to reach for.}
+
+\begin{figure}[H]
+\includegraphics{P_F08_operators_P0}
+\caption{Explained variance over the delay-by-inertia grid, diurnal band, tier
+P0. Every optimum sits on the zero-delay edge; the radiation panels brighten one
+to two hours into the inertia axis, which is the operator the table reports.}
+\end{figure}
+
+\subsection{Does any radiation channel lead the response?}
+\label{sec:signed}
+
+The scan above is bounded at non-negative delays because a forcing must precede
+the response it causes. That bound is right for \emph{use} --- a lead cannot be
+applied by a forecasting system, which would need the driver's future values at
+the moment the forecast is issued --- but it also hides a diagnostic. If an
+optimum genuinely sat at a negative delay, the bounded scan would report the
+boundary instead of the anomaly. Scanning signed delays makes it visible.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.9cm}R{2.0cm}R{2.0cm}}
+\toprule
+\textbf{Tier} & \textbf{Channel} & \textbf{peak lag} & \textbf{$r$ at peak} &
+\textbf{$r$ at lag 0} \\
+\midrule
+P0 & \texttt{sr\_str}  & $+1$ h & $-0.524$ & $-0.512$ \\
+P0 & \texttt{sr\_gs}   & $+1$ h & $-0.825$ & $-0.755$ \\
+P0 & \texttt{sr\_era5} & $+1$ h & $-0.821$ & $-0.786$ \\
+P2 & \texttt{sr\_gs}   & $+1$ h & $-0.721$ & $-0.661$ \\
+P2 & \texttt{sr\_era5} & $+1$ h & $-0.700$ & $-0.679$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Every radiation channel peaks at a positive lag of one hour}, in both
+eras and including the defective on-structure channel. A positive lag means the
+driver leads the response, which is the only direction a forcing can act in, and
+one hour is consistent with the one- to two-hour inertia the operator scan
+selected independently. No channel leads the deformation, so the causal
+constraint imposed on every model in this project costs nothing here, and the
+sign anomaly of Section~\ref{sec:faults} is confirmed as an artefact of the
+acquisition faults rather than a property of any instrument.
+
+\subsection{What radiation adds once temperature is present}
+\label{sec:contribution}
+
+Radiation heats the air, so a marginal correlation between radiation and the
+target partly re-measures the temperature relationship. The variance inflation
+factor quantifies the duplication, and a joint fit reports what radiation adds
+beyond temperature alone.
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.2cm}R{1.6cm}R{1.5cm}R{1.5cm}R{1.4cm}}
+\toprule
+\textbf{Tier} & \textbf{Source} & \textbf{VIF} &
+\textbf{$r$ between} & \textbf{$R^2$ \texttt{tair}} &
+\textbf{$R^2$ joint} & \textbf{$\Delta R^2$} \\
+\midrule
+\multicolumn{7}{l}{\itshape first differences} \\
+P0 & on-structure   & 1.37 & 0.520 & 0.706 & 0.719 & $+0.013$ \\
+P0 & ground station & 1.57 & 0.602 & 0.339 & 0.349 & $+0.010$ \\
+P0 & ERA5           & 2.01 & 0.709 & 0.325 & 0.355 & $+0.031$ \\
+P2 & ground station & 1.64 & 0.626 & 0.447 & 0.456 & $+0.009$ \\
+P2 & ERA5           & 1.67 & 0.634 & 0.323 & 0.404 & $\mathbf{+0.081}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Newey--West standard errors at 24 lags. The radiation
+term clears $|t| = 6$ in every row above and reaches $|t| = 45$ in the last.
+Level-domain rows are in \texttt{P\_20}.}
+
+\panel{Radiation earns a place, and it is a small one}{%
+\textbf{Collinearity is mild.} Variance inflation factors run from 1.37 to 2.01,
+so the two drivers are not interchangeable and a joint fit is interpretable.
+
+\medskip
+\textbf{The increment is statistically overwhelming and practically small.}
+Every radiation term clears $|t| = 6$, which on tens of thousands of hourly
+samples establishes only that the effect is not zero. What it buys is one to
+three points of explained variance in the current era, and eight in the legacy
+era for ERA5.
+
+\medskip
+\textbf{The recommendation follows the size, not the significance.} A radiation
+channel is worth carrying as a second regressor where it is free --- both
+proxies supply one --- but it does not change what a temperature-driven model
+can do, and it is not a substitute for temperature anywhere.}
+
+\subsection{What the pooled span cost}
+\label{sec:pooled}
+
+The previous version of this section reported the relationship on the whole
+record at once. Against the tiered, screened figures:
+
+\begin{center}
+\small
+\begin{tabular}{llR{2.2cm}R{2.2cm}}
+\toprule
+& & \textbf{pooled span} & \textbf{tier P0} \\
+\midrule
+\multicolumn{4}{l}{\itshape air temperature, first differences} \\
+& on-structure   & $-0.155$ & $\mathbf{-0.840}$ \\
+& ground station & $-0.091$ & $-0.582$ \\
+& ERA5           & $-0.084$ & $-0.570$ \\
+\addlinespace
+\multicolumn{4}{l}{\itshape solar radiation, first differences} \\
+& on-structure   & $+0.087$ & $\mathbf{-0.533}$ \\
+& ground station & $-0.088$ & $-0.430$ \\
+& ERA5           & $-0.091$ & $-0.527$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{The earlier conclusion was an artefact of the analysis window and the
+unregistered faults, not a finding about the wall.} That version reported the
+differenced relationship as weak for every source, with $R^2$ between 0.007 and
+0.024, and read it as agreement with the prediction studies that the drivers
+contribute nothing measurable. The prediction studies report no such thing: on
+their own blocks they find air temperature at $r \approx -0.89$ in first
+differences, which is what this report now also finds. The pooled figures are
+retained in \texttt{P\_08} as the contrast, and are not interpreted anywhere.
+
+% ===========================================================================
+\section{Verdict}
+\label{sec:verdict}
+
+\subsection{Availability, which decides everything else}
+
+\begin{center}
+\small
+\begin{tabular}{llR{2.4cm}R{3.2cm}}
+\toprule
+& \textbf{Source} & \textbf{coverage of archive span} & \textbf{present when the
+target is missing} \\
+\midrule
+\multicolumn{4}{l}{\itshape air temperature} \\
+& on-structure   & 70.1\,\% & \textbf{0.0\,\%} \\
+& ground station & 94.8\,\% & \textbf{94.3\,\%} \\
+& ERA5           & 99.4\,\% & \textbf{99.6\,\%} \\
+\addlinespace
+\multicolumn{4}{l}{\itshape solar radiation} \\
+& on-structure   & 12.7\,\% & \textbf{0.0\,\%} \\
+& ground station & 94.9\,\% & \textbf{94.4\,\%} \\
+& ERA5           & 99.4\,\% & \textbf{99.6\,\%} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\panel{The deadlock is broken}{%
+The on-structure sensor is present on \textbf{none} of the hours the target is
+missing --- that is what outage-driven missingness means, and it is why the
+previous study had to refuse the driver-based filler.
+
+\medskip
+The ground station is present on \textbf{94.3\,\%} of those hours and ERA5 on
+\textbf{99.6\,\%}. The availability criterion that emptied the candidate pool is
+satisfied by both proxies, and comfortably.
+
+\medskip
+\textbf{Radiation behaves the same way, and the asymmetry is extreme.} The
+on-structure pyranometer covers \textbf{12.7\,\%} of the archive span and, like
+every on-structure channel, none of the hours the target is missing. Both
+proxies supply radiation on more than 94\,\% of exactly those hours. A radiation
+regressor is therefore available for reconstruction only if it comes from a
+proxy, which is the same conclusion temperature reached and for the same
+reason.}
+
+\subsection{Which source, for what}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{3.2cm}Y}
+\toprule
+\textbf{Use} & \textbf{Recommendation} \\
+\midrule
+Gap reconstruction & \textbf{ERA5} as primary, at 99.6\,\% availability, with the
+ground station as a cross-check where both exist. ERA5's slightly worse agreement
+(1.53 against 1.12\,\degC) is outweighed by its near-total coverage. \\
+Regressor for a forecast model & \textbf{Either}, with ERA5 preferred for
+continuity. Both need a scale correction: their diurnal amplitude runs 15--19\,\%
+above the wall's own sensor. \\
+Compensation & \textbf{On-structure only}, always. The calibration is an
+instrument correction and must use the temperature at the transducer. \\
+Humidity, any use & \textbf{Do not substitute.} Limits of agreement span fifty
+percentage points. \\
+Radiation as a second regressor & \textbf{Either proxy}, applied through a
+one- to two-hour inertia filter. It adds one to three points of explained
+variance over air temperature alone, which is worth taking where it is free and
+is not worth designing around. \\
+Radiation, as a measurement & \textbf{Not the on-structure channel} until it is
+recalibrated. The two proxies agree with each other and both disagree with it,
+and it reaches barely half their differenced correlation with the target. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{The feature specification for the imputation study}
+
+\begin{center}
+\small
+\begin{tabular}{llR{1.1cm}R{1.0cm}R{1.5cm}R{1.6cm}R{1.9cm}}
+\toprule
+\textbf{Channel} & \textbf{Source} & \textbf{delay} & \textbf{$\tau$} &
+\textbf{$R^2$ diurnal} & \textbf{$r$ diff.} & \textbf{available in gaps} \\
+\midrule
+\texttt{tair\_str}  & on-structure   & 0 h & 0 h & 0.955 & $-0.840$ & 0.0\,\% \fail \\
+\texttt{tair\_gs}   & ground station & 0 h & 0 h & 0.865 & $-0.582$ & 94.3\,\% \pass \\
+\texttt{tair\_era5} & ERA5           & 0 h & 0 h & 0.839 & $-0.570$ & 99.6\,\% \pass \\
+\addlinespace
+\texttt{sr\_str}    & on-structure   & 0 h & 1 h & 0.294 & $-0.533$ & 0.0\,\% \fail \\
+\texttt{sr\_gs}     & ground station & 0 h & 2 h & 0.708 & $-0.430$ & 94.4\,\% \pass \\
+\texttt{sr\_era5}   & ERA5           & 0 h & 1 h & 0.686 & $-0.527$ & 99.6\,\% \pass \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent{\footnotesize Operators from the diurnal-band scan on tier P0's
+longest block; differenced correlations from tier P0. Full table in
+\texttt{P\_12}.}
+
+\medskip
+Both proxies enter the imputation study \textbf{unlagged}, which is a
+simplification the operator scan earned rather than an assumption. Their
+temperature channels enter without an inertia filter as well; their
+\textbf{radiation channels do not} --- a one- to two-hour time constant raises
+explained variance for the ground station from 0.570 to 0.708 and is the one
+operator in this report that changes a conclusion.
+
+% ===========================================================================
+\section{Caveats}
+
+\textbf{Agreement is not interchangeability.} Two temperature series can agree to
+1.1\,\degC\ and still imply different things for a wall, because the wall
+responds to the difference and the difference agrees far less well.
+
+\textbf{The differenced slopes are attenuated.} Regression dilution biases them
+toward zero whenever the reference carries noise of its own, which it does. They
+bound the attenuation rather than measuring it.
+
+\textbf{The radiation comparison rests on a short and partly broken overlap.}
+On-structure radiation exists only from 2025-02-21, giving 368 days against the
+2774 available for the two proxies, and 194 days once the daylight mask is
+applied. Section~\ref{sec:series} shows that the channel failed outright for two
+months of that overlap and under-read for four more, so every statistic
+involving it pools three different instrument states and should be read as a
+description of the record rather than of a sensor.
+
+\textbf{The legacy tier measures a different instrument.} Tier P2 lies entirely
+before the 21 February 2025 reinstallation. The package installed on that date
+shares no baseline with the one it replaced, so a result obtained on P2
+describes the earlier instrument. No window in Section~\ref{sec:target} spans
+the boundary, and no figure is carried across it.
+
+\textbf{Tiers P0 and P1 overlap.} P1 contains every hour of P0 and one further
+block. Agreement between the two is therefore weaker evidence than agreement
+between independent samples, and the two differ nowhere that matters in this
+report because they share their longest block.
+
+\textbf{The daylight mask is geometry, not radiation.} It marks the hours the
+sun stands above the horizon at the site's coordinates. It takes no account of
+cloud, and none of the local horizon formed by the terrain around the site, so
+it says when the sun was up rather than when the wall was lit.
+
+\textbf{The fault register is a threshold, and thresholds can be argued with.}
+Eight robust standard deviations is deliberately conservative; the count of
+registered hours changes with it, though the conclusions do not over the range
+tested. The register is published as \texttt{P\_23} with the evidence for every
+flagged hour precisely so that the judgement can be inspected rather than taken
+on trust. The faults themselves are a property of
+\texttt{data/interim/unified/}, which every study in this project reads, and
+correcting them at that source rather than in this study would be the more
+durable fix.
+
+\textbf{One station.} All three sources are compared at \texttt{st02} only, by
+instruction and for comparability with the prediction studies.
+
+\textbf{The clock correction is empirical.} It is measured on temperature and
+applied by season. It reconciles the sources to within one hour, which is the
+grid resolution; a sub-hourly residual would not be visible.
+
+% ===========================================================================
+\section{Artefact inventory}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{L{3.0cm}Y}
+\toprule
+\textbf{Artefact} & \textbf{Content} \\
+\midrule
+\texttt{P\_01} -- \texttt{P\_03} & Channel inventory, clock test, comparable
+channels with overlaps \\
+\texttt{P\_04}, \texttt{P\_05} & Pairwise agreement; the same split by season and
+hour \\
+\texttt{P\_06}, \texttt{P\_07} & Diurnal amplitude and phase; first-difference
+agreement \\
+\texttt{P\_08}, \texttt{P\_10} & Relationship with the target on the pooled
+span, retained as the contrast case; pooled slopes \\
+\texttt{P\_11}, \texttt{P\_12} & Verdicts; the feature specification \\
+\texttt{P\_13} & Block inventory: the windows each tier can use \\
+\texttt{P\_14}, \texttt{P\_15} & Correlation structure per tier, levels and
+first differences \\
+\texttt{P\_16} & Relationship with the target by tier and domain, screened and
+unscreened \\
+\texttt{P\_17}, \texttt{P\_18} & Operator scans, full band and diurnal band \\
+\texttt{P\_19} & Signed-delay control on the radiation channels \\
+\texttt{P\_20} & What radiation adds once temperature is present \\
+\texttt{P\_21} & Radiation agreement over the daylight hours \\
+\texttt{P\_22} & Radiation and temperature availability, including during
+target gaps \\
+\texttt{P\_23} & The acquisition-fault register, with the evidence per hour \\
+\addlinespace
+\texttt{P\_F09} & Solar radiation as measured, per source, over the
+on-structure record, with a fortnight enlarged \\
+\texttt{P\_F01} & Diurnal radiation by source and season, after alignment \\
+\texttt{P\_F02} & Scatter and Bland--Altman, air temperature \\
+\texttt{P\_F03} & Mean diurnal cycle by source \\
+\texttt{P\_F05} & Correlation and slope against the target, pooled span \\
+\texttt{P\_F06} & Correlation heatmaps by tier \\
+\texttt{P\_F07} & Slope against the target by tier and domain \\
+\texttt{P\_F08} & Operator scans, diurnal band, one figure per tier \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The canonical channel reference is \texttt{docs/proxy-data-dictionary.md},
+generated from the mapping tables in \texttt{pc\_lib} so that code and
+documentation cannot drift apart.
+
+Reproduction, from the study directory with \texttt{neuralprophet\_env} active:
+
+\begin{quote}
+\ttfamily\small
+jupytext -{}-to ipynb proxy\_comparison\_study.py \\
+jupyter nbconvert -{}-to notebook -{}-execute -{}-inplace \\
+\phantom{jupyter nbconvert }proxy\_comparison\_study.ipynb
+\end{quote}
+
+\texttt{studies/unified\_dataset/build\_unified\_dataset.py} must have run first;
+this study reads its output and the two proxy exports, and nothing else.
+
+\end{document}

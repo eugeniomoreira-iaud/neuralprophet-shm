@@ -1,0 +1,1241 @@
+% ---------------------------------------------------------------------------
+% Study report · The monitoring system of the Mura Urbiche di Gubbio
+%
+% Build:  pdflatex data_exploration_report.tex  (twice, for the ToC)
+% Figures and table bodies are read from ../outputs/ and are produced by the
+% paired notebook. The station map DE_F01_stations_map and the station 02 sketch
+% DE_F02_st02_sketch are supplied by hand.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{The Gubbio monitoring system and its record}
+
+\input{../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.2cm}\textbf{The monitoring system of the Mura Urbiche di
+Gubbio, and the record it has produced}\\[2mm] \large Instrumentation, acquisition format, rejection and correction of the raw record, thermal compensation, and eight years of measurement}
+\author{Study report · \texttt{studies/data\_exploration/}}
+\date{19 August 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+This report documents the static structural health monitoring installation on the medieval urban walls of Gubbio --- the \emph{Mura Urbiche} --- and the record it has produced since July 2018. It states what the instrumentation measures, how the acquisition system writes its files, which of the values in those files are measurements and which are not, how the inclinometer is compensated for temperature, how much data each station has actually contributed, and what the channels of the principal station look like across the whole archive.
+
+It works throughout on the archive's own sampling interval of twenty minutes. The study reads the raw files directly and is the place where every rejection decision in this report is made and counted; nothing reaches it pre-cleaned, because a document whose subject is the record cannot be handed that record with its defects already removed. Every operation applied to a value is stated as an equation, and every number quoted below is recomputed from the archive rather than taken from elsewhere.
+\end{abstract}
+
+\tableofcontents
+
+% ===========================================================================
+\section{The monitoring system}
+\label{sec:system}
+
+The \emph{Mura Urbiche} of Gubbio are the medieval urban walls of the town, in Umbria. This report concerns one stretch of that circuit, and it concerns it indirectly, because a wall of this kind offers no other evidence about itself. Its movements are slow, they are small, and none of them is visible on the timescale of a site visit. Whatever can be said about the structure is therefore bounded --- exactly, and permanently --- by what a small permanent installation has recorded since July 2018, and by which of those recorded values can be believed. That is the reason a report on the record has to come before any report on the wall.
+
+The installation is a \textbf{static} monitoring system. It does not measure vibration or dynamic response, and it is not intended to: masonry of this mass responds to the passage of the seasons and to the daily thermal cycle rather than to transient excitation, and the quantity that carries structural information is a slow change in geometry. What the system measures is the inclination of the wall, sampled every twenty minutes, together with the environmental variables that drive that inclination and the supply voltage of the unit doing the recording.
+
+Three measurement stations were installed along the circuit (Figure~\ref{fig:stations_map}). Each is an autonomous acquisition unit --- its own enclosure, its own power supply, its own sensor set and its own inclinometer, fixed to its own piece of wall --- and the three are independent of one another in everything except the file they write into. They also failed independently, which turns out to be the most consequential single fact about the archive and is measured in Section~\ref{sec:coverage}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F01_stations_map.png}
+    \caption{Map of the three monitoring stations along the medieval walls of Gubbio. Station 02 sits at the Porta di Sant'Ubaldo.}
+    \label{fig:stations_map}
+\end{figure}
+
+\textbf{Station 02 stands at the Porta di Sant'Ubaldo}, one of the gates of the medieval circuit, and it is the station this report follows from Section~\ref{sec:coverage} to Section~\ref{sec:current_era}. Two properties single it out. It holds the best-covered record in the archive, and it is the only location instrumented in both generations of hardware, which makes it the only place where the two can be compared at all. Stations 01 and 03 contribute to the coverage picture and to the census of defects, and then stop: both fell silent years before the equipment at station 02 was replaced, so for most of the archive there was never a three-station network to compare across.
+
+Four acquisition units therefore appear in this report, not three, because station 02 carries two of them in succession (Table~\ref{tab:blocks}). The unit installed in February 2025 is an expanded package with two channels the earlier hardware did not have, and it is treated throughout as a separate instrument rather than as a continuation of the one it replaced. Section~\ref{sec:instruments} gives the reason.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{1.5cm}L{1.5cm}L{1.5cm}L{2.9cm}Y}
+\toprule
+\textbf{Unit} & \textbf{Station} & \textbf{Channels} & \textbf{In service} & \textbf{Note} \\
+\midrule
+\texttt{st01} & 01 & 4 & Jul 2018 -- Sep 2022 &
+Stopped recording two years and five months before the changeover \\
+\texttt{st02} & 02 & 4 & Jul 2018 -- Feb 2025 &
+\textbf{Porta di Sant'Ubaldo.} Ran until the changeover and was replaced by
+\texttt{n} \\
+\texttt{st03} & 03 & 4 & Aug 2018 -- Jun 2023 &
+Stopped recording one year and eight months before the changeover \\
+\addlinespace
+\texttt{n} & 02 & 6 & Feb 2025 -- present &
+The expanded package that replaced \texttt{st02} at the Porta di
+Sant'Ubaldo. Two channels more, and a separate inclinometer whose zero has no
+guaranteed relation to the earlier one \\
+\bottomrule
+\end{tabularx}
+\caption{The four acquisition units, the station each serves and the interval over which each was in service. \textbf{Station 02 appears twice}, once for each generation of hardware; the two are never merged into a single instrument anywhere in this report. The unit names are the ones the exported dataset uses as column prefixes, and the mapping from a unit to a station comes from the installation record rather than from anything in the files. Which channels each unit reports is given in Table~\ref{tab:channels}, and the exact first and last records in Table~\ref{tab:station_coverage}.}
+\label{tab:blocks}
+\end{table}
+
+The monitored stretch does not stand free. It retains an embankment, so that one face is exposed and the other is buried against the fill behind it (Figure~\ref{fig:st02_sketch}): the valley face takes the sun through the day, while the mountain face stays shaded and thermally sluggish. That asymmetry is not incidental to the measurement --- it sets the sign of the expected response. Daytime heating expands the exposed valley face more than the buried one and tips the wall towards the mountain, which the instrument's convention records as a \emph{negative} change. A negative correlation between the inclination and any heating driver is therefore the expected result at this site and not an anomaly. The expectation is stated here because it is the reference against which every sign in this report is read, and because Section~\ref{sec:compensation} has to record that the channel as recorded does not meet it.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{DE_F02_st02_sketch.png}
+    \caption{Plan and section views of the embankment situation at station 02. The sketch indicates the sensor position, true north, valley and mountain directions, and the inclination sign notation.}
+    \label{fig:st02_sketch}
+\end{figure}
+
+% ===========================================================================
+\section{The instrumentation}
+\label{sec:instruments}
+
+Each of the three legacy acquisition units reports four channels: its own supply voltage, the air temperature and the relative humidity at the unit, and the inclinometer reading. Three of those four are diagnostic rather than structural. The supply voltage says whether the unit was healthy; the air temperature is required because the inclinometer has a thermal bias of its own that has to be cancelled before the reading means anything (Section~\ref{sec:compensation}); the relative humidity records the environment the instrument sat in. Only the inclinometer measures the wall.
+
+On \textbf{21 February 2025} an expanded package replaced the legacy hardware at station 02. It reports the same four channels and adds two (Table~\ref{tab:channels}): incident solar radiation, and the surface temperature of the masonry itself from a probe set into the wall. The addition matters more than a count of channels suggests. The air temperature is a proxy for what deforms the structure, not the thing itself; the wall's own temperature is much closer to it, and the radiation falling on the exposed face is a large part of what sets that temperature. Section~\ref{sec:current_era} measures how far apart the two actually are.
+
+The replacement also raises a question about continuity that has to be settled before the two records can be used together. A reinstalled inclinometer has no guaranteed relation to the one it replaced: its absolute level is set by how it sits in its mount and by the offset of its own electronics, and neither quantity is recoverable. \textbf{The two instruments are therefore treated as separate throughout this report, under separate column names, and are never merged into one series without an explicit and stated correction.} Whether they in fact disagree on a level is a different question, and it is a measurable one. Measured on the channel as recorded, they do not: the two conditioner outputs are continuous across the changeover to within a couple of millidegrees. Section~\ref{sec:compensation} states what follows from that for the way the station's series is assembled.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{1.6cm}L{3.4cm}L{1.4cm}L{1.9cm}Y}
+\toprule
+\textbf{Symbol} & \textbf{Quantity} & \textbf{Unit} & \textbf{Era} &
+\textbf{Column in the dataset} \\
+\midrule
+\texttt{Batt}   & Supply voltage of the unit & V & both &
+\texttt{\{block\}\_batt} \\
+\texttt{Tair}   & Air temperature at the unit & \degC & both &
+\texttt{\{block\}\_tair} \\
+\texttt{RH}     & Relative humidity & \% & both &
+\texttt{\{block\}\_rh} \\
+\texttt{I}      & Inclinometer, conditioner output & mV & both &
+\texttt{\{block\}\_i\_mv} \\
+\texttt{SR}  & Incident solar radiation & W/m$^2$ & current only &
+\texttt{n\_sr} \\
+\texttt{Twall} & Wall surface temperature & \degC & current only &
+\texttt{n\_twall} \\
+\bottomrule
+\end{tabularx}
+\caption{Instrumentation channels and the columns they become. \texttt{\{block\}} is one of \texttt{st01}, \texttt{st02}, \texttt{st03}, \texttt{n}. Observed ranges are deliberately absent here: they differ between the two eras and are reported per era in Section~\ref{sec:station}. Which values in each channel are not measurements is specified in Table~\ref{tab:sentinels} and measured in Table~\ref{tab:raw_census}.}
+\label{tab:channels}
+\end{table}
+
+\subsection{What the inclinometer reading is, and what it is not}
+
+The field written into the file is not an angle. It is the output of the signal conditioner, in millivolts, and it has to be read as such. The sensitivity is 1000\,mV per degree, so millivolts and millidegrees share a scale and only a fixed offset separates the logged number from a deflection; that conversion is Equation~\eqref{eq:inc}, and it is the whole of the arithmetic involved.
+
+What the conversion does not do is refer the result to any physical datum. The number that comes out is still a raw transducer reading whose absolute level was fixed by two things that have nothing to do with the wall: how the instrument happened to sit in its mount on the day it was installed, and whatever offset the electronics carry. Neither quantity was ever measured, and neither can be recovered from the archive.
+
+The consequence is worth stating plainly, because it governs how every figure in this report may be read. \textbf{The absolute level of the inclinometer series carries no structural information. Only its changes do.} A statement of the form ``station 02 is at 2160\,mdeg'' asserts nothing about the structure; the first difference of the series, which is invariant to every arbitrary constant in the chain, is the quantity whose meaning survives independently of how the record was assembled. Every level plotted below is therefore referred to an arbitrary anchor, and each series is drawn to make its \emph{shape} visible rather than to be read off the axis.
+
+% ===========================================================================
+\section{How the record is written}
+\label{sec:format}
+
+The acquisition system writes one plain-text file per calendar day into a flat directory, named \texttt{GUBBIO\_YYYYMMDD.adc}. The files are as plain as that description suggests. There is no header row and no metadata of any kind: a file is a sequence of lines, one line per record, and a record is a sequence of tab-separated fields. The first field carries the date as \texttt{DD/MM/YY} and the second the time as \texttt{HH:MM:SS}; everything from the third field onwards is numeric measurement. The sampling interval is \textbf{20 minutes}, so a complete day holds 72 records, and that interval is the grid this report works on from beginning to end --- nothing here is averaged up to a coarser one.
+
+One property of the numbers themselves has to be dealt with before anything can be parsed at all. \textbf{The decimal separator is not consistent.} Both \texttt{3.500} and \texttt{3,500} occur in these files, and the two forms coexist \emph{inside a single file} rather than one file being written one way and the next another. A parser that samples the first few lines, concludes that the file uses one convention, and applies that conclusion to the rest of it will silently corrupt every value written the other way: a comma read as a thousands separator turns \texttt{3,500} into three thousand five hundred, which is a plausible-looking number in several of these channels and will never raise an error. The separator must therefore be normalised field by field, on every field, with no inference carried across from one to the next. Section~\ref{sec:census} reports how many fields and how many files this actually affects.
+
+\subsection{Two column layouts, one changeover}
+
+Each acquisition unit occupies a fixed group of adjacent fields in every record --- a \textbf{block} --- and the blocks sit in the same positions from the first record to the last. Each legacy unit contributes four fields, in the order \texttt{Batt}, \texttt{Tair}, \texttt{RH}, \texttt{I}, and their order in the file is the order of the units in Table~\ref{tab:blocks}. The number of fields in a record changed exactly once in eight years, on 21 February 2025, when the expanded package was installed (Table~\ref{tab:layout}).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{1.7cm}L{4.6cm}Y}
+\toprule
+\textbf{Field} & \textbf{Legacy era --- 14 fields} &
+\textbf{Current era --- 20 fields} \\
+\midrule
+1, 2 & \texttt{date}, \texttt{time} & \texttt{date}, \texttt{time} \\
+3--6 & \texttt{st01}: Batt, Tair, RH, I & \\
+7--10 & \texttt{st02}: Batt, Tair, RH, I &
+The three legacy blocks are retained in their original positions and written as
+\textbf{constant zero} on every record: no legacy unit reports data after the
+changeover \\
+11--14 & \texttt{st03}: Batt, Tair, RH, I & \\
+\addlinespace
+15--20 & --- & \texttt{n}: Batt, Tair, RH, I, SR, Twall \\
+\bottomrule
+\end{tabularx}
+\caption{Field layout of the two eras. Each block is the fixed group of fields one acquisition unit occupies; the units themselves are listed in Table~\ref{tab:blocks}.}
+\label{tab:layout}
+\end{table}
+
+A loader must branch on \textbf{the record's own field count} rather than on its date, so that a file whose content disagrees with its expected era is handled rather than mangled. That rule is not hypothetical here. Parsing every file with both parsers and letting each keep the records matching its own layout places the last 14-field record at \textbf{2025-02-20 21:00} and the first 20-field record at \textbf{2025-02-20 21:40}: the packages changed over during the evening \emph{before} the documented date, and seven current-era records are written into files dated before it. A loader that split the archive on the filename would lose them.
+
+\subsection{Values that are not measurements, and how much of the archive they account for}
+\label{sec:census}
+
+Several of the values in these files are markers rather than readings. They are written in the same numeric fields, in the same format, and nothing in the file distinguishes them; only knowledge of what the instruments can physically produce does. Each therefore receives an explicit code in the dataset this report exports (Table~\ref{tab:sentinels}), so that a value rejected as a marker is always distinguishable from a value that was never recorded and from one that was recorded and kept.
+
+The first and by far the most common is the zero block. A field of \texttt{0.000} on a supply voltage, an air temperature, a relative humidity or an inclinometer channel means that the channel was unavailable, not that the quantity was zero: a battery at $0$\,V and a relative humidity of $0$\,\% are not physically plausible at this site, and the zeros appear in whole-unit runs that coincide with known outages rather than scattered across individual channels. Read as measurements they inject a flatline into the series, and the return to normal values at the end of the run then reads as a step change --- which is exactly the signature that structural monitoring is looking for, arriving from the acquisition system instead of from the wall. Solar radiation is the deliberate exception: its night-time zeros are real, and they are preserved.
+
+The second is the radiation wrap-around, and it is worth setting out in full because the value it produces looks arbitrary. The radiation field is written as an unsigned number on a scale whose full extent is $8192\ \mathrm{W/m^2}$ and whose smallest step is $0.125$, so the largest value the field can hold is $8192 - 0.125 = 8191.875$. A pyranometer sitting fractionally \emph{below} zero --- which is ordinary sensor noise on a dark night --- produces a reading of $-0.125$, and a field with no sign to carry writes that reading as the value one step below the top of the scale. Every wrapped sample in this archive is exactly $8191.875$, and each one is a near-zero night-time reading in disguise. The test is placed at $4096$, half the scale, rather than at the exact value, so that a wrap quantised differently would still be recognised as one; nothing in the archive lies between the two, the largest reading below the wrap-around anywhere being $2124\ \mathrm{W/m^2}$.
+
+The third is a radiation ceiling that has nothing to do with the wrap-around. No pyranometer at this latitude can receive more than roughly $1400\ \mathrm{W/m^2}$, so a reading above that figure but far below the wrap-around is not a measurement either. It is counted under its own code because it is a different defect with a different signature, and Section~\ref{sec:sr_defect} shows what it actually turned out to be.
+
+The fourth is the wall-temperature probe failure, a value of $-55.0$\,\degC. This is the bottom of the sensor range, emitted as an open-circuit indicator, and Section~\ref{sec:twall} treats it at length because an instrument announcing its own failure and an instrument that is switched off are not the same event.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{2.2cm}L{2.6cm}L{2.3cm}Y}
+\toprule
+\textbf{Value} & \textbf{Channels} & \textbf{Code} &
+\textbf{Meaning} \\
+\midrule
+\texttt{0.000} & \texttt{Batt}, \texttt{Tair}, \texttt{RH}, \texttt{I} &
+\texttt{sentinel} &
+Channel unavailable, in whole-unit runs coinciding with outages \\
+\texttt{0.000} & \texttt{SR} & \emph{none} &
+\textbf{A real reading.} Zero is legitimate at night and is preserved \\
+\texttt{-55.0} & \texttt{Twall} & \texttt{sentinel} &
+Probe-failure marker, the bottom of the sensor range emitted as an
+open-circuit indicator \\
+$\geq 4096$ & \texttt{SR} & \texttt{wrap} &
+A near-zero negative reading written without a sign, and so returned at
+$8191.875$, one step below the top of the field's scale \\
+$> 1400$, $< 4096$ & \texttt{SR} & \texttt{unphysical} &
+Above the ceiling this latitude allows, but far below the wrap-around \\
+\bottomrule
+\end{tabularx}
+\caption{Values that are markers rather than readings, and the code each receives. The tests and their order are Equations~\eqref{eq:flag}--\eqref{eq:unphys}; how much of the archive each accounts for is Table~\ref{tab:raw_census}. The calibrated range of the inclinometer conditioner is deliberately not among these tests --- see Section~\ref{sec:reject}.}
+\label{tab:sentinels}
+\end{table}
+
+The specification above says which values are markers; Table~\ref{tab:raw_census} counts them. It is the first measurement in this report and it conditions everything after it, because a channel whose zero-block sentinel covers a large fraction of its working life is not a channel with occasional gaps.
+
+The percentages in that table are taken over each unit's \textbf{service window} --- from its first surviving reading to its last --- rather than over the whole era it belongs to, and the distinction is not a technicality. The three legacy units did not stop together, but the file layout is fixed, so after a unit fell silent its fields went on being written as constant zeros until the changeover replaced the layout altogether. Measured against the whole legacy era, those trailing zeros are indistinguishable from downtime, and a unit that died in 2022 is described as though it had spent the following two and a half years failing intermittently. Cut at the last real reading instead, the count answers the question actually worth asking: of the time a unit was alive, how much of it did it fail to record?
+
+\begin{table}[H]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllllR{1.3cm}R{0.9cm}R{0.8cm}l}
+\toprule
+\textbf{Era} & \textbf{Unit} & \textbf{Channel} & \textbf{Code} &
+\textbf{Kind} & \textbf{Samples} & \textbf{\%} & \textbf{Days} & \textbf{Span} \\
+\midrule
+\input{../outputs/DE_T01_raw_census.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{Every documented defect of the archive, measured. \emph{Kind} says what the code does to the corrected column: a \texttt{reject} empties it, a \texttt{correct} fills it with the known value, and a \texttt{parse} row is a defect no parser can pass on --- a malformed record must be skipped for the file to be read at all, so those are counted from the text before parsing. For channel rows, \emph{\%} is the share of the reporting unit's own service window and \emph{Days} the distinct calendar days touched within it; for the file-level rows, which are properties of the text rather than of any one unit, it is the share of the records that era contributed. \texttt{comma\_separator} counts numeric fields and \texttt{mixed\_separator\_file} counts files; neither is a share of anything and both are left blank.}
+\label{tab:raw_census}
+\end{table}
+
+Three readings of this table matter for what follows.
+
+\textbf{The zero-block sentinel is the characteristic defect of the legacy units.} It falls on all four channels of a unit together, which is what an acquisition unit that is down looks like rather than what a failing sensor looks like, and it is the direct cause of the coverage picture in Section~\ref{sec:coverage}. Over its own service window it covers \textbf{17.9\,\% of station 01, 12.0\,\% of station 02 and 29.1\,\% of station 03}. Measured instead against the whole legacy era --- which counts the years of zeros each dead unit's fields went on being filled with --- the same defect reads as 39.2\,\%, 12.0\,\% and 47.4\,\%, and describes two units that failed intermittently for years rather than two units that died. Station 02, the one that ran to the changeover, is the only one whose figure is unaffected by the choice, which is what one would expect.
+
+\textbf{The wall-temperature probe reports its own failure for half of everything the current package has recorded.} \texttt{Twall} carries the \texttt{-55.0} marker on \textbf{15\,566 samples} in one continuous run from 2025-07-14 02:40 to 2026-03-06 12:00. It did not stop reporting; it reported failure, and it did so for eight months without interruption. Section~\ref{sec:twall} shows the channel as written.
+
+\textbf{Duplicated and conflicting records are common in the legacy files and rare in the current ones.} 13.0\,\% of legacy records share a timestamp with another record and 12.5\,\% of them disagree in at least one field, against 0.06\,\% and 0.03\,\% in the current era. Conflicting copies of one timestamp routinely differ in which unit carries real values rather than in the values themselves, so they are merged field by field rather than dropped (Equation~\eqref{eq:merge}). What this implies about the relative quality of the two eras is deliberately left open here: it is a count of how the files were written, not of how much usable measurement they hold, and the comparison should be revisited once the legacy record has been through the same cleaning the current one receives in Section~\ref{sec:station}.
+
+\subsection{What clock the archive keeps}
+\label{sec:clock}
+
+The files carry no timezone, and two of the tests below ask where the sun was, which is a question about UTC. The offset is therefore measured rather than assumed.
+
+On a day the radiation channel is working, the midpoint between the first and last crossing of $50\ \mathrm{W/m^2}$ estimates solar noon in the logger's own clock; computed solar noon comes from the site longitude and the equation of time. Their difference, taken over the 212 days that qualify, is \textbf{$+0.94$ h in February and $+0.97$ h in March, and between $+2.05$ and $+2.23$ h from April to August}. A centred seven-day median of the daily estimates steps from $+0.91$ to $+1.92$ h between \textbf{29 and 30 March 2025}, the last Sunday of March and the European daylight-saving changeover.
+
+The archive is therefore written in \textbf{Italian civil time, and the logger does observe daylight saving}: UTC$+1$ in winter and UTC$+2$ in summer. Every position within the day quoted anywhere in this report is in that clock.
+
+Two features of the estimate are worth noting, because they are what make it trustworthy. The winter and summer figures each land within a few minutes of a whole hour, which is what a logger keeping civil time should produce and not what a drifting or misconfigured clock would; and the transition between them falls on the daylight-saving changeover date itself rather than somewhere in the middle of the season. The estimate is also computed on working days alone. Restricted that way it is sharp, and taken over the whole era instead --- including the window Section~\ref{sec:sr_defect} shows the radiation channel to be defective --- it degrades badly, since a channel stuck near a constant has no midpoint worth measuring.
+
+% ===========================================================================
+\section{From the record to the dataset}
+\label{sec:pipeline}
+
+This section states every operation applied between the file and the exported table of Section~\ref{sec:dataset}. Nothing is applied that is not written here.
+
+\subsection{Parsing, merging and the analysis grid}
+
+A line is accepted as a record when its field count matches one of the two layouts of Table~\ref{tab:layout}. Its timestamp is taken from the record itself rather than from the filename, because files routinely bleed one record into the previous day. Each numeric field is normalised independently for its decimal separator.
+
+Where several records share a timestamp $t$, they are merged field by field, taking for each channel the first copy that carries a value:
+\begin{equation}
+\label{eq:merge}
+x_j(t) \;=\; x_j^{(i^\ast)}(t), \qquad
+i^\ast = \min\{\, i : x_j^{(i)}(t) \ \text{is present} \,\}.
+\end{equation}
+Whole records are never dropped, because the copies usually differ in \emph{which block} holds real values rather than in the values themselves.
+
+The merged records are placed on the regular grid
+\begin{equation}
+\label{eq:grid}
+\mathcal{G} \;=\; \{\, t_0 + k\,\Delta \;:\; k = 0,1,\dots,K \,\},
+\qquad \Delta = 20\ \text{min},
+\end{equation}
+with $t_0$ the first day of the archive. Slots with no record are carried as missing rather than dropped, so completeness is always measured against the intended sampling grid rather than against the records that happen to exist. The archive spans $K+1 = 212\,257$ slots at the time of writing.
+
+Each slot also receives an era label, taken from the layout of the record that filled it. The label is \emph{empty where nothing was recorded}: it names the layout that produced a slot, not the era the calendar puts the slot in.
+
+\subsection{Rejection and correction}
+\label{sec:reject}
+
+Every recorded channel $x$ is judged, and the judgement is recorded beside it rather than applied destructively. The code $\varphi(x)$ is empty when the value stands, and otherwise belongs to one of two families that differ in what they leave in the corrected column. A \textbf{rejection} says the value is not a measurement and that nothing is known in its place. A \textbf{correction} says the value is wrong but that its true value $\kappa$ is known:
+\begin{equation}
+\label{eq:flag}
+x_{\mathrm{ok}}(t) \;=\;
+\begin{cases}
+x(t), & \varphi\bigl(x(t)\bigr) = \emptyset,\\[2pt]
+\text{missing}, & \varphi\bigl(x(t)\bigr) \in \mathcal{R},\\[2pt]
+\kappa\bigl(x(t)\bigr), & \varphi\bigl(x(t)\bigr) \in \mathcal{C},
+\end{cases}
+\end{equation}
+with $\mathcal{R} = \{\texttt{sentinel}, \texttt{wrap}, \texttt{unphysical}\}$ the rejections and $\mathcal{C} = \{\texttt{night}\}$ the corrections. \textbf{A corrected value is missing precisely where a rejection is set}, and the recorded value is kept in every case, so a reader who disagrees with any judgement can recover the number behind it.
+
+Only one correction exists, and Section~\ref{sec:night} derives it. The distinction matters because a consumer that treats every non-empty flag as a gap will be right about the rejections and will needlessly discard nights whose value is known exactly.
+
+The tests, in the order they are applied, are
+\begin{align}
+\varphi &= \texttt{sentinel}
+&&\text{if } x = 0.000, \quad x \in \{\texttt{Batt}, \texttt{Tair}, \texttt{RH}, \texttt{I}\},
+\label{eq:zero}\\
+\varphi &= \texttt{sentinel}
+&&\text{if } \texttt{Twall} = -55.0\,^\circ\mathrm{C},
+\label{eq:twall}\\
+\varphi &= \texttt{wrap}
+&&\text{if } \texttt{SR} \geq S_{\mathrm{wrap}} = 4096\ \mathrm{W/m^2},
+\label{eq:wrap}\\
+\varphi &= \texttt{unphysical}
+&&\text{if } \varphi = \emptyset \ \text{ and } \
+\texttt{SR} > S_{\max} = 1400\ \mathrm{W/m^2}.
+\label{eq:unphys}
+\end{align}
+The guard $\varphi = \emptyset$ in \eqref{eq:unphys} keeps the wrap-around out of the count below it, so that no sample is charged to two codes at once.
+
+Two codes divide the radiation ceiling because two unrelated defects cross it, and reporting them under one name misattributes both. \texttt{wrap} is the artefact described in Table~\ref{tab:sentinels}: an individual sample returned at the top of the field's scale. \texttt{unphysical} is everything else above $S_{\max}$, which in this archive is not a per-sample artefact at all but a six-week run of daylight-scale values reported around the clock. Both empty the corrected column, so the split changes no value the project consumes --- only the account of why it was rejected. The threshold $S_{\mathrm{wrap}}$ separates populations that are not close: the largest reading below the wrap-around anywhere in the archive is $2124\ \mathrm{W/m^2}$.
+
+\textbf{The calibrated range of the inclinometer is not one of these tests, and this is a deliberate departure.} It would be natural to add one: the calibration certificate covers $\pm 2$ degrees about the conditioner zero of $I_0 = 2500$\,mV, and a deflection beyond that is outside anything the instrument was certified to represent. The reason it is absent is that the recorded deflections leave that interval, so the certificate no longer describes the data it would be used to judge. A test built on it would not be separating markers from measurements --- which is what every other rejection here does --- but discarding readings the instrument demonstrably produced, on the strength of a document the record has outgrown. Every rejection in $\mathcal{R}$ identifies something the acquisition system \emph{wrote} in place of a measurement; none of them is a judgement about whether a genuine reading is too large. Excursions on the inclinometer are dealt with where they belong, by the filter of Section~\ref{sec:filter}, which judges a sample against its own neighbourhood in the record rather than against a fixed bound, and which marks what it replaces instead of silently emptying it.
+
+The inclination in millidegrees follows from the corrected conditioner output,
+\begin{equation}
+\label{eq:inc}
+I(t) \;=\; \texttt{I}_{\mathrm{ok}}(t) \;-\; I_0 ,
+\end{equation}
+the sensitivity of 1000\,mV per degree making the two scales one.
+
+\subsection{The night correction}
+\label{sec:night}
+
+Once the sun is far enough below the horizon that no sky brightness remains, a pyranometer has nothing left to receive, so a non-zero reading there is not a measurement of anything --- and unlike a sentinel or a wrap-around, its true value is known exactly. It is therefore corrected rather than rejected. How far below is the whole of the question, because real diffuse radiation survives the first few degrees of dusk and erasing it would destroy measurements rather than repair them.
+
+Let $\varepsilon(t)$ be the solar elevation at the site, computed from the date and the site coordinates by the NOAA formulation, and define the night as
+\begin{equation}
+\label{eq:nightmask}
+\mathcal{N} \;=\; \bigl\{\, t \;:\; \varepsilon(t) < \varepsilon_{0} \,\bigr\},
+\qquad \varepsilon_{0} = -6^{\circ},
+\end{equation}
+civil twilight rather than the geometric horizon. The correction is then
+\begin{equation}
+\label{eq:night}
+\texttt{SR}_{\mathrm{ok}}(t) \;=\; 0
+\qquad \text{for } t \in \mathcal{N}
+\ \text{ with } \varphi\bigl(\texttt{SR}(t)\bigr) = \emptyset ,
+\end{equation}
+applied only where no rejection has already claimed the sample, because a wrapped reading measures nothing and cannot be corrected into a zero, and only where a value was recorded, because writing a zero into an empty slot would invent a measurement. Section~\ref{sec:night_ends} measures why $\varepsilon_0$ sits at civil twilight and not at the horizon.
+
+Evaluating $\varepsilon$ requires knowing what clock the archive keeps, which Section~\ref{sec:clock} measures.
+
+\subsection{Two verdicts that condemn without correcting}
+
+Two further tests declare a reading untrustworthy without asserting either that the number is invalid or that a better one is known. Each carries its own column, so that the correspondence \eqref{eq:flag} between code and value stays exact.
+
+The first condemns whole days of solar radiation, and it asks the question the channel's failure actually poses: does the radiation reported while the sun is high exceed the radiation reported while it is down? On a working instrument that ratio is enormous. Writing $\mathcal{S} = \{t : \varepsilon(t) > 15^{\circ}\}$ for the high-sun window,
+\begin{equation}
+\label{eq:srsuspect}
+\mathcal{D}_{\mathrm{suspect}} \;=\;
+\left\{\, d \;:\;
+\frac{\operatorname*{median}_{t \in d \cap \mathcal{S}} \texttt{SR}(t)}
+     {\max\bigl(\operatorname*{median}_{t \in d \cap \mathcal{N}} \texttt{SR}(t),\ \delta\bigr)}
+\;<\; \rho \,\right\},
+\qquad \rho = 3,
+\end{equation}
+with $\delta = 0.1\ \mathrm{W/m^2}$ a floor that stops a legitimately dark night from making every ratio infinite. The medians are taken over the values that survived rejection and \emph{before} the correction \eqref{eq:night}, which would otherwise set the denominator to zero on every day. A day carrying fewer than six samples in either window is left unjudged rather than condemned, since a December day at this latitude barely clears $15^{\circ}$ at all.
+
+The day is condemned whole. A channel with no diurnal cycle has not earned trust at any hour, and the diurnal cycles are built from complete days in any case. Section~\ref{sec:sr_defect} reports what this finds, and why a test on the night alone would have found only half of it.
+
+The second is the impulsive-noise filter of Section~\ref{sec:filter}, which marks individual inclination samples.
+
+% ===========================================================================
+\section{Thermal compensation}
+\label{sec:compensation}
+
+The inclinometer carries a measurement bias that varies with temperature: part of what the transducer reports as a change in inclination is the instrument's own thermal response rather than the wall's movement. The manufacturer specifies a linear correction to cancel it, and that correction is applied to every inclination series below:
+\begin{equation}
+\label{eq:comp}
+I_{\mathrm{comp}}(t) \;=\; I(t) \;-\; \bigl(T(t) - T_{\mathrm{ref}}\bigr)
+\cdot k \cdot 1000 ,
+\end{equation}
+with $T$ the on-board air temperature of whichever unit was recording at $t$ and $T_{\mathrm{ref}}$ a fixed reference. The series is then referred to its own start,
+\begin{equation}
+\label{eq:anchor}
+I_{\mathrm{comp}}(t) \;\leftarrow\; I_{\mathrm{comp}}(t)
+- I_{\mathrm{comp}}(t_1),
+\end{equation}
+where $t_1$ is the first slot at which both $I$ and $T$ are present (Table~\ref{tab:compensation_params}).
+
+\textbf{Both steps are applied once, to the station's whole record, and $t_1$ and $T_{\mathrm{ref}}$ are the same for all eight years.} That is a deliberate and load-bearing choice, and the reason is worth setting out, because the opposite choice is the natural one and it is wrong.
+
+The slope term of Equation~\eqref{eq:comp} must use the recording unit's own air temperature, since the bias being cancelled is each instrument's response to the temperature it actually sat at. It is tempting to conclude from this that the whole correction should be applied per unit --- each instrument compensated on its own temperature, anchored on its own first record, and the two results concatenated at the changeover. This study did exactly that in an earlier version, and it manufactured an artefact. Anchoring is subtraction of a constant, so two series anchored on two different records carry two unrelated constants, and their difference appears at the join as a step. Here that step was $-126$\,mdeg, and none of it was instrumental: the recorded channel is continuous across the changeover to within $1.58$\,mdeg on 30-day window means, and to $7$\,mV between the last legacy and first current readings. The $-126$ decomposed into $-27$\,mdeg from the difference between the two anchor readings and $-99$\,mdeg from their reference temperatures, the legacy anchor having been taken on a July day at $21.55$\,\degC\ and the current one on a February evening at $3.58$\,\degC, a gap of nearly eighteen degrees that Equation~\eqref{eq:comp} then carried into the level at $5$\,\mdegC.
+
+Anchoring once removes the artefact at its source rather than estimating and subtracting it afterwards, and nothing is left over to correct: with a single $t_1$ the two eras join at a residual of $-8.99$\,mdeg, which is what the compensation removes for the $2.11$\,\degC\ by which the two comparison windows differ in season. No offset is estimated anywhere in this report and no era-dependent constant is applied to any series.
+
+The three legacy units are a different case and keep their own anchors, in the per-unit \texttt{\{block\}\_inc\_comp} columns of Section~\ref{sec:dataset}. They stand at three different places on three different pieces of wall, and they have nothing to anchor in common. Only at station 02, where two instruments in succession measure the same wall, does a shared anchor mean anything --- and there it is mandatory.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{2.4cm}L{3.6cm}Y}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Meaning} \\
+\midrule
+$k$ & $0.005$ &
+The manufacturer's coefficient, 5\,\mdegC. Never calibrated for these
+instruments \\
+$T$ & \texttt{tair} &
+The air temperature of whichever unit was recording, taken era by era.
+\textbf{Not} the wall temperature, which exists only in the current era \\
+$T_{\mathrm{ref}}$, $t_1$ & $T(t_1)$, 2018-07-26 &
+The first slot of the whole station record carrying both channels.
+\textbf{One reference for both eras} \\
+\bottomrule
+\end{tabularx}
+\caption{Parameters of Equations~\eqref{eq:comp} and~\eqref{eq:anchor}, as applied to the station 02 record. The reference and the anchor are global; only the temperature channel changes hands at the changeover.}
+\label{tab:compensation_params}
+\end{table}
+
+Two further properties of this correction matter for reading anything below.
+
+\textbf{It is instantaneous and linear.} There is no lag term: the model assumes the instrument's thermal response is immediate and proportional. The structure's own thermal response is not, which is why the framework's feature-engineering stage exists at all.
+
+\textbf{It still fixes an arbitrary constant.} Equation~\eqref{eq:anchor} makes the compensated series carry a constant that is a property of where the record happens to start rather than of the wall. A single anchor makes that constant the same for the whole record instead of one per era, which is what removes the artefact; it does not make the constant meaningful. None of this affects the first difference, which is invariant to every such constant.
+
+\textbf{It produces the expected sign, but it produces it by subtraction.} The embankment geometry of Section~\ref{sec:system} predicts that heating tips the wall towards the mountain, a negative change by the instrument's convention, and the compensated series does move that way against the air temperature. The channel as recorded does not. Regressed on the unit's own air temperature over the whole of its era, with the impulsive samples of Section~\ref{sec:filter} excluded, the recorded inclination gives a \emph{positive} slope on both instruments alike --- $+1.19$\,\mdegC\ on the legacy unit and $+0.57$ on the current one. Equation~\eqref{eq:comp} then subtracts $5$\,\mdegC, which is several times either figure, and it is that subtraction which carries the result across zero.
+
+Those two slopes are coarse and are quoted as such: a single regression over a whole era mixes the diurnal response with the annual cycle and with whatever drift the record carries, and the correlations behind them are weak ($r = +0.24$ and $+0.34$). They are not a measurement of the instrument's thermal response, and nothing below rests on their magnitude. What does rest on them is their sign, which is stable across both instruments and opposite to the one the site predicts. The expected sign in the compensated series is therefore obtained from a correction larger than the effect it corrects, and it is not independent evidence about the structure. This is an unresolved contradiction rather than a result, and every sign quoted below has to be read with it in mind.
+
+\textbf{Every inclination series plotted in this report is compensated.} The channel as recorded is used to count what the instruments wrote, and to establish above that the two of them agree across the changeover, but it is never plotted as a signal.
+
+% ===========================================================================
+\section{Coverage of the inclination record}
+\label{sec:coverage}
+
+The archive spans eight years of calendar time. It does not contain eight years of measurement, and it never contained three stations' worth for more than a fraction of that span (Figure~\ref{fig:coverage} and Table~\ref{tab:station_coverage}). Coverage is counted in days of complete sampling,
+\begin{equation}
+\label{eq:coverage}
+N_{\mathrm{days}} \;=\; \frac{1}{72}\sum_{t \in \mathcal{G}}
+\mathbf{1}\bigl[\, I_{\mathrm{comp}}(t) \ \text{present} \,\bigr],
+\qquad
+\text{coverage} \;=\; \frac{N_{\mathrm{days}}}{\text{span in days}},
+\end{equation}
+the divisor being the 72 slots of a complete day on the grid \eqref{eq:grid}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llllR{1.5cm}R{1.9cm}R{1.9cm}}
+\toprule
+\textbf{Station} & \textbf{Eras} & \textbf{First} & \textbf{Last} &
+\textbf{Span [d]} & \textbf{Observed [d]} & \textbf{of span [\%]} \\
+\midrule
+\input{../outputs/DE_T02_station_classification.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{Measurement spans and observed days per station, per Equation~\eqref{eq:coverage}.}
+\label{tab:station_coverage}
+\end{table}
+
+The network failed in stages rather than at the changeover, and the distinction governs what the archive can be asked to do. It is tempting to read the February 2025 replacement as the moment the legacy network ended, since that is when the file layout changed and when the surviving unit was replaced. The record says otherwise. \textbf{Station 01 stopped recording in September 2022 and station 03 in June 2023} --- two years and five months, and one year and eight months, before the replacement respectively --- and from mid-2023 onwards the site was a single-station installation that happened to be writing three units' worth of fields.
+
+The consequence for the analysis is severe and permanent. Any question that requires comparing one location against another is confined to the period before September 2022, and any question that requires all three is confined to a still shorter window. The remainder of this report works on station 02 alone, and it does so because the archive leaves no alternative rather than as a simplification.
+
+\begin{figure}[H]
+\includegraphics{DE_F03_inclination_coverage}
+\caption{Daily availability of the inclinometer at each station across the
+whole archive. The dashed line is the 21 February 2025 instrument changeover.
+The staggered right-hand edges are the point: the three records end years
+apart, and two of them end before the changeover.}
+\label{fig:coverage}
+\end{figure}
+
+\subsection{Year by year}
+
+The yearly breakdown is the same quantity restricted to a calendar year: the fraction of that year's slots in which the inclinometer reported (Table~\ref{tab:yearly_coverage}).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lR{2.2cm}R{2.2cm}R{2.2cm}}
+\toprule
+\textbf{Year} & \textbf{\texttt{st01} [\%]} & \textbf{\texttt{st02} [\%]} &
+\textbf{\texttt{st03} [\%]} \\
+\midrule
+\input{../outputs/DE_T03_yearly_coverage.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{Yearly coverage fraction per station. 2018 and 2026 are partial years by definition: the archive begins on 26 July 2018 and ends on 19 August 2026.}
+\label{tab:yearly_coverage}
+\end{table}
+
+% ===========================================================================
+\section{Station 02, variable by variable}
+\label{sec:station}
+
+Station 02 stands at the Porta di Sant'Ubaldo. It is the best-covered record in the archive and the only location instrumented in both eras, and everything from here to the end of this report is measured on it. The statistics of each channel are summarised in Table~\ref{tab:st02_summary}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llR{1.6cm}R{1.5cm}R{1.4cm}R{1.6cm}R{1.5cm}R{1.5cm}}
+\toprule
+\textbf{Era} & \textbf{Channel} & \textbf{Count} & \textbf{Mean} &
+\textbf{SD} & \textbf{Min} & \textbf{Median} & \textbf{Max} \\
+\midrule
+\input{../outputs/DE_T04_summary_by_era.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{Summary statistics for station 02 across both eras. Units: \texttt{inc\_comp} in mdeg, \texttt{tair} in \degC, \texttt{rh} in \%, \texttt{batt} in V. \textbf{The two eras are summarised separately throughout.} A pooled mean of \texttt{inc\_comp} would average two unrelated instrument baselines, and its standard deviation would be dominated by the step between them rather than by anything the wall did.}
+\label{tab:st02_summary}
+\end{table}
+
+\subsection{Inclination}
+
+\begin{figure}[H]
+\includegraphics{DE_F04_st02_inclination}
+\caption{The compensated inclination at station 02 over the whole archive, on a
+single anchor, with the 21 February 2025 changeover marked. The record contains
+a cluster of very large negative excursions that, at full scale, compress the
+rest of the eight-year series into a thin band; the vertical axis is therefore
+clipped to an inner quantile range, and the vermilion annotation reports how many
+samples fall below the plotted range and how deep the most extreme of them
+reaches. Nothing is removed from the data or from any statistic --- the clipping
+is a display choice only.}
+\label{fig:st02_inclination}
+\end{figure}
+
+The changeover is not visible in this series, and Section~\ref{sec:compensation} is the reason: the compensation and the anchor are applied once to the whole record, so the two eras arrive on the same level without any correction being estimated or applied at the boundary. The residual difference across it is $-8.99$\,mdeg on 30-day window means, which is smaller than the ordinary daily swing and is accounted for by the $2.11$\,\degC\ by which the two windows differ in season.
+
+A cluster of very large negative excursions is visible in the tail of the current era. Of the 30\,198 samples observed in the current era, \textbf{119 fall below $-300$\,mdeg}, which is 0.39\,\% of them and an order of magnitude beyond the ordinary spread. Their distribution in time matters: one isolated sample in May 2025, then 19 samples on 11 days in June 2026, 57 on 25 days in July, and 42 on 12 days in August. The monthly minima are $-655.4$\,mdeg in May 2025, then $-1619.4$, $-1592.8$ and $-1378.0$\,mdeg over the three months of summer 2026.
+
+By comparison, the ordinary current-era record --- excluding these samples --- has a median of $94.1$\,mdeg and a 1st-to-99th-percentile span of $-9$ to $+156$\,mdeg; the excursions run to roughly ten times that span. The legacy era, nearly seven years long, shows nothing comparable: its full range is $-55.7$ to $+232.2$\,mdeg.
+
+What produced these particular samples is not established here. Excursions of this general kind have several ordinary explanations in an installation of this age --- a restart transient following a long outage, an intermittent connection, a failing component in the measurement chain --- and none of them can be confirmed or excluded from the record alone. Section~\ref{sec:anomaly_channels} does not identify the cause either, but it settles what the excursions are \emph{not}, which turns out to be enough to decide how they must be treated.
+
+\subsubsection*{Summer 2026 against the years before it}
+
+To place the 2026 excursions against the ordinary behaviour of the same calendar days, the record from the end of the outage (18 June 2026) to the end of the archive is drawn against the mean of the same days of the year in every preceding year (Figure~\ref{fig:st02_summer2026}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F05_st02_summer2026_anomaly.png}
+    \caption{The compensated inclination during the summer 2026 window compared to the historical average for the same calendar days and the same positions within the day.}
+    \label{fig:st02_summer2026}
+\end{figure}
+
+The window is not pure noise, but it is heavily contaminated. Its correlation with the historical average is positive, $r = 0.27$, so the underlying daily thermal cycle is still partly present and still responding to environmental forcing. Its standard deviation, however, is $181.9$\,mdeg against $17.0$\,mdeg for the historical average of the same days --- an order of magnitude. The physical signal survives underneath, and the period is unusable for detecting subtle structural change without removing what sits on top of it.
+
+\subsubsection*{Filtering the impulsive noise}
+\label{sec:filter}
+
+The record swings by hundreds of millidegrees between consecutive twenty-minute samples and returns. A massive stone structure cannot do that and remain standing, so the excursions are impulsive noise --- a datalogger glitch, an electrical fault, or a failing component --- rather than movement.
+
+They are removed with a Hampel filter, a rolling median absolute deviation test. Over a centred window $\mathcal{W}_t$ of $N_W = 72$ samples, one full day on the grid \eqref{eq:grid}, define
+\begin{align}
+m(t) &= \operatorname*{median}_{s \in \mathcal{W}_t} I_{\mathrm{comp}}(s),
+\label{eq:hampelmed}\\
+\hat{\sigma}(t) &= 1.4826 \cdot
+\operatorname*{median}_{s \in \mathcal{W}_t}
+\bigl| I_{\mathrm{comp}}(s) - m(s) \bigr|,
+\label{eq:hampelmad}\\
+\theta(t) &= \max\bigl(n_\sigma\,\hat{\sigma}(t),\ \theta_0\bigr),
+\qquad n_\sigma = 3, \quad \theta_0 = 10\ \mathrm{mdeg},
+\label{eq:hampelthr}
+\end{align}
+and mark a sample as a spike when
+\begin{equation}
+\label{eq:hampel}
+\bigl| I_{\mathrm{comp}}(t) - m(t) \bigr| > \theta(t).
+\end{equation}
+The factor $1.4826$ makes the median absolute deviation agree with the ordinary standard deviation for Gaussian noise. The floor $\theta_0$ stops the test from cutting into quiet stretches, where the rolling deviation falls so close to zero that ordinary measurement noise would exceed the threshold. Marked samples are replaced by linear interpolation across them, giving $I_{\mathrm{cleaned}}$.
+
+The choice of a median rather than a mean is what makes the filter safe here. A rolling median follows a step change within half a window, so a genuine shift in level survives, while a single-sample excursion does not --- and a step is what structural damage would look like.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F06_st02_summer2026_filtered.png}
+    \caption{The summer 2026 window after applying the 24-hour Hampel filter, plotted against the historical average.}
+    \label{fig:st02_summer2026_filtered}
+\end{figure}
+
+The filter is applied to the whole record rather than only to the era that motivated it. The legacy era carries impulsive noise at a comparable rate --- \textbf{3073 of its 117\,624 observed samples are replaced, against 927 of 30\,191 in the current era}, $2.61$\,\% and $3.07$\,\% respectively --- and a series whose treatment changes at a date in the middle cannot be compared across that date. Every replaced sample is marked in the exported dataset of Section~\ref{sec:dataset}, so an interpolated value is never mistaken for a measured one.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F07_st02_inclination_cleaned.png}
+    \caption{The full compensated inclination series, on a single anchor, after applying the Hampel filter.}
+    \label{fig:st02_cleaned}
+\end{figure}
+
+\subsection{Seasonal diurnal cycles}
+\label{sec:diurnal_method}
+
+The daily cycle is the clearest periodic signal in the record and the one that can be compared across the changeover, because it is a property of the wall rather than of the logger. It is built only from days on which every one of the 72 slots carries a value, so that a partly observed day cannot bias the mean towards the part of the day it happens to cover. Writing $u(t)$ for the position within the day and $\mathcal{D}$ for the set of complete days of a group,
+\begin{equation}
+\label{eq:cycle}
+c(u) \;=\; \frac{1}{|\mathcal{D}|} \sum_{d \in \mathcal{D}} x(d, u),
+\qquad
+\tilde{c}(u) \;=\; c(u) - \frac{1}{72}\sum_{u'} c(u'),
+\end{equation}
+each contributing day being centred on its own daily mean before averaging, which removes the seasonal drift and leaves the shape of the day alone. The amplitude is the peak-to-trough range of the mean cycle,
+\begin{equation}
+\label{eq:amplitude}
+A \;=\; \max_u c(u) \;-\; \min_u c(u).
+\end{equation}
+
+For the Central Italian context the summer group is June to August and the winter group December to February. Figure~\ref{fig:seasonal_diurnal_cycles} draws the cycle of the cleaned inclination for each era and season.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F08_st02_diurnal_cycles.png}
+    \caption{Average diurnal cycle of the cleaned inclination, by era and season, per Equation~\eqref{eq:cycle}. Every contributing complete day is drawn in gray behind the group mean, so that a mean built from few days cannot be mistaken for a well determined one.}
+    \label{fig:seasonal_diurnal_cycles}
+\end{figure}
+
+Measured season by season the response is very nearly consistent across the changeover. In summer the amplitude rises from $31.7$\,mdeg on the legacy instrument to $36.6$\,mdeg on the current one; in winter it \emph{falls}, from $8.8$\,mdeg to $8.1$\,mdeg. The two seasons move in opposite directions, which is not the signature of a fixed instrumental gain --- a gain change would scale both by the same factor. The averages rest on 197 complete legacy summer days against 110 current ones, and on 303 legacy winter days against 71 current ones; the current winter figure is the weakest of the four and rests on what is effectively a single winter.
+
+The shape of the cycle is the same in every panel. The inclination reaches its maximum in the early morning and its minimum around midday, so the structure is at its lowest when the day is at its warmest. Section~\ref{sec:diurnal_compared} returns to the amplitude question once the driver itself has been measured.
+
+\subsection{Air temperature}
+
+\begin{figure}[H]
+\includegraphics{DE_F09_st02_tair}
+\caption{Air temperature at station 02, measured by the unit itself rather than
+by a weather service. The annual cycle is the dominant feature and the outages
+are visible as flat interruptions.}
+\label{fig:st02_tair}
+\end{figure}
+
+This is the temperature (Figure~\ref{fig:st02_tair}) that enters Equation~\eqref{eq:comp}. It is measured at the acquisition unit, not inside the masonry, and it is not the wall temperature: the current-era package reports that separately.
+
+The treatment of Equation~\eqref{eq:cycle} is applied to it in Figure~\ref{fig:st02_tair_diurnal}, and for the same reason: the amplitude of the structural response means little until the amplitude of the forcing that produced it is known.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F10_st02_tair_diurnal_cycles.png}
+    \caption{Average diurnal cycle of the air temperature at station 02, by era and season, under the same treatment as the inclination.}
+    \label{fig:st02_tair_diurnal}
+\end{figure}
+
+The cycle is the ordinary continental one, and it is reproduced by both instruments, with a summer amplitude of $11.0$\,\degC\ on the legacy unit against $11.8$\,\degC\ on the current one, and a winter amplitude of $4.3$\,\degC\ against $4.0$\,\degC. The forcing therefore moved in exactly the same direction as the structural response did across the changeover --- larger in summer, smaller in winter --- which is the first indication that the apparent change in the amplitude of the response is at least partly meteorological rather than instrumental.
+
+Read against the inclination, the phase relationship is unambiguous (Table~\ref{tab:diurnal}). The temperature maximum falls within an hour or so of the inclination minimum, and the temperature minimum coincides with the inclination maximum. The compensated inclination is in anti-phase with the air temperature, at a delay short enough to be indistinguishable from zero even on the 20-minute grid. That is the sign the embankment geometry predicts. It must be read with the caveat of Section~\ref{sec:compensation}, however: Equation~\eqref{eq:comp} subtracts $5$\,\mdegC\ from a channel whose recorded thermal slope is positive on both instruments, so the anti-phase of the compensated series is produced by that subtraction rather than found in the recorded data. The phase measured here is a property of the compensated product, and it is not independent evidence about the structure.
+
+\subsection{Relative humidity}
+
+\begin{figure}[H]
+\includegraphics{DE_F11_st02_rh}
+\caption{Relative humidity at station 02. The channel saturates at 100\,\% for
+extended periods in winter.}
+\label{fig:st02_rh}
+\end{figure}
+
+The relative humidity is shown in Figure~\ref{fig:st02_rh} and its diurnal cycle in Figure~\ref{fig:st02_rh_diurnal}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F12_st02_rh_diurnal_cycles.png}
+    \caption{Average diurnal cycle of the relative humidity at station 02, by era and season. The winter panels are truncated by the saturation of the channel at 100\,\%, which removes the upper part of the cycle on the wettest nights.}
+    \label{fig:st02_rh_diurnal}
+\end{figure}
+
+The humidity runs against the temperature, as it must: at roughly constant water content the relative humidity falls as the air warms and rises as it cools. The measurement bears this out closely. Its summer amplitude is $31.8$\,\% on the legacy instrument against $32.6$\,\% on the current one, and its winter amplitude falls from $12.2$\,\% to $9.6$\,\%, on the same 71 days that make the current winter weak everywhere else. The winter figures are further depressed by the
+saturation visible in Figure~\ref{fig:st02_rh}: once the channel reaches 100\,\%
+it cannot record how much wetter the night became.
+
+The practical consequence is for regressor selection rather than for the instrument. At the diurnal scale the relative humidity is very nearly a restatement of the air temperature with its sign reversed, so the two carry the same information and entering both into a model would be close to entering the same variable twice. It follows that the relative humidity also runs \emph{in phase} with the inclination; that agreement is a shared dependence on the temperature and must not be read as the humidity driving the structure.
+
+\subsection{Supply voltage}
+
+\begin{figure}[H]
+\includegraphics{DE_F13_st02_batt}
+\caption{Supply voltage of the station 02 acquisition unit. This is not a
+structural quantity; it is the health of the system that produces every other
+channel in this report.}
+\label{fig:st02_batt}
+\end{figure}
+
+The battery channel (Figure~\ref{fig:st02_batt}) is included because it is the channel that explains the record. The interruptions in Section~\ref{sec:coverage} are outages of the acquisition unit, and when the unit is down every channel it carries is down with it --- which is exactly the whole-block zero sentinel counted in Table~\ref{tab:raw_census}.
+
+\subsection{The summer 2026 anomaly across the channels}
+\label{sec:anomaly_channels}
+
+The impulsive noise removed in Section~\ref{sec:filter} was found on the inclination. Whether it belongs to the wall, to the weather, or to the acquisition system is settled by asking whether the other channels carry it over the same sixty days. A thermal or hygric event large enough to throw the inclination by more than a degree has to appear in the air temperature or the relative humidity, because those are the channels that measure the environment; a fault in the measurement chain need not appear in them at all.
+
+Each channel is reduced to its departure from its own 24-hour rolling median, which strips the seasonal drift and leaves the short-lived part of the signal,
+\begin{equation}
+\label{eq:residual}
+r_x(t) \;=\; x(t) \;-\; \operatorname*{median}_{s \in \mathcal{W}_t} x(s),
+\end{equation}
+and judged against a scale measured on the current era \emph{before} the anomaly begins,
+\begin{equation}
+\label{eq:scale}
+s_x \;=\; 1.4826 \cdot \operatorname*{median}_{t \in \mathcal{R}}
+\bigl| r_x(t) \bigr|,
+\qquad
+\text{excursion} \iff \bigl| r_x(t) \bigr| > 5\, s_x ,
+\end{equation}
+with $\mathcal{R}$ the current era up to the start of the window. Every channel is therefore judged against its own ordinary behaviour and the two periods are compared on identical terms. Figure~\ref{fig:anomaly_channels} draws the result and Table~\ref{tab:anomaly} reports it.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F14_st02_anomaly_channels.png}
+    \caption{Departure of each channel from its own 24-hour rolling median through the summer 2026 window, per Equation~\eqref{eq:residual}. The gray band is the five-deviation threshold of Equation~\eqref{eq:scale}. The inclination leaves the band on a fifth of all samples; the two environmental channels stay inside it.}
+    \label{fig:anomaly_channels}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+& & \multicolumn{2}{c}{\textbf{Beyond $5s_x$ (\%)}} &
+\multicolumn{2}{c}{\textbf{Largest departure}} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+\textbf{Channel} & \textbf{Scale $s_x$} & \textbf{before} & \textbf{during} &
+\textbf{before} & \textbf{during} \\
+\midrule
+\input{../outputs/DE_T05_anomaly_by_channel.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{Short-term variability of each channel before and during the summer 2026 window, per Equations~\eqref{eq:residual} and~\eqref{eq:scale}.}
+\label{tab:anomaly}
+\end{table}
+
+The separation is not marginal. The inclination crosses its threshold on $21.08$\,\% of the samples in the window against $1.05$\,\% before it, and its largest departure grows from $749$ to $1727$\,mdeg. The air temperature crosses on $0.59$\,\% against $0.01$\,\%, with its largest departure \emph{falling} from $18.6$ to $14.7$\,\degC, and the relative humidity crosses on $0.91$\,\% against $0.87$\,\% with no increase in its extremes. The two channels that would have to register an environmental event register nothing.
+
+What the environmental channels do register is instructive in itself. The 26 air temperature crossings are all positive and all fall between 09:00 and 16:00; of the 40 humidity crossings only 10\,\% do. Those are hot afternoons and damp nights --- ordinary weather, arriving one-sided and at the hour the season would put it. They are the control that shows the test is capable of finding something.
+
+The inclination excursions have neither property. Of the 925 of them, $97.6$\,\% are negative and $97.9$\,\% fall between 09:00 and 16:00. A structural movement of $-1700$\,mdeg that returns by the next sample is not a movement of a wall; a disturbance that almost never pushes the other way, and almost never occurs at night, is not random noise either. The confinement to daylight points at the exposure of the instrument or of its power supply rather than at the structure it is bolted to.
+
+The supply voltage supports that reading without settling it. It steps to a higher and less steady regime on 18 June, the day the window opens, and \textbf{208 of the 925 inclination excursions --- 22\,\% --- fall in the same 20-minute slot as an excursion of its own, against the 71 that independence would give, a factor of $2.9$}. Its percentages in Table~\ref{tab:anomaly} should not be read beside the others, because its scale $s_x$ is only $0.015$\,V and almost any ripple clears five of them. The coincidence is suggestive of a common cause in the power system and is not proof of one.
+
+Two conclusions follow, one firm and one provisional. Firmly, the summer 2026 anomaly is not an environmental event and is not a structural one: it is confined to the inclinometer channel while the two channels measuring the environment, on the same logger, over the same hours, stay quiet. Provisionally, its confinement to daylight and its coincidence with a change in the supply point at the instrument's power or solar exposure. Deciding between those is a question for the instrumentation, not for this archive, and until it is decided the affected samples are treated as what they demonstrably are --- artefacts --- and removed by the filter of Section~\ref{sec:filter}.
+
+\subsection{The diurnal cycles compared}
+\label{sec:diurnal_compared}
+
+Table~\ref{tab:diurnal} gathers the three cycles measured above, and Table~\ref{tab:response} normalises the structural response by the forcing that produced it,
+\begin{equation}
+\label{eq:response}
+R \;=\; \frac{A_I}{A_T}
+\qquad [\,\mathrm{mdeg}/{}^\circ\mathrm{C}\,],
+\end{equation}
+$A_I$ and $A_T$ being the amplitudes \eqref{eq:amplitude} of the inclination and of the air temperature over the same complete days. Read together the two tables settle the amplitude question left open in Section~\ref{sec:diurnal_method}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lllrrcc}
+\toprule
+\textbf{Channel} & \textbf{Era} & \textbf{Season} & \textbf{Days} &
+\textbf{Amplitude} & \textbf{Peak} & \textbf{Trough} \\
+\midrule
+\input{../outputs/DE_T06_diurnal_cycles.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{Average diurnal cycle of each channel by era and season: complete days contributing to the average, peak-to-trough amplitude per Equation~\eqref{eq:amplitude}, and the positions within the day of the maximum and the minimum, reported to the resolution of the grid.}
+\label{tab:diurnal}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrrrr}
+\toprule
+\textbf{Season} & \textbf{Era} & \textbf{Days} &
+\textbf{$A_I$ [mdeg]} & \textbf{$A_T$ [\degC]} &
+\textbf{$R$ [\mdegC]} \\
+\midrule
+\input{../outputs/DE_T07_diurnal_response.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{The structural response normalised by its driver, per Equation~\eqref{eq:response}. A season that was merely warmer enlarges $A_I$ and $A_T$ together and leaves $R$ alone; an instrument whose gain changed would move $R$.}
+\label{tab:response}
+\end{table}
+
+Matched by season, the bare amplitude ratio across the changeover is $1.15$ in summer and $0.93$ in winter. A gain change scales every season by the same factor; a ratio that lands on either side of one does not describe a gain, it describes two seasons that were not equally warm.
+
+Normalising by the driver removes what is left. The response is $2.88$\,\mdegC\ on the legacy instrument in summer against $3.09$ on the current one, a change of $+7.3$\,\%, and $2.03$ against $2.03$ in winter, a change of $+0.1$\,\%. Two ratios that pointed in opposite directions collapse, once the forcing is accounted for, to the same direction and to a few percent at worst. That is the residue of sampling, not a change of scale.
+
+The conclusion is that the changeover left the scale of the inclination alone. Taken with Section~\ref{sec:compensation}, which finds the two recorded levels continuous as well, the two instruments are indistinguishable in this record in both zero and gain, and nothing has to be corrected at the boundary in either respect. That is a convenient result, and it is worth being explicit about how much weight it can carry: the gain half of it rests on four seasonal amplitudes, one of which --- the current-era winter --- comes from a single season. It is strong enough to justify treating the record as one series and not strong enough to rule out a small multiplicative difference that the available winters cannot resolve.
+
+Two observations survive as open questions rather than results. The first is that the response per degree is consistently larger in summer than in winter --- near $3.0$ against near $2.0$\,\mdegC\ --- in both eras alike. Being reproduced by both instruments it is a property of the site and not of the hardware, and the natural candidate is that the air temperature is standing in for a forcing it does not fully capture, most plausibly the solar radiation on the exposed valley face. That is a question for the regressor-diagnosis stage rather than for this study. The second is that the current-era winter rests on 71 complete days, effectively one winter, so every winter comparison above carries the weight of a single season and should be revisited once a second one is in the archive.
+
+% ===========================================================================
+\section{The current era: the wall and the sun}
+\label{sec:current_era}
+
+Two channels arrived with the package installed on 21 February 2025 and exist nowhere in the legacy record: the wall temperature, from a probe set into the masonry, and the solar radiation. Nothing in this section spans the archive, and every number in it is conditioned on eighteen months.
+
+The pair is worth a section because between them they carry what the air temperature only stands in for. The air is not what deforms the wall. The wall's own temperature is, and that is set as much by the sun falling on the exposed face as by the air around it.
+
+\subsection{What is actually there}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+& & & \multicolumn{4}{c}{\textbf{Complete days}} \\
+\cmidrule(lr){4-7}
+\textbf{Channel} & \textbf{Observed} & \textbf{\% of era} &
+\textbf{winter} & \textbf{spring} & \textbf{summer} & \textbf{autumn} \\
+\midrule
+\input{../outputs/DE_T08_current_era_availability.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{Availability of every channel over the current era, and the complete days each contributes by season. All four seasons are listed because the distribution across them is the finding; the cycles below are drawn for summer and winter, the pair the whole of Section~\ref{sec:station} was compared on.}
+\label{tab:current_era_availability}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F15_st02_current_era_coverage.png}
+    \caption{Daily availability of the two current-era channels. The wall probe reports in two long stretches rather than continuously.}
+    \label{fig:current_era_coverage}
+\end{figure}
+
+The wall probe is the constraint on everything that follows. It reports for $37.2$\,\% of the era, in \textbf{two stretches}: 2025-02-20 to 2025-07-14, and 2026-06-18 to the end of the archive. Those fall in spring and summer, so measured on the summer-and-winter pair used throughout Section~\ref{sec:station} the probe has one full season --- 78 complete summer days --- and \textbf{six} complete winter days. The season it is missing is the one that would test it hardest.
+
+The radiation is available for $68.9$\,\% of the era, but availability is not the constraint on it. Section~\ref{sec:sr_defect} is.
+
+% ---------------------------------------------------------------------------
+\subsection{The wall temperature}
+\label{sec:twall}
+
+\subsubsection*{The channel as written}
+
+Figure~\ref{fig:twall_raw} draws \texttt{n\_twall} exactly as the acquisition system recorded it, before Equation~\eqref{eq:twall} is applied.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F16_st02_twall_raw.png}
+    \caption{The wall temperature as written. The flat Goldenrod run is the \texttt{-55.0}\,\degC\ open-circuit marker, held on every sample for eight months; the black span identifies that interval.}
+    \label{fig:twall_raw}
+\end{figure}
+
+The distinction this figure preserves is not a technicality. An instrument announcing its own failure and an acquisition unit that is switched off leave the same hole in a cleaned dataset, and they are not the same event: the first says the probe was powered, polled and answering, and that what it answered was that its circuit was open. Any account of this installation that describes the period as a gap has lost that.
+
+\subsubsection*{The filtered record}
+
+Rejecting the open-circuit marker exposes two recording segments. The second, from \textbf{18 June to 19 August 2026}, contains several isolated departures from an otherwise smooth thermal trajectory. Only this final segment is tested for impulsive anomalies here; the earlier segment is carried from \texttt{n\_twall\_ok} without further treatment.
+
+Let $T_{\mathrm{ok}}(t)$ denote the wall temperature after the marker rejection, and let $\mathcal{W}^{(3)}_t$ be the centred window of three observed samples within one uninterrupted run. The local median, robust scale and threshold are
+\begin{align}
+m_T(t) &= \operatorname*{median}_{s \in \mathcal{W}^{(3)}_t}
+T_{\mathrm{ok}}(s),
+\label{eq:twallmed}\\
+\hat{\sigma}_T(t) &= 1.4826\,
+\operatorname*{median}_{s \in \mathcal{W}^{(3)}_t}
+\bigl|T_{\mathrm{ok}}(s)-m_T(s)\bigr|,
+\label{eq:twallmad}\\
+\theta_T(t) &= \max\bigl(3\hat{\sigma}_T(t),\ 10\,{}^\circ\mathrm{C}\bigr).
+\label{eq:twallthr}
+\end{align}
+A sample is marked \texttt{twall\_spike} when
+\begin{equation}
+\label{eq:twallspike}
+\bigl|T_{\mathrm{ok}}(t)-m_T(t)\bigr| > \theta_T(t),
+\qquad t \geq \text{18 June 2026},
+\end{equation}
+and the filtered series is
+\begin{equation}
+\label{eq:twallfilter}
+T_{\mathrm{filtered}}(t) =
+\begin{cases}
+\operatorname{interp}\!\left(T_{\mathrm{ok}}\right)(t),
+& \text{if \texttt{twall\_spike}(t) is true},\\[2pt]
+T_{\mathrm{ok}}(t), & \text{otherwise},
+\end{cases}
+\end{equation}
+where \texttt{interp} is linear interpolation between the observations on either side. Original gaps remain missing.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{DE_F17_st02_twall_filtered}
+\caption{Filtered wall temperature at station 02 over the current era. The gap
+between July 2025 and June 2026 is the probe failure of
+Figure~\ref{fig:twall_raw}; the black span marks the final recording segment,
+the only interval tested for impulsive anomalies.}
+\label{fig:st02_twall}
+\end{figure}
+
+Figure~\ref{fig:twall_anomalies} isolates that interval before filtering. Five samples leave and immediately rejoin the local trajectory: $17.00$\,\degC\ on 1 July, $-0.07$\,\degC\ on 19 July, 2 August and 7 August, and $85.00$\,\degC\ on 17 August. The smallest of their departures from the local median is $22.12$\,\degC; the largest departure among the samples that remain is $4.81$\,\degC. The 10\,\degC\ floor in Equation~\eqref{eq:twallthr} lies in the empty interval between those populations rather than cutting through a continuum of cases.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F18_st02_twall_final_segment_anomalies.png}
+    \caption{The final wall-temperature recording segment before filtering. Vermilion crosses mark the five isolated samples selected by Equation~\eqref{eq:twallspike}. No other channel enters this test.}
+    \label{fig:twall_anomalies}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F19_st02_twall_final_segment_filtered.png}
+    \caption{The same final wall-temperature segment after the five impulses are replaced by linear interpolation. No original gap is filled.}
+    \label{fig:twall_filtered_segment}
+\end{figure}
+
+No further sample in the segment crosses the declared threshold after the five replacements. The final segment is therefore clean \emph{with respect to isolated impulsive anomalies under this test}; that statement is not a claim that every sustained bias or calibration error has been excluded.
+
+The wall is not a thermometer for the air. Over the same era the filtered series reaches $57.1$\,\degC\ where the air at the same station reaches $39.0$\,\degC, with a median of $23.2$\,\degC\ against the air's $15.0$. That difference is the sun on the masonry, and it is direct evidence that the air temperature alone is an incomplete account of what the structure experiences.
+
+\subsubsection*{Diurnal cycle}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F20_st02_twall_diurnal_cycles.png}
+    \caption{Average diurnal cycle of the wall temperature, summer and winter, per Equation~\eqref{eq:cycle}. The winter panel rests on six complete days and is shown for completeness rather than for comparison.}
+    \label{fig:twall_diurnal}
+\end{figure}
+
+The wall swings $19.7$\,\degC\ through a summer day, peaking at 15:40 and troughing at 06:20. The winter panel gives $6.1$\,\degC\ from six days, which is too few to compare against anything and is reported so that the absence is on the record rather than hidden by a substituted season.
+
+% ---------------------------------------------------------------------------
+\subsection{The solar radiation}
+\label{sec:sr}
+
+\subsubsection*{Where the night ends}
+\label{sec:night_ends}
+
+Equation~\eqref{eq:nightmask} cuts the night at civil twilight rather than at the horizon, and Table~\ref{tab:sr_elevation} is why. It groups the radiation by where the sun actually was, taking the values that survived rejection and undoing the correction under test, so that the correction cannot define its own justification.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lR{1.6cm}R{1.9cm}R{1.6cm}R{1.9cm}R{2.1cm}}
+\toprule
+& \multicolumn{3}{c}{\textbf{Working days}} &
+\multicolumn{2}{c}{\textbf{Condemned days}} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-6}
+\textbf{Elevation [\textdegree]} & \textbf{Samples} & \textbf{Median} &
+\textbf{95th pct} & \textbf{Samples} & \textbf{Median} \\
+\midrule
+\input{../outputs/DE_T09_sr_by_elevation.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{Solar radiation in W/m\textsuperscript{2} by solar elevation, on the days the channel is working and on the days Equation~\eqref{eq:srsuspect} condemns. Read down the working column for where the natural signal ends; read down the condemned column for what having no diurnal cycle looks like.}
+\label{tab:sr_elevation}
+\end{table}
+
+On working days the signal decays smoothly as the sun goes down --- $630.8$ with the sun above $10^{\circ}$, then $34.3$, $19.1$, $8.4$, $5.4$ through the last degrees of daylight, $2.4$ between $-4^{\circ}$ and $-2^{\circ}$, and $0.25$ by $-6^{\circ}$, where it stops falling. Below civil twilight there is no sky brightness left to lose, and what the channel still reports there is its own floor: a median of $0.12$ with a ninety-fifth percentile near $9$. Cutting at the geometric horizon instead would have erased the $5.4$ and $2.4$ of real twilight diffuse radiation, which are measurements.
+
+The condemned column is the same table for a channel that is not working, and it is flat: $192.7$ in the deep night, $180.5$ at the horizon, $138.9$ with the sun high. It reports \emph{less} in daylight than at midnight.
+
+\subsubsection*{A channel that fails in two ways}
+\label{sec:sr_defect}
+
+Equation~\eqref{eq:srsuspect} condemns \textbf{161 days}, from 2025-07-27 to 2026-03-06, and the population splits cleanly in two.
+
+\textbf{Dead: 50 days}, 2025-07-27 to 2025-09-25, on which the channel reports \textbf{exactly zero at high sun} in the middle of an Umbrian summer. Their window overlaps the wall-probe failure that begins on 2025-07-14, so the two current-era channels were failing together.
+
+\textbf{Stuck: 111 days}, 2025-09-10 to 2026-03-06, being every other condemned day, on which the channel reports a near-constant few hundred watts around the clock --- a median of $222.8$ at high sun against $222.8$ in the dark in December, $242.4$ against $233.0$ in January, $234.0$ against $206.9$ in February. The two modes are defined so that they partition the condemned days rather than merely describe them: dead is the sharp test, nothing at all at high sun, and stuck is everything else the test condemns. The changeover between them is a transition over several days in September rather than a step, which is why the two spans overlap.
+
+The separation the test achieves is not marginal but it is not enormous either: the condemned days reach a ratio of at most $2.88$ and the days that pass start at $3.1$, with a median of $3200$. The threshold $\rho = 3$ sits in that gap. A handful of days therefore rest on the exact value of $\rho$, and they are winter days on which little radiation is expected in any case.
+
+It is worth setting out why the day-quality test is framed as a ratio, because the obvious alternative catches only half of what is here. That alternative asks whether the channel reports radiation at 02:00 that the sun cannot supply. It works on the stuck days: a channel sitting at $225\ \mathrm{W/m^2}$ reports $225$ at 02:00 as readily as at noon, and the night alone is enough to convict it. It cannot work on the dead days at all, because a channel reporting exactly zero all night is reporting precisely what a healthy channel reports.
+
+\textbf{Fifty days of a dead radiation sensor would therefore have passed unnoticed, and twenty-three of them were feeding the summer diurnal cycle of Section~\ref{sec:sr_cycle} as though they were measurements.} Asking about the ratio between the two windows rather than about the night alone finds both failure modes with a single test, and it loses nothing in exchange: every day the night test condemns, the ratio test condemns as well.
+
+Neither defect is the $8191.875\ \mathrm{W/m^2}$ wrap-around of Equation~\eqref{eq:wrap}. That artefact is a property of individual samples, and it is rare: \textbf{15 samples on 4 days}, all in the first fortnight of the current era, counted under \texttt{wrap} in Table~\ref{tab:raw_census}.
+
+There is a third stretch, and separating the two codes is what makes it visible. Between \textbf{2025-10-13 and 2025-11-25} --- 44 contiguous days --- the channel sat between $1409$ and $2124\ \mathrm{W/m^2}$ around the clock, above the physical ceiling and far below the wrap-around. Equation~\eqref{eq:unphys} rejects \textbf{3085 samples} there, and on 43 of those 44 days it rejects \emph{every radiation sample the day contains}.
+
+That is why the day-level verdict has a hole in exactly this place. Equation~\eqref{eq:srsuspect} runs on what survives rejection, and on 43 of these days nothing survives to judge, so they are left unjudged rather than condemned. The seventeen days between 2025-09-26 and 2025-10-12 are unjudged for an unrelated and ordinary reason: the acquisition unit recorded nothing at all.
+
+Neither test is at fault; they answer different questions. A per-sample ceiling can only reject what exceeds it, and a ratio between two windows needs samples in both. What the pair shows together is a failure that first pushed the plateau above the ceiling for six weeks and then settled just below it for the rest of the winter. Neither behaviour is a documented property of this instrument, and both are recorded here so that a future reader does not have to rediscover them.
+
+\subsubsection*{The record}
+
+\begin{figure}[H]
+\includegraphics{DE_F21_st02_sr}
+\caption{Solar radiation at station 02 over the current era, drawn exactly as written, at full scale. The axis reaches 8500\,W/m$^2$ because the record does: the wrap-around of Equation~\eqref{eq:wrap} occupies fifteen isolated samples at $8191.875$, drawn as dots because a line through a sample whose neighbours are both missing draws nothing. The shaded band is the failure of Section~\ref{sec:sr_usable}, from the first condemned day to the day the channel next passes. The line breaks wherever the acquisition unit wrote nothing, so the empty stretches are outages and not readings of zero.}
+\label{fig:st02_sr}
+\end{figure}
+
+\subsubsection*{The extent of the failure, and whether any of it can be used}
+\label{sec:sr_usable}
+
+The two modes above are the shape of the failure. Its extent is a separate question, and the day-level count understates it, because a day the instrument never recorded and a day whose every sample was rejected are both days the test cannot condemn. Taken from the first condemned day to the day the channel next produces a day that passes, the failure runs from \textbf{2025-07-27 to 2026-06-17}: \textbf{326 consecutive calendar days}, very nearly eleven months, of which the channel wrote something on 206. Figure~\ref{fig:st02_sr_failure} is that window on its own.
+
+Every day in it falls into exactly one of five states, and together they account for the window:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrl}
+\toprule
+\textbf{State} & \textbf{Days} & \textbf{Span} \\
+\midrule
+No record at all & 120 & 2025-09-26 to 2026-06-17 \\
+Pegged above the ceiling, every sample rejected & 43 & 2025-10-13 to 2025-11-24 \\
+Dead, zero at high sun & 50 & 2025-07-27 to 2025-09-25 \\
+Stuck near a constant & 111 & 2025-09-10 to 2026-03-06 \\
+Passes the ratio test & 2 & 2025-08-03 and 2025-09-15 \\
+\midrule
+\textbf{Total} & \textbf{326} & 2025-07-27 to 2026-06-17 \\
+\bottomrule
+\end{tabular}
+\caption{The radiation failure window, day by day. The five states are assigned in the order shown, from the most complete failure to the least, so that each day is counted once and the column sums to the window.}
+\label{tab:sr_failure_states}
+\end{table}
+
+\begin{figure}[H]
+\includegraphics{DE_F22_st02_sr_failure}
+\caption{The radiation failure alone, with ten days of ordinary record at either end for scale. The dashed accent lines are the first condemned day and the first day that passes again. The four labelled stretches are the states of Table~\ref{tab:sr_failure_states}: the channel reports nothing at high sun through the late summer, is pegged above the physical ceiling for six weeks in autumn, settles onto a flat few hundred watts through the winter, and then stops recording entirely until the following June.}
+\label{fig:st02_sr_failure}
+\end{figure}
+
+Only two of the 326 days pass Equation~\eqref{eq:srsuspect}, and neither survives a second look. The test is a \emph{ratio}, which makes it blind to scale by construction: a channel reporting a hundredth of the true radiation, with roughly the right shape through the day, passes it comfortably. That is exactly what these two days are. On 2025-08-03 the median with the sun above $15^{\circ}$ is $9.88\ \mathrm{W/m^2}$, and on 2025-09-15 it is $19.75$, against a median of $762\ \mathrm{W/m^2}$ across the working days before the failure in the same season. Both are one to two orders of magnitude below anything an Umbrian August or September can produce.
+
+The conclusion is therefore unqualified. \textbf{No day between 2025-07-27 and 2026-06-17 carries usable radiation.} The window has to be treated as absent rather than as measured, and any analysis needing solar forcing across it must obtain that forcing from somewhere other than this instrument.
+
+The channel does come back. From 2026-06-18 the diurnal cycle returns at full amplitude, and all \textbf{63 days} to the end of the archive pass, with ratios between $16$ and $189$. It does not come back identical, however: the median night floor over the recovered days is $5.6\ \mathrm{W/m^2}$ against $0.12\ \mathrm{W/m^2}$ before the failure. That offset is small in absolute terms and the night correction of Equation~\eqref{eq:night} removes it where it matters, but it is a change in the instrument rather than in the sky, and it is worth carrying forward as a caveat on the recovered record rather than assuming the channel is simply as it was.
+
+\subsubsection*{Diurnal cycle}
+\label{sec:sr_cycle}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F23_st02_sr_diurnal_cycles.png}
+    \caption{Average diurnal cycle of the solar radiation on days the channel is working, summer and winter. The night is flat at zero by Equation~\eqref{eq:night}.}
+    \label{fig:sr_diurnal}
+\end{figure}
+
+The summer cycle rests on \textbf{86 complete working days} and swings $1099.1\ \mathrm{W/m^2}$. Both numbers changed once the dead days left: the cycle previously rested on 109 days, of which 23 reported nothing at all, and averaging those in had suppressed its amplitude by a fifth. The days admitted here are those that satisfy the rule of Section~\ref{sec:sr_usable} --- judged, not condemned, and outside the failure window --- rather than merely those the day-quality test did not condemn, so that the days it could not judge at all are excluded by rule and not by accident.
+
+The peak of this cycle should not be read to the slot. Its top is flat: every slot from 11:20 to 13:00 sits within two per cent of the maximum, and the largest of them is decided by a margin of about two watts in eleven hundred. Which slot wins therefore moves under a change of a few days --- it falls at 12:40 here and at 11:20 on the slightly smaller common set of Table~\ref{tab:phase_chain} --- and neither slot means more than \emph{near solar noon}.
+
+The winter panel rests on six days, and the wall temperature's winter panel rests on six as well. The two current-era channels arrive at the same place from opposite directions: the probe has no winter because it recorded almost none, and the radiation has no winter because almost none of what it recorded can be believed. Six days each is the whole of what the current era offers for the cold half of the year.
+
+Their troughs are not reported. With the night corrected to zero the minimum of the radiation cycle is attained across the entire night, so its position carries no information and Table~\ref{tab:phase_chain} leaves it blank rather than naming an arbitrary slot inside it.
+
+\subsection{The chain, in one figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{DE_F24_st02_phase_chain.png}
+    \caption{Summer diurnal cycles of the four quantities on a common scale, current era. All four are averaged over the same 78 days --- those complete in every channel at once, drawn from the days whose radiation is usable by the rule of Section~\ref{sec:sr_usable} --- so that the comparison of timings is a comparison of the same days. Each is centred and divided by its own largest excursion: the figure is about when, not about how much.}
+    \label{fig:phase_chain}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrcc}
+\toprule
+\textbf{Channel} & \textbf{Days} & \textbf{Amplitude} & \textbf{Peak} & \textbf{Trough} \\
+\midrule
+\input{../outputs/DE_T10_phase_chain.tex}
+\\
+\bottomrule
+\end{tabular}
+\caption{Summer diurnal cycle of each quantity in the current era, over the 78 days complete in all four channels and carrying usable radiation. The day count is therefore identical down the column by construction; it was previously computed per channel, which let each cycle rest on a different set of days. The radiation trough is left blank: with the night corrected to zero its minimum is a plateau across the whole night, and naming a slot inside it would be naming an arbitrary one.}
+\label{tab:phase_chain}
+\end{table}
+
+The ordering is the point, and it does not rest on the one number in it that is not robust. The air temperature peaks at 12:00. The wall peaks at 15:40, more than three hours later, and troughs at 06:20, forty minutes after the air. That delay is the thermal mass of the masonry: the wall integrates what falls on it rather than following it. The radiation is tabulated at 11:20, but for the reason given in Section~\ref{sec:sr_cycle} its plateau cannot resolve a slot; what it contributes to the chain is that it is near solar noon, together with the air to within an hour either way, and hours ahead of the wall. That much is not in doubt.
+
+The inclination does not wait for the wall. It reaches its minimum at 11:40, with the sun and the air, and its maximum at 06:20 --- so it turns well \emph{before} the wall temperature does. On the face of it a structure responding to its own temperature should follow that temperature, not lead it. The resolution is most likely in the probe rather than in the wall. The probe is set into the masonry at a depth that was never recorded, and a probe at depth lags the surface: the layer whose expansion actually tips the wall is nearer the face than the layer being measured, and it therefore turns earlier. A deformation that leads the probe is the expected signature of that arrangement rather than a contradiction of it. This report records the observation and goes no further. Establishing the depth, and measuring the delay properly rather than reading it off four peak positions, requires a lag analysis that is outside what a description of the record can support.
+
+One observation does bear directly on a question left open in Section~\ref{sec:diurnal_compared}. The response per degree of \emph{air} temperature was larger in summer than in winter in both eras, and the natural suspicion was that the air was standing in for a forcing it does not fully capture. The wall temperature swings $19.7$ against the air's $12.4$\,\degC\ over the same summer days, and reaches far beyond it at the extreme. The wall is demonstrably not a linear echo of the air, and the gap between them is where that missing forcing would live. Which of the two --- or which combination --- belongs in a model is a regressor-diagnosis question, and it is not settled here.
+
+% ===========================================================================
+\section{The exported dataset}
+\label{sec:dataset}
+
+Everything above is written out as one table --- the union of every file in the archive, on the 20-minute grid \eqref{eq:grid}, spanning 26 July 2018 to 19 August 2026, 212\,257 rows and 71 columns:
+
+\begin{quote}
+\ttfamily\small data/interim/archive/gubbio\_archive\_20min.csv
+\end{quote}
+
+The layout is faithful to the files. One block per acquisition unit, in field order, and \textbf{the two instruments at station 02 never share a column} --- the legacy unit is \texttt{st02\_*} and the current-era package is \texttt{n\_*}. Keeping them apart makes the separation structural rather than a convention a reader has to remember, and it holds regardless of how close their levels turn out to be.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{5.2cm}Y}
+\toprule
+\textbf{Column} & \textbf{Content} \\
+\midrule
+\multicolumn{2}{l}{\textit{As recorded}} \\
+\texttt{\{block\}\_\{channel\}} & The field exactly as written, markers included.
+Blocks \texttt{st01}, \texttt{st02}, \texttt{st03}, \texttt{n}; channels per
+Table~\ref{tab:channels} \\
+\addlinespace
+\multicolumn{2}{l}{\textit{The verdict}} \\
+\texttt{\{block\}\_\{channel\}\_flag} & What was decided about the value, empty
+when it stands. A \textbf{rejection} --- \texttt{sentinel}, \texttt{wrap},
+\texttt{unphysical}, Equations~\eqref{eq:zero}--\eqref{eq:unphys}
+--- or a \textbf{correction}, \texttt{night}, Equation~\eqref{eq:night} \\
+\addlinespace
+\multicolumn{2}{l}{\textit{Corrected}} \\
+\texttt{\{block\}\_\{channel\}\_ok} & Missing exactly where a rejection is set;
+carrying the known value where a correction is. Equation~\eqref{eq:flag} \\
+\addlinespace
+\multicolumn{2}{l}{\textit{Derived}} \\
+\texttt{\{block\}\_inc} & Inclination in mdeg, Equation~\eqref{eq:inc} \\
+\texttt{\{block\}\_inc\_comp} & Thermally compensated, anchored within the
+block. For the three legacy units only; see Section~\ref{sec:compensation} \\
+\texttt{inc}, \texttt{tair} & Station 02 across both eras, taken from whichever
+instrument was recording \\
+\texttt{inc\_comp} & The same, compensated and anchored \textbf{once} on the
+first record of the whole series, Equations~\eqref{eq:comp}
+and~\eqref{eq:anchor}. No era-dependent constant is applied \\
+\texttt{inc\_comp\_cleaned} & \textbf{The analysis column.} The same with
+impulsive noise filtered over the whole record, Equation~\eqref{eq:hampel} \\
+\texttt{n\_twall\_filtered} & Wall temperature with the five impulses in the
+final recording segment replaced, Equation~\eqref{eq:twallfilter} \\
+\addlinespace
+\multicolumn{2}{l}{\textit{Verdicts that condemn without rejecting}} \\
+\texttt{inc\_spike} & True where \texttt{inc\_comp\_cleaned} is an interpolation
+rather than a measurement \\
+\texttt{twall\_spike} & True where \texttt{n\_twall\_filtered} is an interpolation
+rather than a measurement \\
+\texttt{sr\_suspect} & True on the 161 days of Equation~\eqref{eq:srsuspect};
+the whole day is condemned \\
+\addlinespace
+\multicolumn{2}{l}{\textit{Provenance}} \\
+\texttt{era} & \texttt{legacy} or \texttt{current}, from the record's own field
+count. \textbf{Empty where nothing was recorded} \\
+\bottomrule
+\end{tabularx}
+\caption{Columns of the exported dataset.}
+\label{tab:dataset}
+\end{table}
+
+Any later use of this dataset should read \texttt{inc\_comp\_cleaned} and \texttt{n\_twall\_filtered}, and should respect \texttt{inc\_spike} and \texttt{twall\_spike}. For the inclination, 4000 of the 147\,815 observed samples, $2.71$\,\%, are interpolations across removed spikes. For the final wall-temperature segment, five of 4329 observed samples, $0.12$\,\%, are interpolations. Nothing in the file fills a gap in the record --- missing samples remain missing, and only spikes inside observed stretches are replaced.
+
+\textbf{Nothing in this dataset is aggregated.} A study that needs a coarser grid to align the record against an external product published at that grid builds it from this table, averaging the values and taking the disjunction of the flags, so that an interval inherits every verdict passed on the samples inside it. Keeping that step out of this report is deliberate: the rate is a property of what the record is being compared against, not of the record.
+
+A manifest beside the table, \texttt{gubbio\_archive\_20min\_manifest.json}, records the archive extent, the file and record counts, every flag total, the compensation coefficient, the anchor and the filter settings, so the file can be audited without re-running the notebook.
+
+% ===========================================================================
+\section{Caveats}
+
+\textbf{The compensation is instantaneous and linear.} Equation~\eqref{eq:comp} has no lag term, while the structure's thermal response is lagged. The correction and the project's own feature-engineering stage are making different assumptions about the same physics.
+
+\textbf{The two instruments are assumed to share a scale, on four seasonal amplitudes.} Nothing multiplicative is applied at the changeover, and Section~\ref{sec:diurnal_compared} argues that nothing needs to be. That argument rests on four amplitudes, one of which comes from a single current-era winter, and it would not detect a gain difference of a few per cent.
+
+\textbf{Continuity across the changeover is measured, not guaranteed.} The two units agree to within $1.58$\,mdeg on 30-day window means, which is why the record is anchored once and carries no era-dependent constant. That agreement is an observation about these two instruments and not a property of instrument replacements in general; a future replacement must be checked the same way before its record is joined to this one.
+
+\textbf{The channel as recorded contradicts the site's sign convention.} The wall stands in an embankment, so daytime heating of the exposed valley face is expected to tip it towards the mountain, which is a negative change by the instrument's convention. Regressed against the unit's own air temperature the \emph{recorded} channel instead gives a positive slope on both instruments, $+1.19$\,\mdegC\ on the legacy unit and $+0.57$ on the current one. The compensated series does show the expected negative sign, but it obtains that sign by subtracting 5\,\mdegC\ from a channel whose measured slope is positive --- a correction several times larger than the effect it corrects. This is an unresolved contradiction rather than a result, and it must be read before any sign anywhere in this report is interpreted.
+
+\textbf{One value in the dataset was never measured.} The night correction of Equation~\eqref{eq:night} writes a zero, and that zero is an assertion about physics rather than a reading from the instrument. It is the only substituted value in any \texttt{\_ok} column; it is flagged \texttt{night} on every sample it touches, the recorded value sits beside it unchanged, and a consumer who prefers a gap can restore one from the flag in a line. The two filtered columns are derived products, and their interpolations carry separate provenance flags. Everything else in a \texttt{\_ok} column is either a measurement or missing.
+
+\textbf{The clock is inferred, not declared.} Section~\ref{sec:clock} places the logger on Italian civil time with daylight saving, and the evidence for it is indirect: the position of the sun as the radiation channel reports it, and a step in that estimate falling on the daylight-saving changeover date. The files themselves carry no timezone, so the attribution rests on that inference and on nothing else. An alternative reading of the same one-hour summer difference --- a logger that fails to advance while the reference does --- would produce a numerically identical correction, so no result in this report depends on which of the two is right; but the two are not the same statement about the instrument, and the evidence available here does not close the question beyond the step at the changeover date.
+
+\textbf{The filtering scopes differ by channel.} Equation~\eqref{eq:hampel} is applied to the inclination over the whole record; Equations~\eqref{eq:twallmed}--\eqref{eq:twallfilter} are applied to the wall temperature only from 18 June 2026 onwards. The air temperature, relative humidity, supply voltage and radiation are not filtered for impulsive noise, so their quoted extremes remain unfiltered single samples.
+
+\textbf{The anatomy of the gaps is not treated here.} How long the outages are, when they start, and what mechanism produced them is a natural extension of this report and is not attempted in it.
+
+% ===========================================================================
+\section{Artefact inventory}
+
+Every table body and figure below is generated by \texttt{data\_exploration\_study.py} into \texttt{outputs/} and read from there by this report. Identifiers run in reading order (Table~\ref{tab:artefacts}).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{4.6cm}Y}
+\toprule
+\textbf{Artefact} & \textbf{Content} \\
+\midrule
+\texttt{DE\_01}, \texttt{DE\_T01} & Every documented defect of the archive,
+counted and dated \\
+\texttt{DE\_02}, \texttt{DE\_T02} & Station classification: eras, extent,
+observed days, coverage \\
+\texttt{DE\_03}, \texttt{DE\_T03} & Yearly coverage of the inclinometer, per
+station \\
+\texttt{DE\_04}, \texttt{DE\_T04} & Per-era summary statistics, station 02 \\
+\texttt{DE\_05}, \texttt{DE\_T05} & Short-term variability of each channel before
+and during the summer 2026 window \\
+\texttt{DE\_06}, \texttt{DE\_T06} & Diurnal cycle amplitudes and phases, by
+channel, era and season \\
+\texttt{DE\_07}, \texttt{DE\_T07} & The response normalised by its driver \\
+\texttt{DE\_08}, \texttt{DE\_T08} & Current-era availability of every channel, by
+season \\
+\texttt{DE\_09}, \texttt{DE\_T09} & Solar radiation by solar elevation, working
+days against condemned ones \\
+\texttt{DE\_10}, \texttt{DE\_T10} & Summer diurnal cycle of radiation, air, wall
+and inclination \\
+\texttt{DE\_11} & Diurnal cycles of the two current-era channels \\
+\texttt{DE\_12} & Recorded and interpolated values of the five final-segment
+wall-temperature anomalies \\
+\addlinespace
+\texttt{DE\_F01} & Map of the three stations. \textbf{Supplied by hand, not
+generated} \\
+\texttt{DE\_F02} & Plan and section of the embankment at station 02.
+\textbf{Supplied by hand, not generated} \\
+\texttt{DE\_F03} & Inclinometer coverage, three stations \\
+\texttt{DE\_F04} & Compensated inclination, whole archive, single anchor \\
+\texttt{DE\_F05} & Summer 2026 against the historical average \\
+\texttt{DE\_F06} & The same comparison after the impulsive noise is filtered \\
+\texttt{DE\_F07} & Full compensated and cleaned inclination \\
+\texttt{DE\_F08} & Diurnal cycle of the inclination, by era and season \\
+\texttt{DE\_F09}, \texttt{DE\_F10} & Air temperature: the record, and its diurnal
+cycle \\
+\texttt{DE\_F11}, \texttt{DE\_F12} & Relative humidity: the record, and its
+diurnal cycle \\
+\texttt{DE\_F13} & Supply voltage \\
+\texttt{DE\_F14} & Departure from the rolling median across all four channels \\
+\addlinespace
+\texttt{DE\_F15} & Current-era availability of the wall probe and the radiation \\
+\texttt{DE\_F16} & \textbf{Wall temperature as written}, failure marker
+included \\
+\texttt{DE\_F17} & Filtered wall-temperature record, with the tested final
+segment marked \\
+\texttt{DE\_F18}, \texttt{DE\_F19} & Final wall-temperature segment before and
+after impulsive-noise filtering \\
+\texttt{DE\_F20} & Diurnal cycle of the filtered wall temperature \\
+\texttt{DE\_F21} & Solar radiation: the record over the current era \\
+\texttt{DE\_F22} & Solar radiation: the failure window on its own \\
+\texttt{DE\_F23} & Solar radiation: its diurnal cycle \\
+\texttt{DE\_F24} & Radiation, air, wall and inclination on a common scale \\
+\addlinespace
+\texttt{gubbio\_archive\_20min.csv} & \textbf{The study's product}, in
+\texttt{data/interim/archive/}, with its manifest beside it \\
+\bottomrule
+\end{tabularx}
+\caption{Artefact inventory for this study.}
+\label{tab:artefacts}
+\end{table}
+
+Reproduction, from the study directory with \texttt{neuralprophet\_env} active:
+
+\begin{quote}
+\ttfamily\small
+jupytext -{}-to ipynb data\_exploration\_study.py \\
+jupyter nbconvert -{}-to notebook -{}-execute -{}-inplace \\
+\phantom{jupyter nbconvert }data\_exploration\_study.ipynb
+\end{quote}
+
+The notebook reads the raw \texttt{.adc} archive directly. Its only data parameter is \texttt{RAW\_ARCHIVE\_DIR}; there is no other input. Files are copied once into a local cache before parsing, so the first run is slow and every later one takes seconds.
+
+\end{document}
