@@ -1,7 +1,7 @@
 # Study 04 · Design — Decomposition, Nowcast Expectation, and Anomaly Judgement
 
 Date: 2026-08-25
-Status: draft for approval
+Status: approved 2026-08-25
 Folder: `studies/04_neuralprophet_inclination_prediction/`
 Supersedes: `.agents/ORIGINAL_REQUEST.md` (2026-08-22)
 
@@ -176,9 +176,11 @@ Skill from a model carrying both AR memory and `tair` cannot be assigned to eith
 a fixed ladder, and reports each rung's *increment*:
 
 ```
-seasonal-naive baseline  →  AR only  →  AR + tair  →  AR + tair + rh  →  (rich window) + twall + sr
+seasonal-naive baseline  →  AR only  →  AR + tair  →  AR + tair + rh
                                                    ↘  battery-only negative control
 ```
+
+Wall temperature and solar radiation are **out of scope for this study** (decision D11).
 
 Study 03's finding that the battery control is not null is inherited: the control marks a
 conservative floor, and a driver is credited only when it clears that floor.
@@ -208,6 +210,17 @@ Model A is fitted twice: on `inc_comp_cleaned` (primary) and on the spike-masked
 (sensitivity). The `tair` coefficient learned on the raw channel is compared against
 `adc.DOCUMENTED_COEFF = 0.005` and against Study 03's −2.79 mdeg/°C. This is the one place where
 this study can speak to the §7.5 sign contradiction, and it costs one extra fit.
+
+---
+
+### D11 · Wall temperature and solar radiation are excluded
+
+Requiring `twall` and `sr` collapses the window from 75.6 % to 17.0 % coverage — 14,122 complete
+rows in 271 segments, of which only 23 segments and 3,802 training windows survive a 24-hour lag
+and a 24-hour horizon. Study 03 established that both are real drivers, so their exclusion is a
+scope decision and not a claim that they do not matter: the channels exist for less than half the
+window, and carrying them would force every result to be reported twice, on two incomparable
+windows. They are named in the limitations as the first candidate for an extension study.
 
 ---
 
@@ -348,6 +361,7 @@ Tables (`outputs/`, LaTeX bodies alongside):
 | `NP_13_ablation.csv` | Increment attributable to each predictor |
 | `NP_14_gap_closure.csv` | Accumulated reconstruction check, with explicit verdict |
 | `NP_15_run_metadata.csv` | Executed lags, horizons, epochs, seed, refit policy, versions |
+| `NP_16_component_stability.csv` | Trend slope and thermal gain re-estimated on each third of the training period |
 
 Figures: `NP_F01` on-structure record (exists) · `NP_F02` gap anatomy · `NP_F03` segment survival ·
 `NP_F04` cadence evidence · `NP_F05` decomposition stack · `NP_F06` daily cycle and regressor
@@ -468,12 +482,16 @@ Written to §7's structure, from the artefacts, in full academic prose.
 
 ---
 
-## 10 · Open questions for the user
+## 10 · Decisions taken
 
-1. **Version control.** `studies/` is entirely untracked. The previous run's notebook and report
-   were destroyed with no recoverable history. Commit before Phase 1?
-2. **`twall` and `sr`.** They exist for 17 % of the window. Include them as a separate
-   reduced-window arm — the honest but expensive option — or exclude them and say so?
-3. **Study scope.** Does this replace study 04 in place, or open study 05 and retire 04 to
-   `obsolete/`? The README currently describes a study that no longer exists on disk.
-4. **Report language.** Study 03's report is English. Confirm this one matches.
+Approved 2026-08-25.
+
+1. **Version control** — `studies/` is committed as of `555da8c`. All later work is committed as it
+   is made.
+2. **`twall` and `sr`** — excluded, per D11. An extension study may add them later on their own
+   matched window; this one does not report them.
+3. **Study identity** — rebuilt **in place as study 04**, keeping the `NP_` artefact prefix. Study 03
+   already cross-references study 04, and the standing introduction and `NP_F01` are sound and
+   reused. The question the study answers is widened from prediction alone to decomposition,
+   expectation and anomaly judgement, and its `README.md` is rewritten to say so.
+4. **Language** — English, matching study 03.
