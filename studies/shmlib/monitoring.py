@@ -359,3 +359,152 @@ def average_run_length(alarm, freq='20min'):
     arl_hours = hours / count if count else np.inf
     return {'n_episodes': count, 'hours': hours,
             'arl_hours': arl_hours, 'arl_days': arl_hours / 24.0}
+
+
+def inject_anomaly(series, kind, magnitude, start, duration=None,
+                   freq='20min'):
+    """
+    Add a synthetic departure of known size and shape to a series.
+
+    A detector's sensitivity cannot be read off a record that contains one real
+    event. Injecting departures of known size is how the question "what is the
+    smallest movement this would find" gets a number rather than an opinion.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Signal to contaminate, indexed by timestamp. Not modified in place.
+    kind : {'step', 'ramp', 'pulse'}
+        ``'step'`` shifts every sample from ``start`` onward; ``'ramp'`` rises
+        linearly to ``magnitude`` over ``duration`` and holds it; ``'pulse'``
+        shifts only the samples inside ``duration``.
+    magnitude : float
+        Size of the departure, in the series' own units.
+    start : pd.Timestamp or str
+        When the departure begins.
+    duration : str or pd.Timedelta or None, optional
+        Length of the ramp or pulse. Required for those kinds, ignored for a
+        step. Default ``None``.
+    freq : str, optional
+        Spacing of the series, used only when the index carries no frequency.
+        Default ``'20min'``.
+
+    Returns
+    -------
+    pd.Series
+        A copy of ``series`` with the departure added.
+    """
+    if kind not in {'step', 'ramp', 'pulse'}:
+        raise ValueError("kind must be 'step', 'ramp' or 'pulse'")
+    if kind in {'ramp', 'pulse'} and duration is None:
+        raise ValueError(f"kind '{kind}' requires a duration")
+
+    out = series.copy()
+    index = pd.DatetimeIndex(out.index)
+    begin = pd.Timestamp(start)
+    after = index >= begin
+
+    if kind == 'step':
+        out.loc[after] = out.loc[after] + magnitude
+        return out
+
+    span = pd.Timedelta(duration)
+    inside = after & (index < begin + span)
+
+    if kind == 'pulse':
+        out.loc[inside] = out.loc[inside] + magnitude
+        return out
+
+    elapsed = (index[after] - begin) / span
+    profile = np.clip(elapsed, 0.0, 1.0) * magnitude
+    out.loc[after] = out.loc[after] + profile
+    return out
+
+
+def detectability_curve(residuals, mu, sigma, magnitudes, durations,
+                        freq='20min', lam=0.2, L=3.0, k=0.5, h=5.0, seed=0,
+                        response_window='24h'):
+    """
+    Whether a departure of each size and length is found, and how late.
+
+    For every pair, a step of that magnitude lasting that long is injected into
+    the middle of the residual, both charts are run, and the joint alarm is
+    compared against the alarm the uncontaminated record raises on its own
+    within the same span. Only an alarm the clean run does not also raise
+    counts as a detection; a chart that would have fired in that slot
+    regardless of the injection has not found the injection, and counting it
+    would report a sensitivity the detector does not have. The search is
+    bounded to the injection window plus ``response_window``, so an unrelated
+    alarm far down the record cannot be attributed to the injection either.
+    The reference statistics are the caller's, estimated once on the
+    uncontaminated record, so that the detector is never re-tuned to the
+    anomaly it is being asked to find.
+
+    Parameters
+    ----------
+    residuals : pd.Series
+        Uncontaminated residual, indexed by timestamp.
+    mu, sigma : float
+        Reference centre and scale from ``reference_stats``.
+    magnitudes : sequence of float
+        Departure sizes in the residual's units.
+    durations : sequence of str or pd.Timedelta
+        How long each departure persists.
+    freq : str, optional
+        Spacing of the residual. Default ``'20min'``.
+    lam, L : float, optional
+        EWMA settings, as in ``ewma_chart``. Defaults ``0.2`` and ``3.0``.
+    k, h : float, optional
+        CUSUM settings, as in ``cusum_chart``. Defaults ``0.5`` and ``5.0``.
+    seed : int, optional
+        Reserved for future randomised placement; the injection point is
+        currently deterministic. Default ``0``.
+    response_window : str, optional
+        How long after the departure ends an alarm still counts as having
+        found it, as a pandas offset string. Default ``'24h'``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``magnitude``, ``duration_h``, ``detected`` and ``delay_h``,
+        one row per pair. ``delay_h`` is missing where nothing alarmed.
+    """
+    values = pd.to_numeric(residuals, errors='coerce')
+    index = pd.DatetimeIndex(values.index)
+    injection = index[len(index) // 2]
+
+    baseline = joint_alarm(
+        ewma_chart(values, mu, sigma, lam=lam, L=L)['alarm'],
+        cusum_chart(values, mu, sigma, k=k, h=h)['alarm'], window=freq)
+
+    rows = []
+    for magnitude in magnitudes:
+        for duration in durations:
+            span = pd.Timedelta(duration)
+            contaminated = inject_anomaly(
+                values, 'pulse', float(magnitude), start=injection,
+                duration=span, freq=freq)
+
+            ewma = ewma_chart(contaminated, mu, sigma, lam=lam, L=L)
+            cusum = cusum_chart(contaminated, mu, sigma, k=k, h=h)
+            alarm = joint_alarm(ewma['alarm'], cusum['alarm'], window=freq)
+
+            horizon = injection + span + pd.Timedelta(response_window)
+            fired = alarm.loc[injection:horizon]
+            # An alarm counts only where the uncontaminated run is silent. A
+            # chart that would have raised this slot anyway has not detected
+            # the injection, and counting it would report a sensitivity the
+            # detector does not have.
+            attributable = fired.astype(bool) & ~baseline.loc[
+                injection:horizon].astype(bool)
+            hit = attributable[attributable].index
+            detected = len(hit) > 0
+            rows.append({
+                'magnitude': float(magnitude),
+                'duration_h': float(span / pd.Timedelta(hours=1)),
+                'detected': bool(detected),
+                'delay_h': (float((hit[0] - injection) / pd.Timedelta(hours=1))
+                            if detected else np.nan),
+            })
+    return pd.DataFrame(
+        rows, columns=['magnitude', 'duration_h', 'detected', 'delay_h'])

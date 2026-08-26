@@ -194,5 +194,86 @@ class TestAverageRunLength(unittest.TestCase):
             monitoring.average_run_length(alarm, freq='30min')
 
 
+class TestInjectAnomaly(unittest.TestCase):
+
+    def test_a_step_shifts_everything_from_its_start(self):
+        series = _quiet(100)
+        moved = monitoring.inject_anomaly(
+            series, 'step', 5.0, start=series.index[50])
+        np.testing.assert_allclose(moved.iloc[:50], series.iloc[:50])
+        np.testing.assert_allclose(moved.iloc[50:], series.iloc[50:] + 5.0)
+
+    def test_a_pulse_ends_after_its_duration(self):
+        series = _quiet(100)
+        moved = monitoring.inject_anomaly(
+            series, 'pulse', 5.0, start=series.index[50], duration='2h')
+        self.assertAlmostEqual(moved.iloc[50] - series.iloc[50], 5.0)
+        self.assertAlmostEqual(moved.iloc[90] - series.iloc[90], 0.0)
+
+    def test_a_ramp_reaches_its_magnitude_at_the_end_of_its_duration(self):
+        series = pd.Series(0.0, index=pd.date_range(
+            '2024-01-01', periods=100, freq='20min'))
+        moved = monitoring.inject_anomaly(
+            series, 'ramp', 6.0, start=series.index[10], duration='3h')
+        self.assertAlmostEqual(moved.iloc[10], 0.0, places=6)
+        self.assertAlmostEqual(moved.iloc[19], 6.0, places=6)
+        self.assertAlmostEqual(moved.iloc[50], 6.0, places=6)
+
+    def test_an_unknown_kind_is_refused(self):
+        with self.assertRaises(ValueError):
+            monitoring.inject_anomaly(
+                _quiet(10), 'wobble', 1.0, start=_quiet(10).index[0])
+
+
+class TestDetectabilityCurve(unittest.TestCase):
+
+    def test_larger_steps_are_detected_and_detected_sooner(self):
+        residuals = _quiet(3000)
+        curve = monitoring.detectability_curve(
+            residuals, 0.0, 1.0, magnitudes=[0.1, 5.0], durations=['24h'])
+        small = curve[curve['magnitude'] == 0.1].iloc[0]
+        large = curve[curve['magnitude'] == 5.0].iloc[0]
+        self.assertFalse(bool(small['detected']))
+        self.assertTrue(bool(large['detected']))
+        # A large step alarms on its first contaminated sample, so a delay of
+        # zero is the best case rather than a defect. What the delay must be is
+        # finite and inside the window the sweep actually searched.
+        self.assertGreaterEqual(large['delay_h'], 0.0)
+        self.assertLessEqual(large['delay_h'], 48.0)
+
+    def test_a_larger_departure_is_found_sooner(self):
+        residuals = _quiet(3000)
+        curve = monitoring.detectability_curve(
+            residuals, 0.0, 1.0, magnitudes=[1.0, 2.0], durations=['24h'])
+        small = curve[curve['magnitude'] == 1.0].iloc[0]
+        large = curve[curve['magnitude'] == 2.0].iloc[0]
+        self.assertTrue(bool(small['detected']))
+        self.assertTrue(bool(large['detected']))
+        self.assertLess(large['delay_h'], small['delay_h'])
+
+    def test_one_row_per_magnitude_and_duration_pair(self):
+        residuals = _quiet(1500)
+        curve = monitoring.detectability_curve(
+            residuals, 0.0, 1.0, magnitudes=[1.0, 2.0],
+            durations=['6h', '24h'])
+        self.assertEqual(len(curve), 4)
+        self.assertEqual(list(curve.columns),
+                         ['magnitude', 'duration_h', 'detected', 'delay_h'])
+
+    def test_an_undetected_case_reports_a_missing_delay(self):
+        residuals = _quiet(1500)
+        curve = monitoring.detectability_curve(
+            residuals, 0.0, 1.0, magnitudes=[0.01], durations=['6h'])
+        self.assertFalse(bool(curve['detected'].iloc[0]))
+        self.assertTrue(np.isnan(curve['delay_h'].iloc[0]))
+
+    def test_an_alarm_the_clean_record_raises_anyway_is_not_a_detection(self):
+        residuals = _quiet(1500)
+        curve = monitoring.detectability_curve(
+            residuals, 0.0, 1.0, magnitudes=[0.0], durations=['6h'])
+        self.assertFalse(bool(curve['detected'].iloc[0]))
+        self.assertTrue(np.isnan(curve['delay_h'].iloc[0]))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
