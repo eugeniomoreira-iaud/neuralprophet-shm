@@ -16,7 +16,10 @@
 under `superpowers:subagent-driven-development`; the orchestrator reviews between tasks and stops
 at every checkpoint for the user. Tasks marked *orchestrator* in the Notes are not dispatched.
 
-**Tasks 1 to 6 are complete** (branch `study04-rebuild`, through `e4f35e0`). Phase 1 and Phase 2 are done; the next action is Task 7. Note: `test_gaps.py` holds 16 tests, not the 14 the plan predicted — Tasks 4 and 5 each gained a guard test.
+**Tasks 1 to 6 are complete.** Phases 0, 1 and 2 are done. Work is on branch `study04-rebuild`,
+cut from `main` at `9ebcc5c`, and the last commit of Phase 2 is `95edd35`. **The next action is
+Task 7**, the first task of Phase 3. Checkpoints 0 and 1–2 were shown to the user and approved on
+2026-08-25.
 
 ### To resume in a new session
 
@@ -30,6 +33,33 @@ Say, or paste:
 The plan argues from `docs/superpowers/specs/2026-08-25-study04-decomposition-and-anomaly-design.md`,
 which carries the reasoning behind every decision here. Read both. Nothing in the plan needs the
 conversation that produced it.
+
+**Check out the branch first:** `git checkout study04-rebuild`. It has not been merged to `main`.
+
+**The environment's `python` is the wrong one.** The interpreter on `PATH` has no `neuralprophet`,
+which makes two tests in `test_prediction.py` fail spuriously. Every command in this plan that says
+`python` must be run as:
+
+```
+/Users/eugenio/anaconda3/envs/neuralprophet_env/bin/python
+```
+
+`conda activate` does not survive a non-interactive shell, so use the absolute path. Warnings about
+`pkg_resources` being deprecated and `Importing plotly failed` are normal noise in this environment.
+
+**Current test state**, all passing, run from `studies/`:
+
+| File | Tests |
+|---|---|
+| `04_neuralprophet_inclination_prediction/tests/test_gaps.py` | 16 |
+| `04_neuralprophet_inclination_prediction/tests/test_prediction.py` | 20 |
+| `04_neuralprophet_inclination_prediction/tests/test_folder_honesty.py` | 4 |
+| `shmlib/tests/test_shmlib.py` | 60 |
+| `03_thermomechanical_response/tests/test_shmlib_study03.py` | 44 |
+| `02_proxy_forcing_characterization/tests/test_shmlib_study02.py` | 35 |
+
+`test_gaps.py` holds **16** tests, not the 14 this plan predicts, because Tasks 4 and 5 each gained
+a guard test for a defect found during review. Later tasks must not "correct" the count downwards.
 
 ### Ledger
 
@@ -65,22 +95,87 @@ Task 6, **3** after Task 12, **4** after Task 13, **5** after Task 16, **6** aft
 
 ### Where the repository stands
 
-- Last commit before this plan: `555da8c`. `studies/` is under version control as of that commit;
-  the previous run's notebook and report were destroyed before it existed and are not recoverable.
-- `.gitignore` now excludes the local `.adc` cache, study `outputs/`, the graph build artefacts,
+- `studies/` is under version control as of `555da8c`; the previous run's notebook and report were
+  destroyed before it existed and are not recoverable. This plan and its spec are committed.
+- `.gitignore` excludes the local `.adc` cache, study `outputs/`, the graph build artefacts,
   `.DS_Store` and `.vscode/`. Only `graph.json`, `GRAPH_REPORT.md` and `manifest.json` are kept
   from `studies/graphify-out/`.
-- **This plan and its spec were uncommitted when the session ended.** Commit them before starting
-  Task 1:
-  ```bash
-  git add docs/superpowers/specs/2026-08-25-study04-decomposition-and-anomaly-design.md \
-          docs/superpowers/plans/2026-08-25-study04-decomposition-and-anomaly.md
-  git commit -m "docs(study04): approved design and implementation plan"
-  ```
-- Two open items deliberately left for the user, neither blocking Task 1: whether the ~26 MB of
-  retired-study PDFs and executed notebooks under `studies/obsolete/` stay in the repository, and
-  the removal of `replace_panels2.py` and `replace_panels3.py`, which Task 1 deletes along with
-  Study 04's own pair.
+- **Study `outputs/` is gitignored, so the artefacts of Task 6 are on local disk only.** A clone
+  elsewhere must re-run the notebook to regenerate `NP_01`–`NP_04` and `NP_F01`–`NP_F04`. The
+  archive it reads, `data/interim/archive/gubbio_archive_20min.csv` (45 MB), is likewise not in
+  the repository.
+- `.claude/settings.local.json` carries uncommitted permission entries accumulated during
+  execution. Left uncommitted deliberately — harness configuration, not study work.
+- One open item deliberately left for the user, blocking nothing: whether the ~26 MB of
+  retired-study PDFs and executed notebooks under `studies/obsolete/` stay in the repository.
+
+### Commits so far, in order
+
+| Commit | Task | What |
+|---|---|---|
+| `5ac1df9` | 1 | Removed the fabricated report paragraph, the four throwaway scripts, and restated the folder's real status; added `test_folder_honesty.py`. Report PDF rebuilt from the corrected source |
+| `7413880` | — | Plan ledger tick |
+| `80b03eb` | 2 | `prediction.gap_inventory` and `DEFAULT_GAP_CLASSES` |
+| `cdecba2` | 2 | Docstring: `gap_inventory`'s fallback for a duration matching no bin |
+| `56d1655` | 3 | `prediction.segment_survival` |
+| `0434706` | 4 | `prediction.cadence_evidence` |
+| `dc32058` | 4 | Fix: `cadence_evidence` reindexes onto a complete grid before the level autocorrelation |
+| `e4dd4c7` | 5 | `figures.plot_gap_anatomy`, `plot_segment_survival`, `plot_cadence_evidence` |
+| `f9d7ffc` | 5 | Fix: line styles cycle across forecast-horizon groups |
+| `e4f35e0` | 6 | Notebook steps 1–3; the record, the gap anatomy, the cadence evidence |
+| `95edd35` | — | Plan ledger tick |
+
+### Rulings taken during execution, which later tasks must honour
+
+These were decided by the orchestrator while executing, each against the plan text that prompted
+them, with the design document as the binding authority. They are recorded here because the
+execution ledger they were first written to lives under `.superpowers/`, which is gitignored and
+does not survive to another clone.
+
+1. **`monitoring` is not yet importable.** Task 6's Step 1 adds `monitoring` to the notebook's
+   imports cell, but `studies/shmlib/monitoring.py` is *created* by Task 10. It was therefore
+   omitted, and the notebook currently imports
+   `from shmlib import adc, figures, prediction, proxies, site, tables, viz`. **Task 10 or Task 15
+   must add `monitoring` to that line**, or the control-chart step will fail on a missing name.
+2. **`NP_F01` keeps its five panels, and both channel maps stay whole.** Task 6's replacement
+   parameter cell would have dropped `sr` and `twall` from `STR_MAP_CURRENT` and cut
+   `ON_STRUCTURE_COLUMNS` to three entries, which would have made the notebook overwrite the
+   standing five-panel record figure with a three-panel one. `NP_F01` is not in Task 6's Produces
+   list, and section 10.3 of the design document states that the standing introduction and `NP_F01`
+   are sound and reused. The maps and the five-panel tuple were kept. `PREDICTOR_COLUMNS =
+   ('tair', 'rh')` governs every model and the segment-survival requirement, so **D11 is intact**:
+   it excludes wall temperature and solar radiation from *models*, not from a figure describing what
+   the instrument package records. `NP_01_window_coverage.csv` consequently reports five channels.
+3. **The reference table reproduces, with one six-slot difference.** Every quantity a decision rests
+   on is exact: 1,647 gaps, level autocorrelation 0.99771, change autocorrelation −0.0581 at 20 min
+   and +0.3494 hourly, `corr(inc, tair)` −0.8647, 72.80 % of missing time inside the four outages
+   over seven days, median segment 1.67 h, and 101 segments giving 15,000 windows at a 24 h lag with
+   a 24 h horizon. Two entries differ: **62,931 accepted inclination slots against the table's
+   62,937, and 6,791 missing hours against 6,789** — one fact, six slots this pipeline masks that
+   the design-time script accepted, 0.0095 % of accepted values. The window is exactly the table's
+   83,305 slots and the gap count is identical, so those six extended existing gaps rather than
+   creating new ones. **Where the report quotes a number it quotes `NP_01`–`NP_04`, not section 2.4
+   of the design document**, since the notebook's outputs come from the study's own versioned
+   library. Coverage therefore reads 75.5 %, not 75.6 %.
+4. **Task 3's cross-reference is misnumbered.** Its Interfaces section says "Task 18 reads
+   `n_windows` to choose `n_lags`". The task that chooses `n_lags` for the forecasting model is
+   **Task 17**; Task 18 is the gap-closure verdict.
+5. **`python .../tests/*.py` does not do what it looks like.** A shell glob handed to `python` runs
+   only the first file and passes the rest as `argv`. Task 5's Step 5 and any other step using that
+   form must be run as a loop:
+   `for t in <dir>/tests/test_*.py; do <interpreter> "$t"; done`.
+6. **Three header/interface errors in later tasks were checked against their step code and are
+   prose-only — the code is correct.** Task 13's Produces omits `predictions_a`, which its step code
+   does bind (`model_a, predictions_a = fits[MODEL_A_YEARLY]`). Task 13 and Task 14 both list
+   `NP_F06_daily_cycle_and_response` as an output, but only Task 14's step code writes it — Task 13
+   writes `NP_F05_decomposition_stack`, and **Task 14 owns `NP_F06`**. Task 17's Produces omits
+   `segmented_b` and `hourly`, which its step code does create. No code change is needed for any of
+   the three.
+7. **Two known-weak spots left as they are**, both recorded for the final review rather than fixed:
+   `segment_survival` truncates `lag_hours`/`forecast_hours` with `int()` while computing `need`
+   from the float, so a fractional hour would be labelled differently from how it was used — latent,
+   as the documented contract is int-only; and `gap_inventory`'s classification falls back to the
+   last class's label when a duration matches no bin, which is documented rather than prevented.
 
 ### Decisions already taken, not to be reopened
 
