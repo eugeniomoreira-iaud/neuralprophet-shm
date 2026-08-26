@@ -699,6 +699,37 @@ class TestPeriodScan(unittest.TestCase):
         self.assertAlmostEqual(table['period_days'].iloc[0], 365.0,
                                delta=365.0 * 0.02)
 
+    def test_single_sine_over_three_years_returns_one_near_annual_entry(self):
+        # Periodogram resolution scales with period^2/span. On a 3-year
+        # record an annual peak's sidelobes spread roughly +-120 days, so a
+        # fixed 5% neighbour-suppression radius (+-18 days here) leaves
+        # several sidelobes standing as separate rows a reader could
+        # mistake for distinct cycles — exactly the misreading
+        # resolution-based suppression exists to prevent.
+        idx = self._dates(3 * 365)
+        t = np.arange(len(idx), dtype=float)
+        series = pd.Series(np.sin(2 * np.pi * t / 365.0), index=idx)
+
+        table = prediction.period_scan(series)
+
+        top_period = table['period_days'].iloc[0]
+        top_resolution = table['resolution_days'].iloc[0]
+        within_resolution = ((table['period_days'] - top_period).abs()
+                             < top_resolution)
+        self.assertEqual(int(within_resolution.sum()), 1)
+
+    def test_resolution_days_matches_period_squared_over_span(self):
+        idx = self._dates(3 * 365)
+        t = np.arange(len(idx), dtype=float)
+        series = pd.Series(np.sin(2 * np.pi * t / 365.0), index=idx)
+
+        table = prediction.period_scan(series)
+
+        span_days = float((idx[-1] - idx[0]) / pd.Timedelta(days=1))
+        expected = table['period_days'] ** 2 / span_days
+        np.testing.assert_allclose(table['resolution_days'].to_numpy(),
+                                   expected.to_numpy(), rtol=1e-6)
+
     def test_the_same_sine_survives_30_percent_of_samples_missing(self):
         # This is the property that justifies Lomb-Scargle over an FFT: an
         # irregular, gappy sample must not need imputation to be scanned.

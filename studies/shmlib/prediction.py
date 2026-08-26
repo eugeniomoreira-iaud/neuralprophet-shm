@@ -1631,10 +1631,17 @@ def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
     zero baseline). Power is evaluated at ``n_periods`` candidate periods
     spaced linearly between ``min_days`` and ``max_days``, normalized so
     that a perfectly matched sinusoid is close to the periodogram's own
-    maximum. The strongest ``top`` peaks are returned, with any candidate
-    within 5% of an already-reported period skipped, so that one broad peak
-    around the true period does not fill the whole table with near-duplicate
-    rows.
+    maximum.
+
+    A periodogram built from a finite record cannot resolve a period more
+    finely than about ``period ** 2 / span_days``: a genuinely single cycle
+    near that period shows up as one broad peak with sidelobes on either
+    side, not as several distinct nearby periods. A candidate is therefore
+    treated as the same feature as an already-reported peak, and skipped,
+    whenever it falls within that peak's own resolution of it — this is
+    what keeps a single annual cycle on a three-year record from being
+    reported as three or four separate ones. The strongest ``top`` peaks
+    that survive this suppression are returned.
 
     Parameters
     ----------
@@ -1655,9 +1662,16 @@ def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
     -------
     pd.DataFrame
         Columns ``rank`` (1-indexed, strongest first), ``period_days``,
-        ``period_years``, ``power``, plus ``n`` and ``span_days`` describing
-        the input series and repeated on every row. Fewer than ``top`` rows
-        are returned if fewer independent peaks survive the 5% suppression.
+        ``period_years``, ``power``, ``resolution_days``, plus ``n`` and
+        ``span_days`` describing the input series and repeated on every row.
+        ``resolution_days`` is ``period_days ** 2 / span_days``, the width
+        this record can resolve around that period: two rows closer
+        together than the smaller one's ``resolution_days`` would in truth
+        be one feature, not two, so a reader comparing ``period_days``
+        against its own ``resolution_days`` can see at a glance how many
+        digits of that number are real. Fewer than ``top`` rows are
+        returned if fewer independent peaks survive the resolution-based
+        suppression.
 
     Raises
     ------
@@ -1679,16 +1693,22 @@ def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
     index = pd.DatetimeIndex(values.index)
     t_days = ((index - index[0]) / pd.Timedelta(days=1)).to_numpy(dtype=float)
     y = values.to_numpy(dtype=float) - float(values.mean())
+    span_days = float(t_days[-1] - t_days[0])
 
     periods = np.linspace(float(min_days), float(max_days), int(n_periods))
     angular_freqs = 2.0 * np.pi / periods
     power = lombscargle(t_days, y, angular_freqs, normalize=True)
 
+    # A peak's own resolution — period**2/span_days — is the width around
+    # it that this record cannot tell apart from the peak itself, so a
+    # later candidate falling inside an already-kept peak's resolution is
+    # one of its sidelobes, not a second cycle.
     order = np.argsort(power)[::-1]
     kept_periods, kept_power = [], []
     for i in order:
         candidate = periods[i]
-        if any(abs(candidate - kept) / kept < 0.05 for kept in kept_periods):
+        if any(abs(candidate - kept) < (kept ** 2 / span_days)
+               for kept in kept_periods):
             continue
         kept_periods.append(float(candidate))
         kept_power.append(float(power[i]))
@@ -1700,6 +1720,7 @@ def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
         'period_days': kept_periods,
         'period_years': [p / 365.25 for p in kept_periods],
         'power': kept_power,
+        'resolution_days': [p ** 2 / span_days for p in kept_periods],
         'n': int(values.size),
-        'span_days': float(t_days[-1] - t_days[0]),
+        'span_days': span_days,
     })
