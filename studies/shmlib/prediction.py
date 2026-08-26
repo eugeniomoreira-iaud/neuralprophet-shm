@@ -275,7 +275,11 @@ def cadence_evidence(response, driver, era=None, cadences=('20min', '1h'),
     Parameters
     ----------
     response : pd.Series
-        Structural response, on the finest available grid.
+        Structural response, on the finest available grid. Reindexed onto a
+        complete grid of spacing ``freq`` before any statistic is computed,
+        so that time absent from the index counts as missing rather than
+        silently making two non-adjacent samples look adjacent to the
+        lag-one autocorrelation.
     driver : pd.Series
         Environmental driver to correlate against, same index.
     era : pd.Series or None, optional
@@ -295,6 +299,10 @@ def cadence_evidence(response, driver, era=None, cadences=('20min', '1h'),
         ``change_mad``, ``corr_level``, ``corr_change`` and ``drift_per_year``.
     """
     response = pd.to_numeric(response, errors='coerce')
+    index = pd.DatetimeIndex(response.index)
+    if len(index) > 0:
+        grid = pd.date_range(index.min(), index.max(), freq=freq)
+        response = response.reindex(grid)
     driver = pd.to_numeric(driver, errors='coerce').reindex(response.index)
     era_values = _as_series(era, response.index, name='era')
 

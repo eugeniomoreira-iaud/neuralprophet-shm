@@ -136,6 +136,21 @@ class TestCadenceEvidence(unittest.TestCase):
         without = prediction.cadence_evidence(response, driver)
         self.assertLess(table['n_change'].iloc[0], without['n_change'].iloc[0])
 
+    def test_a_sparse_index_is_reindexed_before_the_level_autocorrelation(self):
+        response, driver = self._pair(n=200)
+        dropped = response.index[50:53]
+        sparse_response = response.drop(dropped)
+        nan_response = response.copy()
+        nan_response.loc[dropped] = np.nan
+
+        sparse_table = prediction.cadence_evidence(
+            sparse_response, driver, cadences=('20min',))
+        nan_table = prediction.cadence_evidence(
+            nan_response, driver, cadences=('20min',))
+
+        self.assertAlmostEqual(sparse_table['level_autocorr1'].iloc[0],
+                               nan_table['level_autocorr1'].iloc[0], places=9)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
