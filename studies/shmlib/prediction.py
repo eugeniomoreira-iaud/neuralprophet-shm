@@ -555,6 +555,96 @@ def score_predictions(frame, group_cols, naive_scale=None, alpha=0.10):
     return pd.DataFrame(rows)
 
 
+def conformal_interval(predictions, alpha=0.10, calibration_end=None,
+                       y_col='y', yhat_col='yhat'):
+    """
+    Replace a model's own quantile columns with an empirical conformal interval.
+
+    NeuralProphet's quantile regression fits the *shape* of the training
+    residual, but in Study 04 that shape does not survive out of sample: the
+    nominal 90 % interval covers 68.7 % of the calibration rows and only
+    5.8 % of the held-out ones, because the residual has a tight core and fat
+    tails (MAD 3.3 against a standard deviation of 11.8) that quantile
+    regression smooths over rather than reproduces. This function sidesteps
+    the model's own quantiles entirely: it reads the ``alpha / 2`` and
+    ``1 - alpha / 2`` empirical quantiles of the residual ``y - yhat`` on a
+    chosen calibration slice, and adds those two fixed offsets to every row's
+    ``yhat``. The resulting interval's calibration-period coverage is, by
+    construction, exactly what those residuals show it to be — nothing is
+    asked to extrapolate a shape it was never fit to reproduce.
+
+    The two offsets are computed independently and are never centred or
+    symmetrised around zero: a residual distribution with a heavy lower tail
+    must produce a wider lower side than upper side, and forcing symmetry
+    would misstate the coverage on whichever side is actually heavier.
+
+    Parameters
+    ----------
+    predictions : pd.DataFrame
+        Long prediction table with a ``ds`` timestamp column and the columns
+        named by ``y_col`` and ``yhat_col``.
+    alpha : float, optional
+        Nominal miscoverage rate; the returned interval targets
+        ``1 - alpha`` central coverage on the calibration rows. Default
+        ``0.10``.
+    calibration_end : timestamp-like or None, optional
+        Rows with ``ds`` at or before this timestamp form the calibration
+        slice whose residuals set the offsets. ``None`` calibrates on every
+        row in ``predictions``, including the ones the interval is then
+        applied to. That is a diagnostic only — useful for asking how wide
+        an interval would have to be to describe its own data — and must
+        never be reported as a result, because calibrating on the rows being
+        scored is exactly the self-reference this study exists to avoid.
+        Default ``None``.
+    y_col : str, optional
+        Observed-value column. Default ``'y'``.
+    yhat_col : str, optional
+        Point-prediction column. Default ``'yhat'``.
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of ``predictions`` with ``q05`` and ``q95`` overwritten by the
+        conformal lower and upper bounds — the names are kept so that
+        :func:`score_predictions` scores the interval unchanged — and a new
+        column ``interval`` holding the constant string ``'conformal'``. The
+        input ``predictions`` is never mutated.
+
+    Raises
+    ------
+    ValueError
+        If the calibration slice holds no row with both ``y_col`` and
+        ``yhat_col`` finite. Returning a zero-width interval in that case
+        would silently produce a monitoring band with no meaning, a failure
+        mode this project has already been bitten by twice.
+    """
+    y = pd.to_numeric(predictions[y_col], errors='coerce')
+    yhat = pd.to_numeric(predictions[yhat_col], errors='coerce')
+    residual = y - yhat
+
+    if calibration_end is None:
+        calibration_mask = pd.Series(True, index=predictions.index)
+    else:
+        ds = pd.to_datetime(predictions['ds'])
+        calibration_mask = ds <= pd.Timestamp(calibration_end)
+
+    calibration_residual = residual[calibration_mask].dropna()
+    if calibration_residual.empty:
+        raise ValueError(
+            'conformal_interval: the calibration slice holds no row with a '
+            'finite y/yhat residual pair; check calibration_end and the '
+            'y_col/yhat_col arguments.')
+
+    lower_offset = float(calibration_residual.quantile(alpha / 2.0))
+    upper_offset = float(calibration_residual.quantile(1.0 - alpha / 2.0))
+
+    out = predictions.copy()
+    out['q05'] = yhat + lower_offset
+    out['q95'] = yhat + upper_offset
+    out['interval'] = 'conformal'
+    return out
+
+
 def paired_mae_skill(parent, child, block_hours=24, repetitions=2000, seed=0,
                      horizon_hours=None):
     """
@@ -843,6 +933,107 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
         wide, test.index, 'segment_id' in test.columns, keep_horizons,
         quantiles)
     return model, long
+
+
+def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
+                    freq=None, **model_kwargs):
+    """
+    Walk-forward nowcast evaluation: keep every prediction as fresh as a
+    deployed model would be, by refitting on a schedule rather than once.
+
+    A single frozen fit goes stale as the record it was fitted to recedes
+    into the past. In Study 04 a model fitted to 2025-09 and scored on
+    everything after sits +28.75 mdeg above its own expectation out of
+    sample, and 82 % of its mean square error is that constant offset rather
+    than scatter around a moving target — the residual's spread barely
+    changes (MAD 2.93 out of sample against 3.28 in). This function is the
+    walk-forward discipline a deployed system would use instead: starting at
+    ``frame.index.min() + min_train`` and stepping by ``refit_every``, each
+    window fits on every row strictly before the window's origin and scores
+    only the rows in ``[origin, origin + refit_every)``. No prediction this
+    function returns is ever more than one ``refit_every`` step past the fit
+    that produced it.
+
+    Every window is fit through :func:`neuralprophet_backtest` at
+    ``task='nowcast'`` — this function answers the nowcast question the
+    study asks, not the multi-step forecast question — passing
+    ``regressors``, ``freq`` and every entry of ``model_kwargs`` straight
+    through, so a caller controls ``n_lags``, ``epochs``, ``yearly``,
+    ``quantiles``, ``seed``, ``growth`` and ``n_changepoints`` exactly as for
+    a single fit. A window is skipped outright when its training rows or its
+    evaluation rows are empty, and also when the training frame carries a
+    ``segment_id`` column with fewer than two distinct segments, since
+    :func:`neuralprophet_backtest` needs at least that much structure to
+    fit.
+
+    This fits one NeuralProphet model per window, so cost scales with record
+    length divided by ``refit_every``: a three-year record at the default
+    ``refit_every='30d'`` is roughly three dozen fits, not one. Keep
+    ``epochs`` and the record short when calling this outside of a full
+    study run.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        Datetime-indexed modelling frame with ``y``, the regressor columns,
+        and optionally ``segment_id``.
+    regressors : sequence of str, optional
+        Regressor columns exposed to the model. Default empty.
+    refit_every : str, optional
+        Pandas offset alias giving both the refit cadence and the width of
+        each window's scored slice (e.g. ``'30d'``). Default ``'30d'``.
+    min_train : str, optional
+        Pandas offset alias giving the minimum history required before the
+        first fit (e.g. ``'180d'``). Default ``'180d'``.
+    freq : str or None, optional
+        Frequency handed to :func:`neuralprophet_backtest`. ``None`` infers
+        it per window from that window's own training index. Default
+        ``None``.
+    **model_kwargs
+        Forwarded unchanged to :func:`neuralprophet_backtest` for every
+        window (e.g. ``n_lags``, ``epochs``, ``yearly``, ``quantiles``,
+        ``seed``, ``growth``, ``n_changepoints``).
+
+    Returns
+    -------
+    pd.DataFrame
+        Long predictions in the same shape :func:`neuralprophet_backtest`
+        returns, plus an ``origin`` column giving the fit origin each row was
+        predicted from. Chronological by ``ds``, with no duplicated
+        timestamps.
+    """
+    ordered = frame.sort_index()
+    index = pd.DatetimeIndex(ordered.index)
+    empty_columns = ['ds', 'horizon_h', 'y', 'yhat', 'origin']
+    if len(index) == 0:
+        return pd.DataFrame(columns=empty_columns)
+
+    step = pd.Timedelta(refit_every)
+    origin = index.min() + pd.Timedelta(min_train)
+    last = index.max()
+
+    windows = []
+    while origin <= last:
+        train = ordered.loc[index < origin]
+        test = ordered.loc[(index >= origin) & (index < origin + step)]
+        eligible = not train.empty and not test.empty
+        if eligible and 'segment_id' in train.columns:
+            eligible = train['segment_id'].nunique(dropna=True) >= 2
+        if eligible:
+            _, predictions = neuralprophet_backtest(
+                train, test, regressors=regressors, task='nowcast',
+                freq=freq, **model_kwargs)
+            if not predictions.empty:
+                predictions = predictions.copy()
+                predictions['origin'] = origin
+                windows.append(predictions)
+        origin += step
+
+    if not windows:
+        return pd.DataFrame(columns=empty_columns)
+
+    out = pd.concat(windows, ignore_index=True)
+    return out.sort_values('ds', kind='stable').reset_index(drop=True)
 
 
 def neuralprophet_predict(model, frame, regressors=(), horizons=(1,),

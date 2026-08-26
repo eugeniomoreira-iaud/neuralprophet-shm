@@ -502,5 +502,180 @@ class TestModelFigures(unittest.TestCase):
         plt.close('all')
 
 
+class TestConformalInterval(unittest.TestCase):
+
+    def test_coverage_on_held_out_rows_is_close_to_nominal(self):
+        n = 4000
+        rng = np.random.default_rng(1)
+        idx = pd.date_range('2025-01-01', periods=n, freq='1h')
+        yhat = np.zeros(n)
+        residual = rng.normal(scale=1.0, size=n)
+        frame = pd.DataFrame({'ds': idx, 'y': yhat + residual, 'yhat': yhat})
+        cutoff = idx[n // 2 - 1]
+
+        out = prediction.conformal_interval(
+            frame, alpha=0.10, calibration_end=cutoff)
+
+        held_out = out[out['ds'] > cutoff]
+        covered = ((held_out['y'] >= held_out['q05'])
+                   & (held_out['y'] <= held_out['q95']))
+        self.assertAlmostEqual(covered.mean(), 0.90, delta=0.02)
+
+    def test_interval_is_asymmetric_for_skewed_residuals(self):
+        n = 4000
+        rng = np.random.default_rng(2)
+        idx = pd.date_range('2025-01-01', periods=n, freq='1h')
+        yhat = np.zeros(n)
+        # Gamma residuals are always non-negative and heavily right-skewed:
+        # the upper tail must be pushed out much further than the lower one.
+        residual = rng.gamma(shape=2.0, scale=1.0, size=n)
+        frame = pd.DataFrame({'ds': idx, 'y': yhat + residual, 'yhat': yhat})
+
+        out = prediction.conformal_interval(frame, alpha=0.10)
+
+        lower_offset = out['q05'].iloc[0] - out['yhat'].iloc[0]
+        upper_offset = out['q95'].iloc[0] - out['yhat'].iloc[0]
+        self.assertGreater(abs(upper_offset) - abs(lower_offset), 1.0)
+
+    def test_calibration_end_uses_only_the_calibration_periods_scale(self):
+        n = 2000
+        rng = np.random.default_rng(3)
+        idx = pd.date_range('2025-01-01', periods=n, freq='1h')
+        calib_residual = rng.normal(scale=1.0, size=n // 2)
+        post_residual = rng.normal(scale=100.0, size=n - n // 2)
+        residual = np.concatenate([calib_residual, post_residual])
+        yhat = np.zeros(n)
+        frame = pd.DataFrame({'ds': idx, 'y': yhat + residual, 'yhat': yhat})
+        cutoff = idx[n // 2 - 1]
+
+        out = prediction.conformal_interval(
+            frame, alpha=0.10, calibration_end=cutoff)
+        width = out['q95'].iloc[0] - out['q05'].iloc[0]
+
+        calib_only = frame[frame['ds'] <= cutoff]
+        calib_res = calib_only['y'] - calib_only['yhat']
+        expected_width = (calib_res.quantile(0.95)
+                          - calib_res.quantile(0.05))
+
+        self.assertAlmostEqual(width, expected_width, places=6)
+        # A width set by the wild post-cutoff scale would be roughly two
+        # orders of magnitude wider than this.
+        self.assertLess(width, 20.0)
+
+    def test_input_is_not_mutated_and_interval_column_is_set(self):
+        idx = pd.date_range('2025-01-01', periods=10, freq='1h')
+        frame = pd.DataFrame({'ds': idx, 'y': np.arange(10.0),
+                              'yhat': np.zeros(10)})
+        original = frame.copy()
+
+        out = prediction.conformal_interval(frame)
+
+        pd.testing.assert_frame_equal(frame, original)
+        self.assertTrue((out['interval'] == 'conformal').all())
+        self.assertIn('q05', out.columns)
+        self.assertIn('q95', out.columns)
+
+    def test_calibration_window_with_no_rows_raises(self):
+        idx = pd.date_range('2025-01-01', periods=10, freq='1h')
+        frame = pd.DataFrame({'ds': idx, 'y': np.arange(10.0),
+                              'yhat': np.zeros(10)})
+        with self.assertRaises(ValueError):
+            prediction.conformal_interval(
+                frame, calibration_end=idx[0] - pd.Timedelta(hours=1))
+
+    def test_all_missing_calibration_residuals_raises(self):
+        idx = pd.date_range('2025-01-01', periods=10, freq='1h')
+        frame = pd.DataFrame({'ds': idx, 'y': [np.nan] * 10,
+                              'yhat': np.zeros(10)})
+        with self.assertRaises(ValueError):
+            prediction.conformal_interval(frame)
+
+
+class TestRollingNowcast(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        n = 200
+        idx = pd.date_range('2025-01-01', periods=n, freq='1h')
+        steps = np.arange(n, dtype=float)
+        rng = np.random.default_rng(0)
+        cls.frame = pd.DataFrame({
+            'y': np.sin(steps / 12.0) + 0.01 * rng.normal(size=n),
+            'x': np.cos(steps / 10.0),
+        }, index=idx)
+        cls.min_train = '72h'
+        cls.refit_every = '24h'
+        cls.out = prediction.rolling_nowcast(
+            cls.frame, regressors=('x',), refit_every=cls.refit_every,
+            min_train=cls.min_train, epochs=1, n_lags=0, quantiles=())
+
+    def test_every_row_has_an_origin_at_or_before_its_own_timestamp_and_no_duplicates(self):
+        self.assertFalse(self.out.empty)
+        self.assertTrue((self.out['origin'] <= self.out['ds']).all())
+        self.assertFalse(self.out['ds'].duplicated().any())
+
+    def test_window_count_matches_the_schedule_and_respects_min_train(self):
+        span = self.frame.index.max() - self.frame.index.min()
+        min_train_delta = pd.Timedelta(self.min_train)
+        step = pd.Timedelta(self.refit_every)
+        expected_windows = int((span - min_train_delta) // step) + 1
+
+        self.assertEqual(self.out['origin'].nunique(), expected_windows)
+        self.assertTrue(
+            (self.out['ds'] >= self.frame.index.min() + min_train_delta).all())
+
+    def test_rolling_bias_is_materially_smaller_than_a_frozen_fit_on_a_drift_the_model_cannot_represent(self):
+        n = 300
+        idx = pd.date_range('2025-01-01', periods=n, freq='1h')
+        steps = np.arange(n, dtype=float)
+        rng = np.random.default_rng(1)
+        # A linear drift that a growth='off' model has no term to express:
+        # a frozen fit's bias must grow with distance from its own origin,
+        # which is exactly the failure a walk-forward refit schedule caps.
+        drift = 0.05 * steps
+        frame = pd.DataFrame({
+            'y': drift + np.sin(steps / 12.0) + 0.01 * rng.normal(size=n),
+            'x': np.cos(steps / 10.0),
+        }, index=idx)
+
+        # A small first slice, deliberately: the frozen fit's mean stays
+        # pinned near that slice's own low values while the drift keeps
+        # climbing underneath it, and rolling_nowcast's periodic refits keep
+        # each window's fit anchored closer to wherever the drift currently
+        # is.
+        split = int(n * 0.1)
+        train_first = frame.iloc[:split]
+        eval_region = frame.iloc[split:]
+
+        _, frozen = prediction.neuralprophet_backtest(
+            train_first, eval_region, regressors=('x',), task='nowcast',
+            epochs=1, n_lags=0, quantiles=(), growth='off')
+
+        min_train_hours = int((idx[split] - idx[0]) / pd.Timedelta(hours=1))
+        rolling = prediction.rolling_nowcast(
+            frame, regressors=('x',), refit_every='24h',
+            min_train=f'{min_train_hours}h', epochs=1, n_lags=0,
+            quantiles=(), growth='off')
+
+        common_ds = set(rolling['ds']) & set(frozen['ds'])
+        self.assertGreater(
+            len(common_ds), 50,
+            'not enough overlap between the frozen and rolling evaluation '
+            'windows to compare bias fairly')
+
+        frozen_common = frozen[frozen['ds'].isin(common_ds)]
+        rolling_common = rolling[rolling['ds'].isin(common_ds)]
+
+        frozen_bias = abs((frozen_common['yhat'] - frozen_common['y']).mean())
+        rolling_bias = abs(
+            (rolling_common['yhat'] - rolling_common['y']).mean())
+
+        # Measured on this fixture: frozen bias ~7.17, rolling bias ~5.59
+        # (about 22% smaller) — deterministic given the fixed seeds, so the
+        # 0.9 threshold below leaves comfortable margin without being tight
+        # enough to flake on minor numerical differences across machines.
+        self.assertLess(rolling_bias, 0.9 * frozen_bias)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
