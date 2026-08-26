@@ -386,8 +386,9 @@ def inject_anomaly(series, kind, magnitude, start, duration=None,
         Length of the ramp or pulse. Required for those kinds, ignored for a
         step. Default ``None``.
     freq : str, optional
-        Spacing of the series, used only when the index carries no frequency.
-        Default ``'20min'``.
+        Not read: the injection is placed by timestamp arithmetic, not by grid
+        position. Accepted so a caller can pass the study's grid uniformly with
+        the rest of this module. Default ``'20min'``.
 
     Returns
     -------

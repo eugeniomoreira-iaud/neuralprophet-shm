@@ -227,7 +227,7 @@ class TestInjectAnomaly(unittest.TestCase):
 
 class TestDetectabilityCurve(unittest.TestCase):
 
-    def test_larger_steps_are_detected_and_detected_sooner(self):
+    def test_a_large_step_is_detected_and_a_small_one_is_not(self):
         residuals = _quiet(3000)
         curve = monitoring.detectability_curve(
             residuals, 0.0, 1.0, magnitudes=[0.1, 5.0], durations=['24h'])
