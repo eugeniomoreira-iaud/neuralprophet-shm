@@ -199,6 +199,67 @@ def gap_inventory(series, freq='20min', classes=DEFAULT_GAP_CLASSES):
     }, columns=columns)
 
 
+def segment_survival(frame, required, lag_hours, forecast_hours, freq='20min'):
+    """
+    How many training windows survive contiguous segmentation, per configuration.
+
+    Segmenting a gapped record is not free: a model that consumes ``lag_hours``
+    of history and predicts ``forecast_hours`` ahead can only be trained inside a
+    run of complete rows long enough to hold both. This counts what is left, so
+    that a lag length is chosen against the record rather than against habit.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        Candidate modelling frame indexed by timestamp on a regular grid.
+    required : sequence of str
+        Columns that must be present for a row to count as complete.
+    lag_hours, forecast_hours : int or sequence of int
+        Configurations to evaluate. Scalars are broadcast, and every combination
+        of the two is reported.
+    freq : str, optional
+        Spacing of the analysis grid. Default ``'20min'``.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per configuration, with ``lag_hours``, ``forecast_hours``,
+        ``n_rows``, ``coverage``, ``n_segments``, ``median_segment_h``,
+        ``max_segment_h``, ``n_surviving`` and ``n_windows``.
+    """
+    required = list(required)
+    step_hours = pd.Timedelta(freq) / pd.Timedelta(hours=1)
+    segmented = contiguous_segments(frame, required, min_length=1, freq=freq)
+
+    if segmented.empty:
+        lengths = np.array([], dtype=int)
+    else:
+        lengths = segmented.groupby('segment_id').size().to_numpy()
+
+    lags = np.atleast_1d(lag_hours)
+    horizons = np.atleast_1d(forecast_hours)
+    rows = []
+    for lag in lags:
+        for horizon in horizons:
+            need = int(round((float(lag) + float(horizon)) / step_hours))
+            usable = lengths[lengths >= need] if lengths.size else lengths
+            windows = int((usable - need + 1).sum()) if usable.size else 0
+            rows.append({
+                'lag_hours': int(lag),
+                'forecast_hours': int(horizon),
+                'n_rows': int(len(segmented)),
+                'coverage': (len(segmented) / len(frame)) if len(frame) else np.nan,
+                'n_segments': int(lengths.size),
+                'median_segment_h': (float(np.median(lengths) * step_hours)
+                                     if lengths.size else np.nan),
+                'max_segment_h': (float(lengths.max() * step_hours)
+                                  if lengths.size else np.nan),
+                'n_surviving': int(usable.size),
+                'n_windows': windows,
+            })
+    return pd.DataFrame(rows)
+
+
 def expanding_segment_folds(segment_ids, initial_segments, n_folds):
     """
     Chronological expanding folds over whole contiguous segments.
