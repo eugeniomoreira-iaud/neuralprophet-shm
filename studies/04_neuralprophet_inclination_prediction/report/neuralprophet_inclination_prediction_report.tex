@@ -83,8 +83,6 @@ weighs the ways each class might be filled, and what it would cost to be wrong.
 Only then does it put the prediction question: what the next inclination value
 can be inferred from, using the on-structure measurements.
 
-This updated study specifically executes this fourth movement using a refined NeuralProphet architecture. Relying on air temperature as a single predictor (after confirming a zero phase lag, $d=0$\,h, in previous analyses), the pipeline incorporates a contemporaneous nowcast alongside 12-hour lagged regressors. It maps sensitivity across horizons up to 168 hours, establishing a definitive 48-hour limit of positive skill against a seasonal naive baseline. Furthermore, it achieves rigorously calibrated uncertainty bounds using 90\,\% pinball quantiles and horizon-adaptive block-bootstrapping.
-
 \begin{figure}[H]
 \centering
 \includegraphics{NP_F01_on_structure_record.png}

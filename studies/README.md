@@ -29,7 +29,7 @@ study may build on any study before it and none after it.
 | 1 | [`01_data_exploration/`](01_data_exploration/) | What is the instrumentation, how does the acquisition write its files, which recorded values are measurements, and what does the archive contain? | Complete |
 | 2 | [`02_proxy_forcing_characterization/`](02_proxy_forcing_characterization/) | What do the external proxy databases say about air temperature and solar radiation at this site, how far apart are they, and how do they compare with the on-structure radiation over the narrow window in which that channel is trustworthy? | In progress |
 | 3 | [`03_thermomechanical_response/`](03_thermomechanical_response/) | Which candidate drivers does the wall actually respond to, after how long, with what gain and in which direction — screened separately against the on-structure sensors, ERA5 and the town station, so that a coupling can be seen to survive a change of source? | Complete |
-| 4 | [`04_neuralprophet_inclination_prediction/`](04_neuralprophet_inclination_prediction/) | Can NeuralProphet estimate and forecast hourly inclination change from the sensors mounted on the structure, and are its prior-only gap estimates safe to accumulate into a reconstructed level? | Complete |
+| 4 | [`04_neuralprophet_inclination_prediction/`](04_neuralprophet_inclination_prediction/) | What is the compensated inclination record made of, is a newly arrived reading the one the measured environment predicts, and how far ahead is forecasting worth anything? | In progress |
 
 A new study takes the next free number when it is started, not when it is finished. Numbers are
 never reused and never renumbered: a report that cites study 2 must still find study 2 there a year

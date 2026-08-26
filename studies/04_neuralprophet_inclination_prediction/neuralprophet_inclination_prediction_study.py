@@ -40,9 +40,10 @@
 # 4. Put the prediction question to the on-structure measurements, the external
 #    proxies, or both.
 #
-# Movements 2 to 4 are not implemented yet. Everything below the isolation
-# marker at the end of this notebook belongs to the previous experiment and is
-# held there, inert, until it is rewritten.
+# Movements 2 to 4 are being rebuilt to the design in
+# docs/superpowers/specs/2026-08-25-study04-decomposition-and-anomaly-design.md.
+# The previous experiment's cells were removed rather than held inert; its
+# reusable logic survives in shmlib.prediction.
 
 # %% [markdown]
 # ## Imports and parameters
