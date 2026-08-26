@@ -91,5 +91,61 @@ class TestBacktestDefaultsAreUnchanged(unittest.TestCase):
         self.assertIs(signature.parameters['freq'].default, None)
 
 
+class TestComponentVarianceShares(unittest.TestCase):
+
+    def _components(self, n=500):
+        index = pd.date_range('2024-01-01', periods=n, freq='1h')
+        return pd.DataFrame({
+            'trend': np.linspace(0.0, 1.0, n),
+            'season_daily': 10.0 * np.sin(np.arange(n) / 24.0 * 2 * np.pi),
+            'future_regressor_tair': np.zeros(n),
+            'residual': np.full(n, 0.5),
+            'y': np.zeros(n),
+            'yhat1': np.zeros(n),
+        }, index=index)
+
+    def test_shares_sum_to_one_and_rank_by_variance(self):
+        table = prediction.component_variance_shares(self._components())
+        self.assertAlmostEqual(table['share'].sum(), 1.0, places=6)
+        self.assertEqual(table['component'].iloc[0], 'season_daily')
+
+    def test_a_constant_component_has_zero_variance_and_a_reported_mean(self):
+        table = prediction.component_variance_shares(
+            self._components()).set_index('component')
+        self.assertAlmostEqual(table.loc['residual', 'variance'], 0.0)
+        self.assertAlmostEqual(table.loc['residual', 'mean'], 0.5)
+
+    def test_y_and_yhat_are_never_treated_as_components(self):
+        table = prediction.component_variance_shares(self._components())
+        self.assertNotIn('y', list(table['component']))
+        self.assertNotIn('yhat1', list(table['component']))
+
+
+class TestResidualDiagnostics(unittest.TestCase):
+
+    def test_white_noise_is_not_rejected(self):
+        rng = np.random.default_rng(0)
+        index = pd.date_range('2024-01-01', periods=2000, freq='1h')
+        residuals = pd.Series(rng.normal(size=2000), index=index)
+        table = prediction.residual_diagnostics(residuals, lags=(1, 24))
+        self.assertTrue((table['lb_pvalue'] > 0.01).all())
+        self.assertEqual(list(table['lag']), [1, 24])
+
+    def test_a_periodic_residual_is_rejected(self):
+        index = pd.date_range('2024-01-01', periods=2000, freq='1h')
+        residuals = pd.Series(np.sin(np.arange(2000) / 24.0 * 2 * np.pi),
+                              index=index)
+        table = prediction.residual_diagnostics(residuals, lags=(24,))
+        self.assertLess(table['lb_pvalue'].iloc[0], 0.01)
+
+    def test_scale_columns_describe_the_residual(self):
+        index = pd.date_range('2024-01-01', periods=100, freq='1h')
+        residuals = pd.Series(np.arange(100.0), index=index)
+        table = prediction.residual_diagnostics(residuals, lags=(1,))
+        self.assertEqual(table['n'].iloc[0], 100)
+        self.assertGreater(table['std'].iloc[0], 0.0)
+        self.assertGreater(table['mad'].iloc[0], 0.0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

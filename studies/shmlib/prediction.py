@@ -1181,3 +1181,96 @@ def decompose_components(model, frame, regressors=(), freq=None):
     out['y'] = observed.reindex(out.index) if observed is not None else np.nan
     out['residual'] = out['y'] - out['yhat1']
     return out
+
+
+_NON_COMPONENT_COLUMNS = ('y', 'yhat1', 'ID')
+
+
+def component_variance_shares(components, columns=None):
+    """
+    What share of the fitted variation each additive component carries.
+
+    This is the decomposition's headline claim expressed as a number: a record
+    whose daily component carries most of the variance is a thermometer, and one
+    whose trend does is a structure that is moving. The residual is included as
+    a component so that the shares are comparable and sum to one.
+
+    Parameters
+    ----------
+    components : pd.DataFrame
+        Output of ``decompose_components``.
+    columns : sequence of str or None, optional
+        Components to include. ``None`` takes every column except ``y``,
+        ``yhat1`` and ``ID``. Default ``None``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``component``, ``variance``, ``share``, ``mean`` and
+        ``peak_to_peak``, ordered by descending share.
+    """
+    if columns is None:
+        columns = [c for c in components.columns
+                   if c not in _NON_COMPONENT_COLUMNS]
+    frame = components.loc[:, list(columns)].apply(
+        pd.to_numeric, errors='coerce')
+
+    variance = frame.var(ddof=0)
+    total = float(variance.sum())
+    table = pd.DataFrame({
+        'component': variance.index,
+        'variance': variance.to_numpy(),
+        'share': (variance / total).to_numpy() if total > 0 else np.nan,
+        'mean': frame.mean().to_numpy(),
+        'peak_to_peak': (frame.max() - frame.min()).to_numpy(),
+    })
+    return (table.sort_values('share', ascending=False, kind='stable')
+            .reset_index(drop=True))
+
+
+def residual_diagnostics(residuals, lags=(1, 24, 72)):
+    """
+    Whether anything is left in the residual, and on what scale it sits.
+
+    Structure surviving in the residual means a component of the model is
+    missing. That matters twice over here: it makes the decomposition's
+    attribution wrong, and it makes a residual-based alarm fire on model error
+    rather than on the structure.
+
+    Parameters
+    ----------
+    residuals : pd.Series
+        Observed minus predicted, indexed by timestamp. Missing values are
+        dropped before testing.
+    lags : sequence of int, optional
+        Ljung-Box lags to test. Default ``(1, 24, 72)``.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per lag, with ``lag``, ``lb_stat``, ``lb_pvalue``, and the
+        scale columns ``n``, ``std`` and ``mad`` repeated on every row.
+
+    Notes
+    -----
+    Requires ``statsmodels``.
+    """
+    from statsmodels.stats.diagnostic import acorr_ljungbox
+
+    values = pd.to_numeric(residuals, errors='coerce').dropna()
+    lags = [int(lag) for lag in lags]
+    result = acorr_ljungbox(values, lags=lags, return_df=True)
+
+    scale = {
+        'n': int(values.size),
+        'std': float(values.std(ddof=1)) if values.size > 1 else np.nan,
+        'mad': float((values - values.median()).abs().median()),
+    }
+    return pd.DataFrame({
+        'lag': lags,
+        'lb_stat': result['lb_stat'].to_numpy(),
+        'lb_pvalue': result['lb_pvalue'].to_numpy(),
+        'n': scale['n'],
+        'std': scale['std'],
+        'mad': scale['mad'],
+    })
