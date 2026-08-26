@@ -21,12 +21,12 @@ needs now exists. Work is on branch `study04-rebuild`, cut from `main` at `9ebcc
 commit of Phase 3 is `8c5f783`. Checkpoints 0 and 1–2 were shown to the user and approved on
 2026-08-25; **Checkpoint 3 was reached on 2026-08-26 and is where execution stopped.**
 
-**The next action is not Task 13.** While the working tree was being inspected at Checkpoint 3, the
-design document was found carrying an uncommitted note from the user — under the heading "ATTENTION
-PLEASE! THIS NEED TO BE UPDATED" — that changes three of the design's premises and asks for a new
-spec document naming what each change affects. Its content and measured impact are recorded in
-"The design note that interrupts Phase 4" below. Phase 4 as written implements decisions the note
-retires, so the note is resolved first.
+**The design was amended at Checkpoint 3** and the tasks below were patched in place to match, at
+the user's direction, on 2026-08-26. Instrument eras are out of scope, D10 is retired, and the
+summer-2026 event is no longer detection evidence; the amendment is spec §11, and what it changed
+here is listed in "The Checkpoint 3 amendment" below. **The next action is Task 12A**, which gives
+the library the three physically motivated perturbations the amendment requires, after which
+Task 13 proceeds as patched.
 
 ### To resume in a new session
 
@@ -91,6 +91,7 @@ the purposes of resuming — its steps are ordered so that re-running from Step 
 | 10 | `shmlib.monitoring` — charts and episodes | 3 | subagent | [x] |
 | 11 | Anomaly injection and detectability | 3 | subagent | [x] |
 | 12 | The remaining figures | 3 | subagent | [x] |
+| 12A | Perturbations with a physical mechanism | 3 | subagent | [ ] |
 | 13 | Fit Model A, confront Study 03 | 4 | orchestrator | [ ] |
 | 14 | The expectation and its calibration | 4 | orchestrator | [ ] |
 | 15 | Charts tuned to a false-alarm budget | 5 | orchestrator | [ ] |
@@ -99,6 +100,10 @@ the purposes of resuming — its steps are ordered so that re-running from Step 
 | 18 | The gap-closure verdict | 7 | subagent | [ ] |
 | 19 | Run metadata and table bodies | 8 | orchestrator | [ ] |
 | 20 | Write the report | 8 | **orchestrator only** | [ ] |
+
+Task 12A carries no checkpoint of its own: it is library work inside Phase 3, whose Checkpoint 3 has
+already been shown, and its acceptance gate is its own test suite plus the standing suites it must
+leave untouched.
 
 Checkpoints, each shown to the user before the next task starts: **0** after Task 1, **1–2** after
 Task 6, **3** after Task 12, **4** after Task 13, **5** after Task 16, **6** after Task 17,
@@ -244,34 +249,29 @@ exist to prevent.
     colour, and the expected line is distinguished by its dash. The control-limit lines stay
     Vermilion deliberately — a control limit is a reference line, which is the role the accent is for.
 
-### The design note that interrupts Phase 4
+### The Checkpoint 3 amendment
 
-Found uncommitted in
-`docs/superpowers/specs/2026-08-25-study04-decomposition-and-anomaly-design.md` at Checkpoint 3, in
-the user's own words. It asks that the study disregard instrument eras entirely, because Study 01
-owns them and Study 04 takes the cleaned and compensated series as its raw data; that **D10 be
-dropped**, because compensation is Study 01's discussion and this study is blind to it; and that the
-summer-2026 event **not** be used as the anomaly, because the error is too obvious to be a good
-example — synthetic perturbations with a physical rationale are wanted instead, such as a gradual
-amplitude increase, a small phase change or a general drift, tied to plausible damage mechanisms in
-three-leaf stone masonry. It closes by asking for a new design document identifying what each change
-affects.
+The user amended three of the design's premises at Checkpoint 3 and chose to have the tasks patched
+in place rather than re-planned from a fresh spec. The reasoning lives in spec §11; what changed in
+this plan is listed here so that a reader of the tasks below knows which parts are the amendment and
+which are original.
 
-Measured impact, so the amendment starts from facts rather than from a re-read:
-
-- **Eras.** One live use survives in this study: the notebook's step 3 passes
-  `era=window.get('era')` into `cadence_evidence`
-  (`neuralprophet_inclination_prediction_study.py:304`). `NP_04` is re-measured; the library keeps
-  the parameter for other callers, and Studies 02 and 03 are untouched.
-- **D10.** This lands on Task 13, the next task. Its step code builds the gains table from three
-  rows — Model A's gain on the compensated channel, a fit on the *uncompensated* channel, and
-  `adc.DOCUMENTED_COEFF` — and dropping D10 removes the last two and shrinks `NP_06`. The Study 03
-  confrontation at −2.79 mdeg/°C is independent of D10 and survives.
-- **The event.** Task 15 excludes `KNOWN_EVENT = ('2026-06-15', '2026-08-21')` when choosing its
-  reference window, and **Task 16 is built on that event outright**. The perturbations the note asks
-  for do not exist in the library: `monitoring.inject_anomaly` implements `step`, `ramp` and `pulse`,
-  not amplitude growth, phase shift or drift. Honouring the note therefore reopens `monitoring.py`,
-  rewrites Task 16, and edits the report sections that cite the event.
+- **Eras** (spec §11.1). Global Constraints replaced. One live use existed: the notebook's step 3
+  passed `era=window.get('era')` into `cadence_evidence`
+  (`neuralprophet_inclination_prediction_study.py:304`). It becomes `era=None`, and `NP_04` is
+  re-measured — expect a small change in `n_change` and in the change autocorrelations, since
+  differences that were previously discarded at the changeover are now kept. The library keeps its
+  `era` parameter for Studies 02 and 03, which are untouched.
+- **D10** (spec §11.2). Task 13 loses its raw-channel sensitivity step and two rows of `NP_06`; its
+  Markdown, its commit message and Checkpoint 4 lose the compensation argument. The Study 03
+  confrontation is untouched and remains the kill criterion.
+- **The event** (spec §11.3). Task 15 keeps the reference window that excludes summer 2026, but as a
+  precaution rather than as a test, and its verification no longer counts episodes inside that
+  window. `KNOWN_EVENT` is deleted from the parameter cell. **Task 16 is rewritten** around the three
+  mechanisms, and **Task 12A is inserted** to give `monitoring.inject_anomaly` the kinds it needs:
+  it implements `step`, `ramp` and `pulse`, not amplitude growth, phase change or drift.
+- **Report** (Tasks 19 and 20). The sections that cited the event are re-aimed at the mechanism
+  sweep; §11 of the spec is the authority for the wording.
 
 ### Decisions already taken, not to be reopened
 
@@ -295,7 +295,16 @@ These were settled on 2026-08-25 and are recorded in section 10 of the design do
 - **Excluded from this study** (decision D11): wall temperature `twall` and solar radiation `sr`.
 - **Window:** `SEGMENT_START = '2023-06-21'` to the end of the archive.
 - **Response:** `inc_comp_cleaned`, read with `honour_spike=True` so interpolated values are returned missing.
-- **No era offset term.** The two instrument eras are already anchored once by Study 01.
+- **Instrument eras are out of scope entirely** (spec §11.1). Study 01's cleaned, compensated series
+  is this study's raw data. No era term, no era column read, no era label passed to any function —
+  `cadence_evidence` is called with `era=None`.
+- **Compensation is not on trial** (spec §11.2, retiring D10). The compensated channel is modelled
+  as given. No raw-channel fit, no comparison against `adc.DOCUMENTED_COEFF`, no claim about the
+  sign contradiction in `docs/raw-data-format.md` §7.5. Study 03's −2.79 mdeg/°C remains the
+  external check.
+- **The summer-2026 event is not detection evidence** (spec §11.3). It is excluded from the
+  reference window as a precaution, and no figure, table or sentence reports whether the detector
+  found it. Sensitivity is stated from injected perturbations of known physical shape instead.
 - **Commit messages** end with:
   ```
   Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
@@ -320,7 +329,7 @@ Measured 2026-08-25 over `2023-06-21 → 2026-08-21`, 83,305 slots on the 20-min
 | `corr(Δinc, Δtair)` | −0.7781 | −0.8925 |
 | `corr(inc, tair)` | −0.8647 | −0.8665 |
 
-Study 03's independently measured diurnal-band gain, which Model A must reproduce: **−2.79 mdeg/°C** (`r = −0.957`). Documented compensation coefficient: `shmlib.adc.DOCUMENTED_COEFF = 0.005`.
+Study 03's independently measured diurnal-band gain, which Model A must reproduce: **−2.79 mdeg/°C** (`r = −0.957`). The documented compensation coefficient is deliberately absent from this table — spec §11.2 puts compensation outside this study.
 
 ---
 
@@ -1479,11 +1488,10 @@ MODEL_FREQ_B = '1h'             # forecast skill
 # measurement. No earlier or intermediate version of this channel is used.
 TARGET_COLUMN = 'inc_comp_cleaned'
 
-# The raw channel, spike-masked, used once as a sensitivity in step 5: fitting
-# the thermal term rather than subtracting the documented coefficient is the
-# only way this study can speak to the sign contradiction of
-# docs/raw-data-format.md section 7.5.
-RAW_TARGET_COLUMN = 'inc'
+# No raw channel is read. Compensation is Study 01's discussion and this study
+# is blind to it: the compensated, cleaned channel above is the raw material
+# here, and the sign contradiction of docs/raw-data-format.md section 7.5 stays
+# Study 01's open question (spec section 11.2).
 
 # ---------------------------------------------------------------------------
 # The window
@@ -3636,6 +3644,289 @@ EOF
 
 ---
 
+### Task 12A: Perturbations with a physical mechanism
+
+Added 2026-08-26 by the Checkpoint 3 amendment (spec §11.3). The library can inject a step, a ramp
+and a pulse — generic shapes that say nothing about how a wall fails. The study now needs three
+shapes that do, and one helper that converts a timing shift into the amplitude it implies.
+
+**Files:**
+- Modify: `studies/shmlib/monitoring.py` (`inject_anomaly`, `detectability_curve`; append
+  `phase_shift_amplitude`)
+- Test: `studies/shmlib/tests/test_monitoring.py`
+
+**Interfaces:**
+- Consumes: nothing new.
+- Produces:
+  - `inject_anomaly(series, kind, magnitude, start, duration=None, freq='20min', period='24h')`
+    — `kind` extended with `'amplitude'`, `'phase'` and `'drift'`; `period` is new and defaults to
+    the daily cycle. **Existing kinds keep their behaviour exactly.**
+  - `phase_shift_amplitude(daily_amplitude, shift_hours, period_hours=24.0) -> float`
+  - `detectability_curve(..., kind='pulse', period='24h')` — two new keyword arguments; the default
+    `'pulse'` reproduces today's behaviour, and the returned columns do not change.
+
+The returned column list of `detectability_curve` is asserted verbatim by an existing test, so the
+mechanism label belongs to the caller: the notebook tags each sweep with `.assign(kind=kind)`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `studies/shmlib/tests/test_monitoring.py`, above the `if __name__` block:
+
+```python
+class TestPhaseShiftAmplitude(unittest.TestCase):
+
+    def test_no_shift_implies_no_residual(self):
+        self.assertAlmostEqual(
+            monitoring.phase_shift_amplitude(10.0, 0.0), 0.0)
+
+    def test_half_a_period_inverts_the_cycle(self):
+        # A cycle shifted by half its period is its own negation, so the
+        # difference between shifted and unshifted has twice the amplitude.
+        self.assertAlmostEqual(
+            monitoring.phase_shift_amplitude(10.0, 12.0), 20.0)
+
+    def test_a_small_shift_follows_the_chord_formula(self):
+        expected = 2.0 * 10.0 * np.sin(np.pi * 1.0 / 24.0)
+        self.assertAlmostEqual(
+            monitoring.phase_shift_amplitude(10.0, 1.0), expected)
+
+
+class TestPhysicalInjections(unittest.TestCase):
+
+    def _flat(self, n=6 * 24 * 40):
+        index = pd.date_range('2024-01-01', periods=n, freq='20min')
+        return pd.Series(0.0, index=index)
+
+    def test_an_amplitude_growth_reaches_its_size_and_holds(self):
+        series = self._flat()
+        start = series.index[100]
+        moved = monitoring.inject_anomaly(
+            series, 'amplitude', 4.0, start=start, duration='10d')
+        np.testing.assert_allclose(moved.iloc[:100], 0.0, atol=1e-12)
+        first_day = moved.loc[start:start + pd.Timedelta('1d')]
+        last_day = moved.loc[moved.index[-1] - pd.Timedelta('1d'):]
+        self.assertLess(first_day.abs().max(), 1.0)
+        self.assertAlmostEqual(last_day.abs().max(), 4.0, places=1)
+
+    def test_an_amplitude_growth_adds_no_level(self):
+        series = self._flat()
+        moved = monitoring.inject_anomaly(
+            series, 'amplitude', 4.0, start=series.index[0], duration='1d')
+        whole_cycles = moved.loc[:series.index[0] + pd.Timedelta('30d')]
+        self.assertAlmostEqual(float(whole_cycles.mean()), 0.0, places=2)
+
+    def test_a_phase_change_is_in_quadrature_with_an_amplitude_growth(self):
+        series = self._flat()
+        start = series.index[0]
+        amplitude = monitoring.inject_anomaly(
+            series, 'amplitude', 1.0, start=start, duration='1h')
+        phase = monitoring.inject_anomaly(
+            series, 'phase', 1.0, start=start, duration='1h')
+        window = slice(start + pd.Timedelta('2d'), start + pd.Timedelta('32d'))
+        overlap = float((amplitude.loc[window] * phase.loc[window]).mean())
+        self.assertAlmostEqual(overlap, 0.0, places=2)
+
+    def test_a_drift_accumulates_at_its_stated_yearly_rate(self):
+        series = self._flat()
+        start = series.index[0]
+        moved = monitoring.inject_anomaly(series, 'drift', 12.0, start=start)
+        after_30_days = float(moved.loc[start + pd.Timedelta('30d')])
+        self.assertAlmostEqual(after_30_days, 12.0 * 30.0 / 365.25, places=3)
+
+    def test_a_drift_needs_no_duration_and_leaves_the_past_alone(self):
+        series = self._flat()
+        start = series.index[500]
+        moved = monitoring.inject_anomaly(series, 'drift', 5.0, start=start)
+        np.testing.assert_allclose(moved.iloc[:500], 0.0, atol=1e-12)
+        self.assertGreater(float(moved.iloc[-1]), 0.0)
+
+    def test_an_unknown_kind_is_refused(self):
+        with self.assertRaises(ValueError):
+            monitoring.inject_anomaly(
+                self._flat(), 'settlement', 1.0, start='2024-01-02')
+
+    def test_the_existing_kinds_are_untouched(self):
+        series = self._flat(200)
+        start = series.index[50]
+        step = monitoring.inject_anomaly(series, 'step', 3.0, start=start)
+        self.assertAlmostEqual(float(step.iloc[-1]), 3.0)
+        self.assertAlmostEqual(float(step.iloc[49]), 0.0)
+
+
+class TestDetectabilityKinds(unittest.TestCase):
+
+    def test_the_swept_kind_reaches_the_injector(self):
+        rng = np.random.default_rng(0)
+        index = pd.date_range('2024-01-01', periods=6 * 24 * 40, freq='20min')
+        residuals = pd.Series(rng.normal(0.0, 1.0, len(index)), index=index)
+        curve = monitoring.detectability_curve(
+            residuals, 0.0, 1.0, magnitudes=[0.01, 12.0], durations=['72h'],
+            kind='amplitude')
+        self.assertEqual(list(curve.columns),
+                         ['magnitude', 'duration_h', 'detected', 'delay_h'])
+        self.assertFalse(bool(curve['detected'].iloc[0]))
+        self.assertTrue(bool(curve['detected'].iloc[1]))
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+```bash
+python shmlib/tests/test_monitoring.py
+```
+Expected: `AttributeError: module 'shmlib.monitoring' has no attribute 'phase_shift_amplitude'`.
+
+- [ ] **Step 3: Add `phase_shift_amplitude`**
+
+Append to `studies/shmlib/monitoring.py`, after `inject_anomaly`:
+
+```python
+def phase_shift_amplitude(daily_amplitude, shift_hours, period_hours=24.0):
+    """
+    The residual amplitude implied by a timing shift of a periodic response.
+
+    A wall whose thermal path has changed answers the same forcing later or
+    earlier without necessarily answering it more strongly. Subtracting the
+    unshifted cycle from the shifted one leaves a harmonic in quadrature whose
+    amplitude is the chord of the shift, ``2 A sin(pi dt / P)``. This converts
+    the quantity an engineer states — a lag change in hours — into the
+    millidegree amplitude a detector actually sees.
+
+    Parameters
+    ----------
+    daily_amplitude : float
+        Amplitude of the fitted periodic component, in the series' units. Half
+        its peak-to-peak range.
+    shift_hours : float
+        Timing shift, in hours. Sign is irrelevant: a lead and a lag of the same
+        size leave the same amplitude.
+    period_hours : float, optional
+        Period of the component. Default ``24.0``.
+
+    Returns
+    -------
+    float
+        Amplitude of the residual harmonic, in the series' units.
+    """
+    return float(2.0 * abs(daily_amplitude)
+                 * abs(np.sin(np.pi * float(shift_hours) / float(period_hours))))
+```
+
+- [ ] **Step 4: Extend `inject_anomaly`**
+
+Change its signature to
+`def inject_anomaly(series, kind, magnitude, start, duration=None, freq='20min', period='24h'):`
+and its `kind` and `magnitude` parameter descriptions to cover the three new shapes, documenting
+that `'amplitude'` and `'phase'` establish themselves linearly over `duration` and then hold, that
+`'phase'` is the quadrature partner of `'amplitude'`, and that `'drift'` takes its magnitude as a
+rate per year and needs no `duration`. Add `period` to the `Parameters` section: the cycle the
+`'amplitude'` and `'phase'` kinds modulate, default ``'24h'``, ignored by every other kind.
+
+Replace the validation block with:
+
+```python
+    kinds = {'step', 'ramp', 'pulse', 'amplitude', 'phase', 'drift'}
+    if kind not in kinds:
+        raise ValueError(
+            "kind must be one of 'step', 'ramp', 'pulse', 'amplitude', "
+            "'phase' or 'drift'")
+    if kind in {'ramp', 'pulse', 'amplitude', 'phase'} and duration is None:
+        raise ValueError(f"kind '{kind}' requires a duration")
+```
+
+Insert the drift branch immediately after the existing `'step'` branch returns, because a drift has
+no bounded span:
+
+```python
+    if kind == 'drift':
+        # A rate, not a size: the departure keeps accumulating to the end of the
+        # record, which is what creep and settlement do.
+        years = ((index[after] - begin)
+                 / pd.Timedelta(days=365.25)).to_numpy()
+        out.loc[after] = out.loc[after] + magnitude * years
+        return out
+```
+
+and insert the harmonic branch after the existing `'pulse'` branch returns:
+
+```python
+    if kind in {'amplitude', 'phase'}:
+        # Both modulate the same cycle and differ only by quadrature: a growing
+        # swing is in phase with the response, a timing change is a quarter
+        # cycle away from it. The envelope rises linearly over `duration` and
+        # then holds, so `magnitude` is the size the departure settles at.
+        cycles = ((index[after] - begin) / pd.Timedelta(period)).to_numpy()
+        envelope = np.clip(
+            ((index[after] - begin) / span).to_numpy(), 0.0, 1.0)
+        angle = 2.0 * np.pi * cycles
+        wave = np.sin(angle) if kind == 'amplitude' else np.cos(angle)
+        out.loc[after] = out.loc[after] + magnitude * envelope * wave
+        return out
+```
+
+The `'ramp'` tail stays exactly as it is.
+
+- [ ] **Step 5: Thread the kind through `detectability_curve`**
+
+Add `kind='pulse'` and `period='24h'` to its signature, after `seed` and before `response_window`,
+document both — stating that the default reproduces the generic pulse and that `'drift'` reads its
+magnitude as a rate per year, for which `durations` sets how long the drift is watched rather than
+how long it lasts — and pass them to the `inject_anomaly` call:
+
+```python
+            contaminated = inject_anomaly(
+                values, kind, float(magnitude), start=injection,
+                duration=span, freq=freq, period=period)
+```
+
+Nothing else in the function changes: the baseline, the attribution rule, the horizon and the
+returned columns all stay as Ruling P25 left them.
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+```bash
+python shmlib/tests/test_monitoring.py
+```
+Expected: `OK`, **36 tests** — the 28 standing plus this task's 8.
+
+- [ ] **Step 7: Verify nothing else broke**
+
+```bash
+python shmlib/tests/test_shmlib.py
+python 04_neuralprophet_inclination_prediction/tests/test_decomposition.py
+python 04_neuralprophet_inclination_prediction/tests/test_prediction.py
+python 03_thermomechanical_response/tests/test_shmlib_study03.py
+```
+Expected: all `OK`. The existing `detectability_curve` tests are what certify that the new `kind`
+argument left the pulse sweep exactly as it was.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add studies/shmlib/monitoring.py studies/shmlib/tests/test_monitoring.py
+git commit -m "$(cat <<'EOF'
+feat(shmlib): injections shaped like masonry damage, not like arithmetic
+
+A step, a ramp and a pulse are shapes a spreadsheet can make. A three-leaf stone
+wall fails in ways that leave particular marks on a thermally driven inclination
+record, and a sensitivity statement is only physical if the injected departure
+has one of those shapes.
+
+Amplitude growth stands for loss of composite action between the leaves: the
+section bends further under the same daily heating, so the diurnal swing grows
+while its timing and mean hold. A phase change stands for a changed thermal path
+rather than a changed stiffness - water in the core, or a crack re-routing
+conduction - and appears in quadrature with the cycle. Drift stands for mortar
+creep, thermal ratcheting or settlement, and is stated as a rate per year.
+
+Every existing kind, default and returned column is unchanged.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ## Phase 4 · Model A — what the record is made of
 
 ### Task 13: Fit the decomposition and confront it with Study 03
@@ -3650,8 +3941,19 @@ EOF
 - Consumes: `prediction.contiguous_segments`, `prediction.covered_changepoints`,
   `prediction.neuralprophet_backtest`, `prediction.decompose_components`,
   `prediction.component_variance_shares`, `prediction.residual_diagnostics`,
-  `figures.plot_decomposition_stack`, `adc.DOCUMENTED_COEFF`.
-- Produces: notebook variables `model_a`, `components_a`, `residual_a`, consumed by Tasks 14–16.
+  `figures.plot_decomposition_stack`.
+- Produces: notebook variables `model_a`, `predictions_a`, `components_a`, `residual_a`, consumed by
+  Tasks 14–16.
+
+- [ ] **Step 0: Retire the era argument from step 3 (amendment, spec §11.1)**
+
+In `neuralprophet_inclination_prediction_study.py`, the step 3 call to `prediction.cadence_evidence`
+passes `era=window.get('era')`. Replace that argument with `era=None` and put the reason in the
+comment above the call: instrument eras are Study 01's subject, and this study reads its input as a
+single anchored series. Executing the notebook in Step 6 regenerates `NP_04` without the era guard,
+so **expect `n_change` to rise slightly and the change autocorrelations to move in the last
+decimal** — differences that were previously discarded at the changeover are now kept. Record the new
+values; they supersede the Ruling P18 reproduction for those two rows.
 
 - [ ] **Step 1: Add the step 4 parameter block to the parameter cell**
 
@@ -3797,13 +4099,11 @@ print(f'Chosen: yearly={MODEL_A_YEARLY}')
 # than proceeding to build an anomaly detector on a model that does not describe
 # the wall.
 #
-# The same cell fits the raw, spike-masked channel as a sensitivity. Study 01's
-# compensation subtracts a fixed term of coefficient `adc.DOCUMENTED_COEFF`,
-# which is of a size comparable to the true thermal slope, so a gain fitted on
-# the compensated channel is a post-compensation residual gain. Fitting the raw
-# channel instead lets the model learn the thermal term rather than inherit it,
-# and is the only place this study can speak to the sign contradiction recorded
-# in `docs/raw-data-format.md` section 7.5.
+# The gain is fitted on the compensated channel, which this study takes as its
+# raw data. Whether Study 01's compensation is correctly sized is Study 01's
+# question, and it is not reopened here: the number below is what the wall does
+# after that correction, which is the only quantity a monitoring system ever
+# sees.
 ```
 
 - [ ] **Step 5: Add the step 5 code cell**
@@ -3846,52 +4146,20 @@ gains = pd.DataFrame([
      'method': 'lag and gain scan', 'n': np.nan},
     {'source': 'Study 03, ERA5', 'gain_mdeg_per_degC': -2.04,
      'method': 'lag and gain scan', 'n': np.nan},
-    {'source': 'Documented compensation', 'gain_mdeg_per_degC': np.nan,
-     'method': f'adc.DOCUMENTED_COEFF = {adc.DOCUMENTED_COEFF}', 'n': np.nan},
 ])
 display(gains)
 gains.to_csv(OUTPUT_DIR / 'NP_06_learned_gains.csv', index=False)
 ```
 
-- [ ] **Step 6: Add the raw-channel sensitivity cell**
+> **Amended 2026-08-26 (spec §11.2).** This task previously carried a sixth step that refitted the
+> raw, uncompensated channel and added a `Model A, raw channel` row and a `Documented compensation`
+> row to `NP_06`, so that the study could speak to the sign contradiction in
+> `docs/raw-data-format.md` §7.5. D10 is retired: compensation is Study 01's discussion and this
+> study is blind to it. The step and both rows are deleted, `RAW_TARGET_COLUMN` is no longer read by
+> this task, and the remaining steps are renumbered. Nothing else in the task changes — the Study 03
+> confrontation is independent of compensation and remains the kill criterion.
 
-```python
-# %%
-raw_response, _ = proxies.load_response(
-    ARCHIVE_CSV, column=RAW_TARGET_COLUMN, honour_spike=True,
-    freq=NATIVE_FREQ, tz=site.SITE_TZ, min_count=1)
-frame_raw = frame_a.assign(y=raw_response.reindex(frame_a.index))
-segmented_raw = prediction.contiguous_segments(
-    frame_raw, required=['y'] + list(PREDICTOR_COLUMNS),
-    min_length=MODEL_A_MIN_SEGMENT, freq=MODEL_FREQ_A)
-
-model_raw, _ = prediction.neuralprophet_backtest(
-    segmented_raw.loc[:MODEL_A_TRAIN_END],
-    segmented_raw.loc[MODEL_A_TRAIN_END:],
-    regressors=PREDICTOR_COLUMNS, task='nowcast', n_lags=MODEL_A_LAGS,
-    epochs=MODEL_A_EPOCHS, yearly=MODEL_A_YEARLY, quantiles=MODEL_A_QUANTILES,
-    seed=MODEL_A_SEED, growth=MODEL_A_GROWTH,
-    changepoints=prediction.covered_changepoints(
-        segmented_raw.loc[:MODEL_A_TRAIN_END].index, MODEL_A_CHANGEPOINTS),
-    freq=MODEL_FREQ_A)
-
-components_raw = prediction.decompose_components(
-    model_raw, segmented_raw, regressors=PREDICTOR_COLUMNS)
-paired_raw = pd.concat([components_raw['future_regressor_tair'],
-                        segmented_raw['tair']], axis=1).dropna()
-paired_raw.columns = ['contribution', 'tair']
-raw_gain = np.polyfit(paired_raw['tair'], paired_raw['contribution'], 1)[0]
-
-gains = pd.concat([gains, pd.DataFrame([{
-    'source': 'Model A, raw channel',
-    'gain_mdeg_per_degC': raw_gain,
-    'method': 'NeuralProphet future regressor, uncompensated',
-    'n': len(paired_raw)}])], ignore_index=True)
-gains.to_csv(OUTPUT_DIR / 'NP_06_learned_gains.csv', index=False)
-display(gains)
-```
-
-- [ ] **Step 7: Execute and inspect**
+- [ ] **Step 6: Execute and inspect**
 
 ```bash
 cd studies/04_neuralprophet_inclination_prediction
@@ -3900,7 +4168,7 @@ jupyter nbconvert --to notebook --execute --inplace \
   neuralprophet_inclination_prediction_study.ipynb --ExecutePreprocessor.timeout=7200
 ```
 
-- [ ] **Step 8: Evaluate the checkpoint condition**
+- [ ] **Step 7: Evaluate the checkpoint condition**
 
 ```bash
 python - <<'PY'
@@ -3920,13 +4188,13 @@ Pass condition: the learned gain is negative and within roughly ±30 % of −2.7
 Ljung–Box p-values either exceed 0.01 or the surviving structure is named. A positive gain, or one
 differing by more than a factor of two, **stops the plan here** — see Step 9.
 
-- [ ] **Step 9: If the checkpoint fails, stop and write up the disagreement**
+- [ ] **Step 8: If the checkpoint fails, stop and write up the disagreement**
 
 Do not tune the model to reach the expected number. Record in the notebook which of the two
 methods the record supports, and bring the disagreement to the user before any further task. Two
 methods disagreeing about a physical constant is a result; a model adjusted until it agrees is not.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add studies/04_neuralprophet_inclination_prediction/neuralprophet_inclination_prediction_study.py \
@@ -3941,15 +4209,16 @@ estimate of drift available on a record whose segments do not sample the diurnal
 cycle uniformly.
 
 The fitted air-temperature contribution is compared against study 03's
-independently measured -2.79 mdeg/degC, and against the documented compensation
-coefficient on the uncompensated channel.
+independently measured -2.79 mdeg/degC, which is this study's one external
+check. The compensation Study 01 applied is taken as given and is not examined
+here.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
 ```
 
-> **CHECKPOINT 4 — show the user:** `NP_05`, `NP_06`, `NP_08`, `NP_F05`, and the Step 8 output.
+> **CHECKPOINT 4 — show the user:** `NP_05`, `NP_06`, `NP_08`, `NP_F05`, and the Step 7 output.
 > The learned gain must agree with Study 03 within uncertainty, residuals must be white or the
 > missing component named, and the interval must be near its nominal coverage. Wait for approval
 > before Task 14.
@@ -4157,9 +4426,11 @@ EOF
 # Monitoring
 # ---------------------------------------------------------------------------
 # The reference window. Every limit drawn is a multiple of the centre and scale
-# estimated here, so a window containing the departure to be detected would
-# calibrate the detector against the very thing it is meant to find. This one
-# ends well before the summer-2026 event Study 01 flagged.
+# estimated here, so a window containing a departure would calibrate the
+# detector against the very thing it is meant to find. This one ends well before
+# the stretch Study 01 flagged in summer 2026 - excluded as a precaution, since
+# a reference window must be in control. This study makes no detection claim
+# about that stretch (spec section 11.3).
 REFERENCE_START = '2023-06-21'
 REFERENCE_END = '2025-06-01'
 
@@ -4177,13 +4448,15 @@ CUSUM_H = 5.0
 # Coincidence window for the joint alarm.
 JOINT_WINDOW = '6h'
 
+# Amended 2026-08-26: KNOWN_EVENT is deleted. The summer-2026 stretch is kept
+# out of the reference window above, but it is not a test and no result is
+# stated from it (spec section 11.3).
+
 # The false-alarm budget the charts are tuned to, in days between false alarms
 # on the in-control reference stretch. Every detection figure in this study is
 # only comparable at a stated run length, and this is it.
 TARGET_ARL_DAYS = 90.0
 
-# The event Study 01 flagged at station 02, used as the one real test available.
-KNOWN_EVENT = ('2026-06-15', '2026-08-21')
 ```
 
 - [ ] **Step 2: Add the step 7 Markdown cell**
@@ -4212,8 +4485,9 @@ KNOWN_EVENT = ('2026-06-15', '2026-08-21')
 # ### Parameter Tuning Guidance
 #
 # **`REFERENCE_START`, `REFERENCE_END`** — the in-control window. Must exclude
-# any known event; on this record it ends before the summer-2026 anomaly Study
-# 01 flagged.
+# any stretch suspected of carrying a departure; on this record it ends before
+# the one Study 01 flagged in summer 2026. That exclusion is a precaution about
+# calibration, not a claim that the detector finds it.
 #
 # **`TARGET_ARL_DAYS`** — days of watched time per false alarm; default `90`.
 # Lower it and the system finds smaller movements sooner while crying wolf more
@@ -4296,15 +4570,15 @@ import pandas as pd
 episodes = pd.read_csv('outputs/NP_09_alarm_episodes.csv', parse_dates=['start', 'end'])
 print(f'{len(episodes)} episodes')
 print(episodes.head(10).to_string(index=False))
-print('episodes inside the known event window:',
-      int(((episodes.start >= "2026-06-15") & (episodes.start <= "2026-08-21")).sum()))
 PY
 ```
 
-Expected: a run length at or above `TARGET_ARL_DAYS` on the reference stretch, and at least one
-episode inside the known-event window. If no candidate `L` meets the budget, the residual is not
-in control over the reference window — return to Checkpoint 4 rather than widening the limit until
-the alarms stop.
+Expected: a run length at or above `TARGET_ARL_DAYS` on the reference stretch. If no candidate `L`
+meets the budget, the residual is not in control over the reference window — return to Checkpoint 4
+rather than widening the limit until the alarms stop. The episode table is reported as it comes;
+**no episode is counted against the summer-2026 stretch and no verdict is stated about it**
+(spec §11.3), because a detector's sensitivity is established in Task 16 by injection, not by one
+large event.
 
 - [ ] **Step 5: Commit**
 
@@ -4326,15 +4600,21 @@ EOF
 
 ---
 
-### Task 16: Detectability, and the one real event
+### Task 16: Detectability against three damage mechanisms
+
+**Amended 2026-08-26 (spec §11.3).** This task previously swept generic pulses and then asked
+whether the detector found the summer-2026 event Study 01 flagged. The event is no longer used: it
+is too large to demonstrate sensitivity, and finding it would prove only that the detector is not
+broken. The sweep now runs over perturbations whose shape corresponds to a damage mechanism in a
+three-leaf stone wall, and the known-event cell is deleted outright.
 
 **Files:**
 - Modify: the notebook (append step 7b)
 - Produces: `outputs/NP_10_detectability.csv`, `NP_F09_detectability.{png,svg}`
 
 **Interfaces:**
-- Consumes: `residual_a`, `reference_a`, `alarm_a`; `monitoring.detectability_curve`,
-  `figures.plot_detectability`.
+- Consumes: `residual_a`, `reference_a`, `components_a`; `monitoring.detectability_curve`,
+  `monitoring.phase_shift_amplitude`, `figures.plot_detectability`. `alarm_a` is no longer consumed.
 - Produces: nothing consumed later; this task's output is a study result.
 
 - [ ] **Step 1: Add the sweep parameters to the parameter cell**
@@ -4345,62 +4625,115 @@ EOF
 # inside the swept range; the durations span a working day to a fortnight.
 DETECT_MAGNITUDES = (0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
 DETECT_DURATIONS = ('6h', '24h', '72h', '168h', '336h')
+
+# The three mechanisms swept, each a shape a three-leaf wall can produce:
+#   'amplitude' - the daily swing grows while its timing and mean hold, which is
+#                 what loss of composite action between the leaves looks like;
+#   'phase'     - the response arrives earlier or later against the same
+#                 forcing, which is a change in the thermal path rather than in
+#                 stiffness, such as water in the core;
+#   'drift'     - a slow monotone accumulation, the shape of mortar creep,
+#                 thermal ratcheting or settlement.
+DETECT_KINDS = ('amplitude', 'phase', 'drift')
+
+# Timing shifts probed for the phase mechanism, in hours. Each is converted into
+# the residual amplitude it implies through the fitted daily amplitude, so the
+# result is quoted as the shift an engineer would picture rather than as a
+# millidegree figure with no mechanism attached.
+DETECT_PHASE_SHIFTS_H = (0.25, 0.5, 1.0, 2.0)
+
+# Drift rates probed, in millidegrees per year.
+DETECT_DRIFT_RATES = (1.0, 2.0, 5.0, 10.0, 20.0)
+
+# How long after a departure ends an alarm still counts as having found it.
+DETECT_RESPONSE_WINDOW = '24h'
 ```
 
 - [ ] **Step 2: Add the step 7b Markdown cell**
 
 ```markdown
 # %% [markdown]
-# ### 7b · How small a movement would be found, and how late
+# ### 7b · Which damage signatures would be found, and how late
 #
-# One real event cannot state a detector's sensitivity. Departures of known size
-# and length are injected into the residual, the charts are re-run with the
-# reference statistics estimated on the uncontaminated record, and the first
-# joint alarm at or after each injection is recorded. What comes out is the
-# study's headline operational number: the smallest movement this system finds,
-# and how long that movement has to persist before it does.
+# One large event cannot state a detector's sensitivity. Departures of known
+# size, length and *shape* are injected into the residual instead, the charts
+# are re-run with the reference statistics estimated on the uncontaminated
+# record, and an alarm counts only where the uncontaminated run is silent. What
+# comes out is the study's headline operational number: which movements this
+# system finds, and how long each has to persist before it does.
 #
-# The magnitudes are in millidegrees, the units the instrument reports, so the
-# answer is a movement an engineer can picture rather than a multiple of a scale
-# they cannot.
+# The three shapes are not arbitrary. A three-leaf stone wall — two masonry
+# leaves either side of a weaker rubble-and-mortar core — fails in ways that
+# leave distinguishable marks on a thermally driven inclination record:
+#
+# * **Amplitude growth.** The leaves stop acting together: delamination at the
+#   core interface, or loss of through-stones. The section bends further under
+#   the same daily heating, so the diurnal swing grows while its timing and its
+#   mean stay put.
+# * **Phase change.** The thermal path changes rather than the stiffness — water
+#   entering the core raises its heat capacity, or a crack re-routes conduction.
+#   The wall answers the same forcing later or earlier, which appears in the
+#   residual as a harmonic in quadrature with the daily cycle. It is quoted as
+#   the timing shift in hours, converted through the daily amplitude this
+#   decomposition already measured.
+# * **Drift.** Creep of the lime mortar under sustained load, thermal ratcheting
+#   of the outer leaf, or foundation settlement: slow, monotone, invisible in any
+#   single day, and quoted in millidegrees per year.
+#
+# The summer-2026 stretch Study 01 flagged is kept out of the reference window,
+# but no claim is made about whether this detector finds it. Its size makes it
+# uninformative about sensitivity, which is what this sweep exists to measure.
 ```
 
 - [ ] **Step 3: Add the step 7b code cell**
 
 ```python
 # %%
-detectability = monitoring.detectability_curve(
-    residual_a.loc[REFERENCE_START:REFERENCE_END],
-    reference_a['mu'], reference_a['sigma'],
-    magnitudes=DETECT_MAGNITUDES, durations=DETECT_DURATIONS,
-    freq=MODEL_FREQ_A, lam=EWMA_LAMBDA, L=EWMA_L, k=CUSUM_K, h=CUSUM_H)
+# The daily amplitude this decomposition fitted, which converts a timing shift
+# into the residual amplitude it implies.
+daily_amplitude = float(
+    shares.set_index('component').loc['season_daily', 'peak_to_peak'] / 2.0)
+phase_magnitudes = tuple(
+    monitoring.phase_shift_amplitude(daily_amplitude, hours)
+    for hours in DETECT_PHASE_SHIFTS_H)
+print(f'Daily amplitude {daily_amplitude:.2f} mdeg; a timing shift of '
+      f'{DETECT_PHASE_SHIFTS_H[0]} h to {DETECT_PHASE_SHIFTS_H[-1]} h implies '
+      f'{phase_magnitudes[0]:.2f} to {phase_magnitudes[-1]:.2f} mdeg')
+
+in_control = residual_a.loc[REFERENCE_START:REFERENCE_END]
+sweeps = {
+    'amplitude': DETECT_MAGNITUDES,
+    'phase': phase_magnitudes,
+    'drift': DETECT_DRIFT_RATES,
+}
+
+curves = []
+for kind in DETECT_KINDS:
+    curve = monitoring.detectability_curve(
+        in_control, reference_a['mu'], reference_a['sigma'],
+        magnitudes=sweeps[kind], durations=DETECT_DURATIONS, kind=kind,
+        freq=MODEL_FREQ_A, lam=EWMA_LAMBDA, L=EWMA_L, k=CUSUM_K, h=CUSUM_H,
+        response_window=DETECT_RESPONSE_WINDOW)
+    curves.append(curve.assign(kind=kind))
+
+detectability = pd.concat(curves, ignore_index=True)
 display(detectability)
-
 detectability.to_csv(OUTPUT_DIR / 'NP_10_detectability.csv', index=False)
-figures.plot_detectability(
-    detectability,
-    title='Smallest departure found, against how long it persists',
-    save_path=str(OUTPUT_DIR), filename='NP_F09_detectability')
-plt.show()
-
-smallest = (detectability[detectability['detected']]
-            .groupby('duration_h')['magnitude'].min())
-print('Minimum detectable step, by persistence:')
-print(smallest.to_string())
 ```
 
 ```python
 # %%
-# The one real test: Study 01 flagged an inclination anomaly at this station in
-# summer 2026 by an unrelated method - departure from a 24-hour rolling median
-# at five sigma. Whether this detector, tuned only on earlier data, finds it.
-event_start, event_end = KNOWN_EVENT
-in_event = alarm_a.loc[event_start:event_end]
-found = bool(in_event.any())
-first = in_event[in_event].index.min() if found else None
-print(f'Known event {event_start} to {event_end}: '
-      f'{"detected" if found else "MISSED"}'
-      + (f', first alarm {first}' if found else ''))
+for kind in DETECT_KINDS:
+    figures.plot_detectability(
+        detectability[detectability['kind'] == kind],
+        title=f'Detectability of a {kind} departure',
+        save_path=str(OUTPUT_DIR), filename=f'NP_F09_detectability_{kind}')
+    plt.show()
+
+smallest = (detectability[detectability['detected']]
+            .groupby(['kind', 'duration_h'])['magnitude'].min())
+print('Smallest departure found, by mechanism and persistence:')
+print(smallest.to_string())
 ```
 
 - [ ] **Step 4: Execute and verify**
@@ -4413,14 +4746,19 @@ jupyter nbconvert --to notebook --execute --inplace \
 python - <<'PY'
 import pandas as pd
 curve = pd.read_csv('outputs/NP_10_detectability.csv')
-print(curve.pivot(index='magnitude', columns='duration_h',
-                  values='detected').to_string())
+for kind, block in curve.groupby('kind'):
+    print(kind)
+    print(block.pivot(index='magnitude', columns='duration_h',
+                      values='detected').to_string())
 PY
 ```
 
-Expected: a monotone field — larger and longer departures detected, smaller and shorter not. A
-non-monotone field means the injection point interacts with a real feature of the residual; move
-the injection or sweep several points and report the spread.
+Expected: a monotone field within each mechanism — larger and longer departures detected, smaller
+and shorter not. A non-monotone field means the injection point interacts with a real feature of the
+residual; move the injection or sweep several points and report the spread. The three mechanisms are
+**not** expected to agree with one another: a drift of a few millidegrees per year is a far smaller
+instantaneous departure than an amplitude growth of the same figure, and the difference between them
+is the result.
 
 - [ ] **Step 5: Commit**
 
@@ -4428,12 +4766,17 @@ the injection or sweep several points and report the spread.
 git add studies/04_neuralprophet_inclination_prediction/neuralprophet_inclination_prediction_study.py \
         studies/04_neuralprophet_inclination_prediction/neuralprophet_inclination_prediction_study.ipynb
 git commit -m "$(cat <<'EOF'
-feat(study04): measure minimum detectable movement and test the known event
+feat(study04): measure detectability against three damage mechanisms
 
-Injected departures of known magnitude and duration turn the detector's
-sensitivity into a curve in millidegrees. The summer-2026 anomaly study 01
-flagged by an unrelated method is the one real test available, and the detector
-is tuned only on data preceding it.
+Injected departures of known magnitude, duration and shape turn the detector's
+sensitivity into a curve per mechanism: growth of the daily swing, which is what
+loss of composite action between the leaves produces; a timing shift, which is a
+change in the thermal path rather than in stiffness; and a slow drift, the shape
+of mortar creep or settlement.
+
+One large event cannot state a sensitivity, so the stretch study 01 flagged in
+summer 2026 is kept out of the reference window and no result is claimed from
+it.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
@@ -4441,8 +4784,10 @@ EOF
 ```
 
 > **CHECKPOINT 5 — show the user:** the chosen `L` and its run length in days, `NP_09`, `NP_10`,
-> `NP_F08`, `NP_F09`, the minimum-detectable-step table, and whether the summer-2026 event was
-> found and how late. A miss is reported, not tuned away. Wait for approval before Task 17.
+> `NP_F08`, the three `NP_F09_detectability_*` figures, and the smallest departure found per
+> mechanism and persistence. A mechanism that stays undetected across the whole swept range is
+> reported as such, not tuned away — it is a statement about what this instrument and this model
+> cannot see. Wait for approval before Task 17.
 
 ---
 
@@ -4570,7 +4915,7 @@ hourly['era'] = window['era'].resample(MODEL_FREQ_B).first() \
 
 frame_b = pd.DataFrame({
     'y': prediction.hourly_change(
-        hourly[TARGET_COLUMN], era=hourly.get('era'), freq=MODEL_FREQ_B),
+        hourly[TARGET_COLUMN], era=None, freq=MODEL_FREQ_B),
     'tair': hourly['tair_str'],
     'rh': hourly['rh_str'],
     'batt': hourly['batt_str'],
@@ -4767,7 +5112,7 @@ prior_only = predictions_b[
 
 closure = prediction.gap_closure_summary(
     hourly[TARGET_COLUMN], prior_only.set_index('ds')['yhat'],
-    era=hourly.get('era'), freq=MODEL_FREQ_B)
+    era=None, freq=MODEL_FREQ_B)
 display(closure)
 closure.to_csv(OUTPUT_DIR / 'NP_14_gap_closure.csv', index=False)
 
@@ -5031,9 +5376,10 @@ The component shares from `NP_05_body.tex`, the decomposition stack `NP_F05`, th
 regressor response `NP_F06`, and the confrontation with Study 03 from `NP_06_body.tex`. State
 plainly whether the two methods agree, and by how much. Add the stability table
 `NP_16_body.tex` beside it: a gain that keeps its sign and magnitude across three disjoint
-stretches of the record is a finding, and one that does not is reported as instability. State that a gain fitted on the compensated
-channel is a post-compensation residual gain, and report the raw-channel fit beside it against
-`DOCUMENTED_COEFF`.
+stretches of the record is a finding, and one that does not is reported as instability. State that
+the gain is fitted on the compensated channel and is therefore what the wall does after Study 01's
+correction, which is the only quantity a monitoring system sees; do not argue about the correction
+itself (spec §11.2).
 
 - [ ] **Step 6: Add section 6 — is this reading expected?**
 
@@ -5042,9 +5388,21 @@ without adjustment.
 
 - [ ] **Step 7: Add section 7 — judging a departure**
 
-The reference window and why it excludes the summer-2026 event. The chosen limit width and the run
-length it delivers, in days. `NP_F08`, the episode table, the detectability curve `NP_F09` and the
-minimum detectable step by persistence. Then the labelled event: detected or missed, and how late.
+The reference window, and why it stops before the stretch Study 01 flagged in summer 2026 — a
+calibration precaution, since a reference window must be in control, and explicitly not a test. The
+chosen limit width and the run length it delivers, in days. `NP_F08` and the episode table.
+
+Then the sensitivity statement, which is where this section's weight sits: the three
+`NP_F09_detectability_*` figures and the smallest departure found for each mechanism at each
+persistence. Say what each mechanism stands for in a three-leaf wall — amplitude growth for loss of
+composite action between the leaves, a timing shift for a changed thermal path such as water in the
+core, drift for mortar creep or settlement — and quote each in the unit that makes it physical:
+millidegrees for the swing, hours of shift for the timing, millidegrees per year for the drift. A
+mechanism undetected across the whole swept range is reported as a limit of this instrument and this
+model, which is a result about the method's reach and not a failure to be hidden.
+
+**No claim whatsoever is made about the summer-2026 stretch** (spec §11.3): it is too large to
+demonstrate sensitivity, and a detector that finds it has shown only that it is not broken.
 
 - [ ] **Step 8: Add section 8 — how far ahead is prediction worth anything?**
 

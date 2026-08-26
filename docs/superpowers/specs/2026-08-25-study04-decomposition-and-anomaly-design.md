@@ -495,3 +495,66 @@ Approved 2026-08-25.
    reused. The question the study answers is widened from prediction alone to decomposition,
    expectation and anomaly judgement, and its `README.md` is rewritten to say so.
 4. **Language** — English, matching study 03.
+
+---
+
+## 11 · Amendment of 2026-08-26
+
+Three of the premises above are retired at the user's instruction, recorded here rather than in a
+separate document so that this file stays the single binding authority. The amendment was made at
+Checkpoint 3, with Phases 0 to 3 complete and no notebook step beyond step 3 yet written.
+
+### 11.1 · Instrument eras are out of scope
+
+Study 04 takes Study 01's cleaned, compensated series **as its raw data** and never reasons about
+the changeover of 21 February 2025. That the raw `.adc` archive has two eras is a fact about
+parsing, and parsing is Study 01's subject; by the time a value reaches this study the two eras have
+been anchored once, as a single series, and nothing here may re-derive, re-anchor or label them.
+
+Consequence: the notebook stops passing an era label into `prediction.cadence_evidence`, and `NP_04`
+is re-measured without one. The library keeps its `era` parameter — Studies 02 and 03 call it, and
+`hourly_change` still needs it — but this study passes `None`. The previous constraint "no era offset
+term" is superseded by the stronger one: **no era term of any kind, and no era column read.**
+
+### 11.2 · D10 is dropped — compensation is not on trial here
+
+The temperature compensation applied by Study 01 is Study 01's discussion. This study is blind to
+it: it models the compensated channel as given, and makes no claim about whether the documented
+coefficient is right, whether the compensation over-corrects, or what the raw channel would have
+shown. The sign contradiction recorded in `docs/raw-data-format.md` §7.5 is acknowledged as
+Study 01's open question and is not reopened.
+
+Consequence: the raw-channel sensitivity fit disappears, and with it the `Model A, raw channel` and
+`Documented compensation` rows of `NP_06`. What survives is the confrontation that does not depend
+on compensation at all — Model A's fitted air-temperature gain against Study 03's independently
+measured **−2.79 mdeg/°C**, which remains the study's external check and its kill criterion.
+
+### 11.3 · The summer-2026 event is not the anomaly evidence
+
+The event Study 01 flagged at station 02 in summer 2026 is too large and too obvious to demonstrate
+anything about a detector's sensitivity: finding it proves only that the detector is not broken.
+This study therefore makes **no detection claim from it**. It is still excluded from the reference
+window, because a reference window must be in control and Study 01 flagged that stretch — but it is
+excluded as a precaution, not used as a test, and no figure or table reports whether it was found.
+
+In its place the study injects perturbations whose shape corresponds to a physical mechanism, so
+that a sensitivity statement reads as "a movement of this kind and this size would be found", not
+"one anomaly of unknown character was found once". Three kinds, each with a mechanism a masonry
+engineer would recognise in a three-leaf stone wall — an outer leaf, an inner leaf, and a weaker
+rubble-and-mortar core between them:
+
+| Kind | Injected shape | Mechanism it stands for |
+|---|---|---|
+| **Amplitude growth** | A daily harmonic whose amplitude grows from zero to the stated size, then holds | Progressive loss of composite action between the leaves — delamination at the leaf-to-core interface, or loss of through-stones. The same daily thermal forcing then bends a less stiff section further, so the diurnal swing grows while its timing and mean do not. |
+| **Phase change** | A daily harmonic in quadrature, of the amplitude a stated timing shift implies | A change in the thermal path rather than in stiffness — water ingress raising the core's moisture content and thermal capacity, or a crack re-routing conduction. The wall responds to the same forcing later or earlier, which appears in the residual as a quadrature harmonic. |
+| **Drift** | A linear accumulation at a stated rate, in mdeg per year, running to the end of the record | Creep of the lime-mortar core under sustained load, thermal ratcheting of the outer leaf, or foundation settlement. Slow, monotone, and invisible in any single day. |
+
+Magnitudes stay in millidegrees, the unit the instrument reports, and the phase kind is quoted by
+the timing shift in hours that produced it, converted through the measured daily amplitude the
+decomposition already reports. The step, ramp and pulse injections built in Phase 3 remain in the
+library — they are the generic shapes, and the ramp is what a drift looks like over a bounded window
+— but the study's reported sweep is over the three mechanisms above.
+
+**What does not change.** The false-alarm budget still governs: every detectability number is quoted
+at a stated in-control run length, and the detection rule still counts only alarms the uncontaminated
+record does not raise. Phases 6, 7 and 8 are untouched by this amendment.
