@@ -300,6 +300,99 @@ class TestModelFigures(unittest.TestCase):
                                      ax.get_window_extent().y0)
         plt.close(fig)
 
+    def test_saving_and_colour_and_legend_conventions_hold(self):
+        import tempfile
+        from pathlib import Path
+
+        import matplotlib.colors as mcolors
+        import matplotlib.pyplot as plt
+
+        from shmlib import figures, monitoring, viz
+
+        index = pd.date_range('2024-01-01', periods=200, freq='20min')
+        components = pd.DataFrame({
+            'trend': np.linspace(0.0, 1.0, 200),
+            'season_daily': np.sin(np.arange(200) / 72.0 * 2 * np.pi),
+            'residual': np.zeros(200),
+            'y': np.zeros(200),
+            'yhat1': np.zeros(200),
+        }, index=index)
+        observed = pd.Series(np.sin(np.arange(200) / 20.0), index=index)
+        expected = observed * 0.9
+        chart = monitoring.ewma_chart(observed - expected, 0.0, 1.0)
+        metrics = pd.DataFrame({
+            'horizon_h': [1, 6, 1, 6],
+            'model': ['ar', 'ar', 'ar+tair', 'ar+tair'],
+            'mae': [1.0, 2.0, 0.9, 1.8],
+        })
+        curve = pd.DataFrame({
+            'magnitude': [1.0, 2.0, 1.0, 2.0],
+            'duration_h': [6.0, 6.0, 24.0, 24.0],
+            'detected': [False, True, True, True],
+            'delay_h': [np.nan, 2.0, 1.0, 0.5],
+        })
+
+        cases = (
+            lambda p, f: figures.plot_decomposition_stack(
+                components, title='t', save_path=p, filename=f),
+            lambda p, f: figures.plot_prediction_band(
+                observed, expected, expected - 1.0, expected + 1.0,
+                title='t', save_path=p, filename=f),
+            lambda p, f: figures.plot_control_chart(
+                chart, title='t', save_path=p, filename=f),
+            lambda p, f: figures.plot_metric_vs_horizon(
+                metrics, metric='mae', by='model', title='t',
+                save_path=p, filename=f),
+            lambda p, f: figures.plot_detectability(
+                curve, title='t', save_path=p, filename=f),
+        )
+
+        # 1. Nothing is written to disk when only one of save_path/filename
+        # is given: a figure that dropped the guard on either argument would
+        # leave a stray file behind in an otherwise empty directory.
+        with tempfile.TemporaryDirectory() as tmp:
+            for call in cases:
+                call(tmp, None)
+                call(None, 'partial')
+                self.assertEqual(list(Path(tmp).iterdir()), [],
+                                 'a figure wrote a file with only one of '
+                                 'save_path/filename given')
+            plt.close('all')
+
+        # 2. Every data line carries its intended colour, compared through
+        # matplotlib's own colour parsing rather than a string, so the
+        # assertion does not turn on hex case or an alpha suffix.
+        inc_rgba = mcolors.to_rgba(viz.INC_COLOUR)
+
+        stack_fig = figures.plot_decomposition_stack(components, title='t')
+        for ax in stack_fig.axes:
+            lines = ax.get_lines()
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(mcolors.to_rgba(lines[0].get_color()), inc_rgba)
+
+        band_fig = figures.plot_prediction_band(
+            observed, expected, expected - 1.0, expected + 1.0, title='t')
+        band_ax = band_fig.axes[0]
+        observed_line, expected_line = band_ax.get_lines()
+        self.assertEqual(mcolors.to_rgba(observed_line.get_color()), inc_rgba)
+        self.assertEqual(mcolors.to_rgba(expected_line.get_color()), inc_rgba)
+        self.assertEqual(expected_line.get_linestyle(), '--')
+        self.assertNotEqual(observed_line.get_linestyle(), '--')
+
+        # 3. The other two legend-bearing figures also clear their axes,
+        # using the same display-coordinate comparison as the previous test.
+        control_fig = figures.plot_control_chart(chart, title='t')
+        for fig in (band_fig, control_fig):
+            renderer = fig.canvas.get_renderer()
+            for ax in fig.axes:
+                legend = ax.get_legend()
+                if legend is not None:
+                    self.assertLessEqual(
+                        legend.get_window_extent(renderer).y1,
+                        ax.get_window_extent().y0)
+
+        plt.close('all')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

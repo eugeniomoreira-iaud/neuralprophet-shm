@@ -2043,8 +2043,7 @@ def plot_decomposition_stack(components, columns=None, title='',
     axes = np.atleast_1d(axes)
 
     for ax, column in zip(axes, columns):
-        colour = (viz.MARK_COLOUR if column == 'residual' else viz.INC_COLOUR)
-        ax.plot(components.index, components[column], color=colour,
+        ax.plot(components.index, components[column], color=viz.INC_COLOUR,
                 linewidth=1.0)
         ax.set_ylabel(column.replace('future_regressor_', '')
                       .replace('lagged_regressor_', '')
@@ -2086,7 +2085,7 @@ def plot_prediction_band(observed, expected, lower, upper, title='',
                     alpha=0.18, linewidth=0.0, label='90 % interval')
     ax.plot(observed.index, observed, color=viz.INC_COLOUR, linewidth=1.0,
             label='observed')
-    ax.plot(expected.index, expected, color=viz.MARK_COLOUR, linewidth=1.0,
+    ax.plot(expected.index, expected, color=viz.INC_COLOUR, linewidth=1.0,
             linestyle='--', label='expected')
 
     for span in (highlight or ()):
@@ -2134,11 +2133,17 @@ def plot_control_chart(chart, statistic='ewma', episodes=None, title='',
 
     ax.plot(chart.index, chart[statistic], color=viz.INC_COLOUR,
             linewidth=1.0, label=statistic.replace('_', ' '))
+    limit_labelled = False
     for limit in ('ucl', 'lcl', 'limit'):
         if limit in chart.columns:
+            # First-one-wins: whichever limit column is drawn first gets the
+            # single 'limit' legend entry, so a chart carrying only 'lcl'
+            # still gets a legend entry instead of silently losing it to a
+            # name-specific special case.
             ax.plot(chart.index, chart[limit], color=viz.MARK_COLOUR,
                     linewidth=0.9, linestyle='--',
-                    label='limit' if limit != 'lcl' else None)
+                    label=None if limit_labelled else 'limit')
+            limit_labelled = True
 
     ax.set_ylabel('Standardised residual')
     viz.format_spines(ax)
