@@ -1241,9 +1241,13 @@ def residual_diagnostics(residuals, lags=(1, 24, 72)):
     ----------
     residuals : pd.Series
         Observed minus predicted, indexed by timestamp. Missing values are
-        dropped before testing.
+        dropped before testing. Dropping compacts the series, so on a gapped
+        record a lag counts positions in the surviving subsequence rather
+        than a fixed interval of calendar time.
     lags : sequence of int, optional
-        Ljung-Box lags to test. Default ``(1, 24, 72)``.
+        Ljung-Box lags to test. Default ``(1, 24, 72)``. A lag that is not
+        shorter than the number of surviving observations cannot be tested
+        and is reported as ``NaN`` rather than raising.
 
     Returns
     -------
@@ -1259,7 +1263,14 @@ def residual_diagnostics(residuals, lags=(1, 24, 72)):
 
     values = pd.to_numeric(residuals, errors='coerce').dropna()
     lags = [int(lag) for lag in lags]
-    result = acorr_ljungbox(values, lags=lags, return_df=True)
+
+    testable = [lag for lag in lags if 0 < lag < values.size]
+    if testable:
+        result = acorr_ljungbox(values, lags=testable, return_df=True)
+        statistics = dict(zip(testable, result['lb_stat'].to_numpy()))
+        pvalues = dict(zip(testable, result['lb_pvalue'].to_numpy()))
+    else:
+        statistics, pvalues = {}, {}
 
     scale = {
         'n': int(values.size),
@@ -1268,8 +1279,8 @@ def residual_diagnostics(residuals, lags=(1, 24, 72)):
     }
     return pd.DataFrame({
         'lag': lags,
-        'lb_stat': result['lb_stat'].to_numpy(),
-        'lb_pvalue': result['lb_pvalue'].to_numpy(),
+        'lb_stat': [statistics.get(lag, np.nan) for lag in lags],
+        'lb_pvalue': [pvalues.get(lag, np.nan) for lag in lags],
         'n': scale['n'],
         'std': scale['std'],
         'mad': scale['mad'],

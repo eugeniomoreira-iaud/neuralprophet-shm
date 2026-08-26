@@ -146,6 +146,23 @@ class TestResidualDiagnostics(unittest.TestCase):
         self.assertGreater(table['std'].iloc[0], 0.0)
         self.assertGreater(table['mad'].iloc[0], 0.0)
 
+    def test_a_lag_not_shorter_than_the_series_returns_nan_rather_than_raising(self):
+        index = pd.date_range('2024-01-01', periods=50, freq='1h')
+        residuals = pd.Series(np.arange(50.0), index=index)
+        table = prediction.residual_diagnostics(residuals, lags=(72,))
+        self.assertEqual(len(table), 1)
+        self.assertEqual(table['lag'].iloc[0], 72)
+        self.assertTrue(np.isnan(table['lb_stat'].iloc[0]))
+        self.assertTrue(np.isnan(table['lb_pvalue'].iloc[0]))
+
+    def test_a_mixed_request_keeps_the_testable_lag(self):
+        index = pd.date_range('2024-01-01', periods=100, freq='1h')
+        residuals = pd.Series(np.arange(100.0), index=index)
+        table = prediction.residual_diagnostics(residuals, lags=(1, 500))
+        self.assertEqual(list(table['lag']), [1, 500])
+        self.assertFalse(np.isnan(table['lb_stat'].iloc[0]))
+        self.assertTrue(np.isnan(table['lb_stat'].iloc[1]))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
