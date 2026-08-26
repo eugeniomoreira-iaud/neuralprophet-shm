@@ -362,7 +362,7 @@ def average_run_length(alarm, freq='20min'):
 
 
 def inject_anomaly(series, kind, magnitude, start, duration=None,
-                   freq='20min'):
+                   freq='20min', period='24h'):
     """
     Add a synthetic departure of known size and shape to a series.
 
@@ -374,30 +374,48 @@ def inject_anomaly(series, kind, magnitude, start, duration=None,
     ----------
     series : pd.Series
         Signal to contaminate, indexed by timestamp. Not modified in place.
-    kind : {'step', 'ramp', 'pulse'}
+    kind : {'step', 'ramp', 'pulse', 'amplitude', 'phase', 'drift'}
         ``'step'`` shifts every sample from ``start`` onward; ``'ramp'`` rises
         linearly to ``magnitude`` over ``duration`` and holds it; ``'pulse'``
-        shifts only the samples inside ``duration``.
+        shifts only the samples inside ``duration``. ``'amplitude'`` and
+        ``'phase'`` establish themselves linearly over ``duration`` and then
+        hold, modulating the cycle named by ``period`` rather than shifting the
+        level: ``'amplitude'`` grows the swing of that cycle, standing for a
+        wall that bends further under the same forcing once the leaves stop
+        acting together, and ``'phase'`` is its quadrature partner, standing
+        for a changed thermal path - such as water in the core - that answers
+        the same forcing earlier or later without answering it more strongly.
+        ``'drift'`` takes ``magnitude`` as a rate per year, not a size, and
+        needs no ``duration``: it accumulates to the end of the record, the
+        shape of mortar creep, thermal ratcheting or settlement.
     magnitude : float
-        Size of the departure, in the series' own units.
+        Size of the departure, in the series' own units, except for
+        ``'drift'``, where it is a rate in units per year.
     start : pd.Timestamp or str
         When the departure begins.
     duration : str or pd.Timedelta or None, optional
-        Length of the ramp or pulse. Required for those kinds, ignored for a
-        step. Default ``None``.
+        Length of the ramp, pulse, or amplitude/phase build-up. Required for
+        those kinds, ignored for a step or a drift. Default ``None``.
     freq : str, optional
         Not read: the injection is placed by timestamp arithmetic, not by grid
         position. Accepted so a caller can pass the study's grid uniformly with
         the rest of this module. Default ``'20min'``.
+    period : str or pd.Timedelta, optional
+        The cycle that the ``'amplitude'`` and ``'phase'`` kinds modulate.
+        Ignored by every other kind. Default ``'24h'``, the daily cycle a
+        thermally driven inclination record follows.
 
     Returns
     -------
     pd.Series
         A copy of ``series`` with the departure added.
     """
-    if kind not in {'step', 'ramp', 'pulse'}:
-        raise ValueError("kind must be 'step', 'ramp' or 'pulse'")
-    if kind in {'ramp', 'pulse'} and duration is None:
+    kinds = {'step', 'ramp', 'pulse', 'amplitude', 'phase', 'drift'}
+    if kind not in kinds:
+        raise ValueError(
+            "kind must be one of 'step', 'ramp', 'pulse', 'amplitude', "
+            "'phase' or 'drift'")
+    if kind in {'ramp', 'pulse', 'amplitude', 'phase'} and duration is None:
         raise ValueError(f"kind '{kind}' requires a duration")
 
     out = series.copy()
@@ -409,11 +427,32 @@ def inject_anomaly(series, kind, magnitude, start, duration=None,
         out.loc[after] = out.loc[after] + magnitude
         return out
 
+    if kind == 'drift':
+        # A rate, not a size: the departure keeps accumulating to the end of the
+        # record, which is what creep and settlement do.
+        years = ((index[after] - begin)
+                 / pd.Timedelta(days=365.25)).to_numpy()
+        out.loc[after] = out.loc[after] + magnitude * years
+        return out
+
     span = pd.Timedelta(duration)
     inside = after & (index < begin + span)
 
     if kind == 'pulse':
         out.loc[inside] = out.loc[inside] + magnitude
+        return out
+
+    if kind in {'amplitude', 'phase'}:
+        # Both modulate the same cycle and differ only by quadrature: a growing
+        # swing is in phase with the response, a timing change is a quarter
+        # cycle away from it. The envelope rises linearly over `duration` and
+        # then holds, so `magnitude` is the size the departure settles at.
+        cycles = ((index[after] - begin) / pd.Timedelta(period)).to_numpy()
+        envelope = np.clip(
+            ((index[after] - begin) / span).to_numpy(), 0.0, 1.0)
+        angle = 2.0 * np.pi * cycles
+        wave = np.sin(angle) if kind == 'amplitude' else np.cos(angle)
+        out.loc[after] = out.loc[after] + magnitude * envelope * wave
         return out
 
     elapsed = (index[after] - begin) / span
@@ -422,9 +461,40 @@ def inject_anomaly(series, kind, magnitude, start, duration=None,
     return out
 
 
+def phase_shift_amplitude(daily_amplitude, shift_hours, period_hours=24.0):
+    """
+    The residual amplitude implied by a timing shift of a periodic response.
+
+    A wall whose thermal path has changed answers the same forcing later or
+    earlier without necessarily answering it more strongly. Subtracting the
+    unshifted cycle from the shifted one leaves a harmonic in quadrature whose
+    amplitude is the chord of the shift, ``2 A sin(pi dt / P)``. This converts
+    the quantity an engineer states — a lag change in hours — into the
+    millidegree amplitude a detector actually sees.
+
+    Parameters
+    ----------
+    daily_amplitude : float
+        Amplitude of the fitted periodic component, in the series' units. Half
+        its peak-to-peak range.
+    shift_hours : float
+        Timing shift, in hours. Sign is irrelevant: a lead and a lag of the same
+        size leave the same amplitude.
+    period_hours : float, optional
+        Period of the component. Default ``24.0``.
+
+    Returns
+    -------
+    float
+        Amplitude of the residual harmonic, in the series' units.
+    """
+    return float(2.0 * abs(daily_amplitude)
+                 * abs(np.sin(np.pi * float(shift_hours) / float(period_hours))))
+
+
 def detectability_curve(residuals, mu, sigma, magnitudes, durations,
                         freq='20min', lam=0.2, L=3.0, k=0.5, h=5.0, seed=0,
-                        response_window='24h'):
+                        kind='pulse', period='24h', response_window='24h'):
     """
     Whether a departure of each size and length is found, and how late.
 
@@ -460,6 +530,16 @@ def detectability_curve(residuals, mu, sigma, magnitudes, durations,
     seed : int, optional
         Reserved for future randomised placement; the injection point is
         currently deterministic. Default ``0``.
+    kind : str, optional
+        Shape passed to ``inject_anomaly`` for every point of the sweep.
+        Default ``'pulse'``, which reproduces the sweep's original behaviour: a
+        magnitude held for the full duration. ``'drift'`` reads ``magnitude``
+        as a rate per year rather than a size, so for that kind ``durations``
+        sets how long the drift is watched, not how long it lasts.
+    period : str or pd.Timedelta, optional
+        Cycle modulated by the ``'amplitude'`` and ``'phase'`` kinds, passed
+        through to ``inject_anomaly``. Ignored by every other kind. Default
+        ``'24h'``.
     response_window : str, optional
         How long after the departure ends an alarm still counts as having
         found it, as a pandas offset string. Default ``'24h'``.
@@ -483,8 +563,8 @@ def detectability_curve(residuals, mu, sigma, magnitudes, durations,
         for duration in durations:
             span = pd.Timedelta(duration)
             contaminated = inject_anomaly(
-                values, 'pulse', float(magnitude), start=injection,
-                duration=span, freq=freq)
+                values, kind, float(magnitude), start=injection,
+                duration=span, freq=freq, period=period)
 
             ewma = ewma_chart(contaminated, mu, sigma, lam=lam, L=L)
             cusum = cusum_chart(contaminated, mu, sigma, k=k, h=h)

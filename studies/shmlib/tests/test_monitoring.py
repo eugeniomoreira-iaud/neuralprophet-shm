@@ -275,5 +275,106 @@ class TestDetectabilityCurve(unittest.TestCase):
         self.assertTrue(np.isnan(curve['delay_h'].iloc[0]))
 
 
+class TestPhaseShiftAmplitude(unittest.TestCase):
+
+    def test_no_shift_implies_no_residual(self):
+        self.assertAlmostEqual(
+            monitoring.phase_shift_amplitude(10.0, 0.0), 0.0)
+
+    def test_half_a_period_inverts_the_cycle(self):
+        # A cycle shifted by half its period is its own negation, so the
+        # difference between shifted and unshifted has twice the amplitude.
+        self.assertAlmostEqual(
+            monitoring.phase_shift_amplitude(10.0, 12.0), 20.0)
+
+    def test_a_small_shift_follows_the_chord_formula(self):
+        expected = 2.0 * 10.0 * np.sin(np.pi * 1.0 / 24.0)
+        self.assertAlmostEqual(
+            monitoring.phase_shift_amplitude(10.0, 1.0), expected)
+
+
+class TestPhysicalInjections(unittest.TestCase):
+
+    def _flat(self, n=6 * 24 * 40):
+        index = pd.date_range('2024-01-01', periods=n, freq='20min')
+        return pd.Series(0.0, index=index)
+
+    def test_an_amplitude_growth_reaches_its_size_and_holds(self):
+        series = self._flat()
+        start = series.index[100]
+        moved = monitoring.inject_anomaly(
+            series, 'amplitude', 4.0, start=start, duration='10d')
+        np.testing.assert_allclose(moved.iloc[:100], 0.0, atol=1e-12)
+        first_day = moved.loc[start:start + pd.Timedelta('1d')]
+        last_day = moved.loc[moved.index[-1] - pd.Timedelta('1d'):]
+        self.assertLess(first_day.abs().max(), 1.0)
+        self.assertAlmostEqual(last_day.abs().max(), 4.0, places=1)
+
+    def test_an_amplitude_growth_adds_no_level_once_it_has_settled(self):
+        series = self._flat()
+        start = series.index[0]
+        moved = monitoring.inject_anomaly(
+            series, 'amplitude', 4.0, start=start, duration='1d')
+        # A wider swing is not a shifted one: over whole cycles at the settled
+        # amplitude the injection averages to zero. The ramp itself is excluded
+        # deliberately, because a rising envelope weights the two halves of each
+        # cycle differently and must leave a small mean behind.
+        settled = moved.loc[start + pd.Timedelta('1d'):
+                            start + pd.Timedelta('31d')]
+        self.assertAlmostEqual(float(settled.mean()), 0.0, places=2)
+
+    def test_a_phase_change_is_in_quadrature_with_an_amplitude_growth(self):
+        series = self._flat()
+        start = series.index[0]
+        amplitude = monitoring.inject_anomaly(
+            series, 'amplitude', 1.0, start=start, duration='1h')
+        phase = monitoring.inject_anomaly(
+            series, 'phase', 1.0, start=start, duration='1h')
+        window = slice(start + pd.Timedelta('2d'), start + pd.Timedelta('32d'))
+        overlap = float((amplitude.loc[window] * phase.loc[window]).mean())
+        self.assertAlmostEqual(overlap, 0.0, places=2)
+
+    def test_a_drift_accumulates_at_its_stated_yearly_rate(self):
+        series = self._flat()
+        start = series.index[0]
+        moved = monitoring.inject_anomaly(series, 'drift', 12.0, start=start)
+        after_30_days = float(moved.loc[start + pd.Timedelta('30d')])
+        self.assertAlmostEqual(after_30_days, 12.0 * 30.0 / 365.25, places=3)
+
+    def test_a_drift_needs_no_duration_and_leaves_the_past_alone(self):
+        series = self._flat()
+        start = series.index[500]
+        moved = monitoring.inject_anomaly(series, 'drift', 5.0, start=start)
+        np.testing.assert_allclose(moved.iloc[:500], 0.0, atol=1e-12)
+        self.assertGreater(float(moved.iloc[-1]), 0.0)
+
+    def test_an_unknown_kind_is_refused(self):
+        with self.assertRaises(ValueError):
+            monitoring.inject_anomaly(
+                self._flat(), 'settlement', 1.0, start='2024-01-02')
+
+    def test_the_existing_kinds_are_untouched(self):
+        series = self._flat(200)
+        start = series.index[50]
+        step = monitoring.inject_anomaly(series, 'step', 3.0, start=start)
+        self.assertAlmostEqual(float(step.iloc[-1]), 3.0)
+        self.assertAlmostEqual(float(step.iloc[49]), 0.0)
+
+
+class TestDetectabilityKinds(unittest.TestCase):
+
+    def test_the_swept_kind_reaches_the_injector(self):
+        rng = np.random.default_rng(0)
+        index = pd.date_range('2024-01-01', periods=6 * 24 * 40, freq='20min')
+        residuals = pd.Series(rng.normal(0.0, 1.0, len(index)), index=index)
+        curve = monitoring.detectability_curve(
+            residuals, 0.0, 1.0, magnitudes=[0.01, 12.0], durations=['72h'],
+            kind='amplitude')
+        self.assertEqual(list(curve.columns),
+                         ['magnitude', 'duration_h', 'detected', 'delay_h'])
+        self.assertFalse(bool(curve['detected'].iloc[0]))
+        self.assertTrue(bool(curve['detected'].iloc[1]))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
