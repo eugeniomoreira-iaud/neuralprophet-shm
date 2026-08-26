@@ -3679,12 +3679,18 @@ class TestPhysicalInjections(unittest.TestCase):
         self.assertLess(first_day.abs().max(), 1.0)
         self.assertAlmostEqual(last_day.abs().max(), 4.0, places=1)
 
-    def test_an_amplitude_growth_adds_no_level(self):
+    def test_an_amplitude_growth_adds_no_level_once_it_has_settled(self):
         series = self._flat()
+        start = series.index[0]
         moved = monitoring.inject_anomaly(
-            series, 'amplitude', 4.0, start=series.index[0], duration='1d')
-        whole_cycles = moved.loc[:series.index[0] + pd.Timedelta('30d')]
-        self.assertAlmostEqual(float(whole_cycles.mean()), 0.0, places=2)
+            series, 'amplitude', 4.0, start=start, duration='1d')
+        # A wider swing is not a shifted one: over whole cycles at the settled
+        # amplitude the injection averages to zero. The ramp itself is excluded
+        # deliberately, because a rising envelope weights the two halves of each
+        # cycle differently and must leave a small mean behind.
+        settled = moved.loc[start + pd.Timedelta('1d'):
+                            start + pd.Timedelta('31d')]
+        self.assertAlmostEqual(float(settled.mean()), 0.0, places=2)
 
     def test_a_phase_change_is_in_quadrature_with_an_amplitude_growth(self):
         series = self._flat()
@@ -3857,7 +3863,7 @@ returned columns all stay as Ruling P25 left them.
 ```bash
 python shmlib/tests/test_monitoring.py
 ```
-Expected: `OK`, **36 tests** — the 28 standing plus this task's 8.
+Expected: `OK`, **39 tests** — the 28 standing plus this task's 11.
 
 - [ ] **Step 7: Verify nothing else broke**
 
