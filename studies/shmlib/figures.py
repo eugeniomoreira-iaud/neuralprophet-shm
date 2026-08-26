@@ -2002,3 +2002,236 @@ def plot_cadence_evidence(evidence, title='', save_path=None, filename=None):
         fig.suptitle(title)
     viz.finish(fig, save_path=save_path, filename=filename)
     return fig
+
+
+def plot_decomposition_stack(components, columns=None, title='',
+                             save_path=None, filename=None):
+    """
+    One panel per additive component, on a shared clock.
+
+    The panels are stacked rather than overlaid because the components differ in
+    scale by orders of magnitude: a trend of a few millidegrees a year and a
+    daily cycle of tens of millidegrees cannot share an axis without one of them
+    becoming a flat line.
+
+    Parameters
+    ----------
+    components : pd.DataFrame
+        Output of ``prediction.decompose_components``.
+    columns : sequence of str or None, optional
+        Components to draw, in panel order. ``None`` draws every component
+        column, ending with the residual. Default ``None``.
+    title : str, optional
+        Figure title. Default ``''``.
+    save_path, filename : str or None, optional
+        Passed to ``viz.finish``; nothing is written when either is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if columns is None:
+        columns = [c for c in components.columns
+                   if c not in ('y', 'yhat1', 'ID', 'residual')]
+        if 'residual' in components.columns:
+            columns = columns + ['residual']
+    columns = list(columns)
+
+    fig, axes = plt.subplots(
+        len(columns), 1, sharex=True,
+        figsize=viz.figsize(viz.FIGURE_WIDTH, 1.15 * len(columns)))
+    axes = np.atleast_1d(axes)
+
+    for ax, column in zip(axes, columns):
+        colour = (viz.MARK_COLOUR if column == 'residual' else viz.INC_COLOUR)
+        ax.plot(components.index, components[column], color=colour,
+                linewidth=1.0)
+        ax.set_ylabel(column.replace('future_regressor_', '')
+                      .replace('lagged_regressor_', '')
+                      .replace('_', ' '))
+        viz.format_spines(ax)
+    axes[-1].set_xlabel('')
+
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_prediction_band(observed, expected, lower, upper, title='',
+                         highlight=None, save_path=None, filename=None):
+    """
+    Observed against expected, with the prediction interval drawn behind them.
+
+    Parameters
+    ----------
+    observed, expected : pd.Series
+        Measured and predicted values, on a shared index.
+    lower, upper : pd.Series
+        Interval bounds, same index.
+    title : str, optional
+        Figure title. Default ``''``.
+    highlight : sequence of (start, end) or None, optional
+        Intervals to shade, drawn in the project's span style. Default ``None``.
+    save_path, filename : str or None, optional
+        Passed to ``viz.finish``; nothing is written when either is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, ax = plt.subplots(figsize=viz.figsize(viz.FIGURE_WIDTH, 2.6))
+
+    ax.fill_between(observed.index, lower, upper, color=viz.INC_COLOUR,
+                    alpha=0.18, linewidth=0.0, label='90 % interval')
+    ax.plot(observed.index, observed, color=viz.INC_COLOUR, linewidth=1.0,
+            label='observed')
+    ax.plot(expected.index, expected, color=viz.MARK_COLOUR, linewidth=1.0,
+            linestyle='--', label='expected')
+
+    for span in (highlight or ()):
+        ax.axvspan(span[0], span[1], **viz.SPAN_STYLE)
+
+    ax.set_ylabel('Inclination [mdeg]')
+    viz.format_spines(ax)
+    if title:
+        ax.set_title(title)
+    ax.legend(fontsize='small', ncol=3, loc='upper center',
+              bbox_to_anchor=(0.5, -0.30), frameon=False)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_control_chart(chart, statistic='ewma', episodes=None, title='',
+                       save_path=None, filename=None):
+    """
+    A control statistic against its limits, with alarming episodes shaded.
+
+    Parameters
+    ----------
+    chart : pd.DataFrame
+        Output of ``monitoring.ewma_chart`` or ``monitoring.cusum_chart``.
+    statistic : str, optional
+        Column to draw. Default ``'ewma'``; pass ``'cusum_high'`` for a CUSUM
+        chart.
+    episodes : pd.DataFrame or None, optional
+        Output of ``monitoring.alarm_episodes``, shaded behind the statistic.
+        Default ``None``.
+    title : str, optional
+        Figure title. Default ``''``.
+    save_path, filename : str or None, optional
+        Passed to ``viz.finish``; nothing is written when either is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, ax = plt.subplots(figsize=viz.figsize(viz.FIGURE_WIDTH, 2.4))
+
+    for _, episode in (episodes if episodes is not None
+                       else pd.DataFrame()).iterrows():
+        ax.axvspan(episode['start'], episode['end'], **viz.SPAN_STYLE)
+
+    ax.plot(chart.index, chart[statistic], color=viz.INC_COLOUR,
+            linewidth=1.0, label=statistic.replace('_', ' '))
+    for limit in ('ucl', 'lcl', 'limit'):
+        if limit in chart.columns:
+            ax.plot(chart.index, chart[limit], color=viz.MARK_COLOUR,
+                    linewidth=0.9, linestyle='--',
+                    label='limit' if limit != 'lcl' else None)
+
+    ax.set_ylabel('Standardised residual')
+    viz.format_spines(ax)
+    if title:
+        ax.set_title(title)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, fontsize='small', ncol=len(labels),
+              loc='upper center', bbox_to_anchor=(0.5, -0.30), frameon=False)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_metric_vs_horizon(metrics, metric='mae', by='model', title='',
+                           save_path=None, filename=None):
+    """
+    One curve per model, showing how a metric degrades with forecast horizon.
+
+    Parameters
+    ----------
+    metrics : pd.DataFrame
+        Long table carrying ``horizon_h``, the grouping column and the metric.
+    metric : str, optional
+        Column to draw. Default ``'mae'``.
+    by : str, optional
+        Grouping column, one curve per level. Default ``'model'``.
+    title : str, optional
+        Figure title. Default ``''``.
+    save_path, filename : str or None, optional
+        Passed to ``viz.finish``; nothing is written when either is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, ax = plt.subplots(figsize=viz.figsize(viz.FIGURE_WIDTH, 2.6))
+
+    styles = ['-', '--', '-.', ':']
+    for position, (name, group) in enumerate(metrics.groupby(by, sort=False)):
+        ordered = group.sort_values('horizon_h')
+        ax.plot(ordered['horizon_h'], ordered[metric], color=viz.INC_COLOUR,
+                linestyle=styles[position % len(styles)], marker='o',
+                markersize=3, linewidth=1.4, label=str(name))
+
+    ax.set_xlabel('Forecast horizon [h]')
+    ax.set_ylabel(metric.upper() if len(metric) <= 4 else metric)
+    viz.format_spines(ax)
+    if title:
+        ax.set_title(title)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, fontsize='small', ncol=min(len(labels), 4),
+              loc='upper center', bbox_to_anchor=(0.5, -0.30), frameon=False)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_detectability(curve, title='', save_path=None, filename=None):
+    """
+    The smallest departure the charts find, against how long it persists.
+
+    Two panels: whether each injected departure was detected at all, as a
+    Cividis field over magnitude and duration, and how late the detection came.
+
+    Parameters
+    ----------
+    curve : pd.DataFrame
+        Output of ``monitoring.detectability_curve``.
+    title : str, optional
+        Figure title. Default ``''``.
+    save_path, filename : str or None, optional
+        Passed to ``viz.finish``; nothing is written when either is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    detected = curve.pivot(index='magnitude', columns='duration_h',
+                           values='detected').astype(float)
+    delay = curve.pivot(index='magnitude', columns='duration_h',
+                        values='delay_h')
+
+    fig, axes = plt.subplots(1, 2, figsize=viz.figsize(viz.FIGURE_WIDTH, 2.6))
+    for ax, frame, label, cmap in ((axes[0], detected, 'Detected', 'cividis_r'),
+                                   (axes[1], delay, 'Detection delay [h]',
+                                    'cividis')):
+        mesh = ax.pcolormesh(frame.columns.to_numpy(),
+                             frame.index.to_numpy(),
+                             frame.to_numpy(), cmap=cmap, shading='nearest')
+        fig.colorbar(mesh, ax=ax, label=label)
+        ax.set_xlabel('Duration [h]')
+        ax.set_ylabel('Magnitude [mdeg]')
+        viz.format_spines(ax)
+
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig

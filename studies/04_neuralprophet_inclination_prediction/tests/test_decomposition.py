@@ -211,5 +211,95 @@ class TestScorePredictionsExtension(unittest.TestCase):
                                1.0 + (2.0 / 0.10) * 2.0)
 
 
+class TestModelFigures(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        import matplotlib
+        matplotlib.use('Agg')
+
+    def test_every_figure_builds_and_writes_png_and_svg(self):
+        import tempfile
+        from pathlib import Path
+
+        import matplotlib.pyplot as plt
+
+        from shmlib import figures, monitoring
+
+        index = pd.date_range('2024-01-01', periods=400, freq='20min')
+        components = pd.DataFrame({
+            'trend': np.linspace(0.0, 2.0, 400),
+            'season_daily': np.sin(np.arange(400) / 72.0 * 2 * np.pi),
+            'future_regressor_tair': np.cos(np.arange(400) / 72.0 * 2 * np.pi),
+            'residual': np.zeros(400),
+            'y': np.zeros(400),
+            'yhat1': np.zeros(400),
+        }, index=index)
+        observed = pd.Series(np.sin(np.arange(400) / 20.0), index=index)
+        expected = observed * 0.9
+        chart = monitoring.ewma_chart(observed - expected, 0.0, 1.0)
+        metrics = pd.DataFrame({
+            'horizon_h': [1, 6, 24, 1, 6, 24],
+            'model': ['ar'] * 3 + ['ar+tair'] * 3,
+            'mae': [1.0, 2.0, 3.0, 0.9, 1.8, 2.9],
+        })
+        curve = pd.DataFrame({
+            'magnitude': [1.0, 2.0, 1.0, 2.0],
+            'duration_h': [6.0, 6.0, 24.0, 24.0],
+            'detected': [False, True, True, True],
+            'delay_h': [np.nan, 2.0, 1.0, 0.5],
+        })
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = (
+                ('NP_F05_decomposition_stack',
+                 lambda p, f: figures.plot_decomposition_stack(
+                     components, title='t', save_path=p, filename=f)),
+                ('NP_F07_observed_vs_expected',
+                 lambda p, f: figures.plot_prediction_band(
+                     observed, expected, expected - 1.0, expected + 1.0,
+                     title='t', save_path=p, filename=f)),
+                ('NP_F08_control_chart',
+                 lambda p, f: figures.plot_control_chart(
+                     chart, title='t', save_path=p, filename=f)),
+                ('NP_F10_skill_vs_horizon',
+                 lambda p, f: figures.plot_metric_vs_horizon(
+                     metrics, metric='mae', by='model', title='t',
+                     save_path=p, filename=f)),
+                ('NP_F09_detectability',
+                 lambda p, f: figures.plot_detectability(
+                     curve, title='t', save_path=p, filename=f)),
+            )
+            for name, call in cases:
+                call(tmp, name)
+                for ext in ('png', 'svg'):
+                    self.assertTrue((Path(tmp) / f'{name}.{ext}').exists(),
+                                    f'{name}.{ext} was not written')
+            plt.close('all')
+
+    def test_legends_sit_below_their_axes(self):
+        import matplotlib.pyplot as plt
+
+        from shmlib import figures
+
+        metrics = pd.DataFrame({
+            'horizon_h': [1, 6, 1, 6],
+            'model': ['ar', 'ar', 'ar+tair', 'ar+tair'],
+            'mae': [1.0, 2.0, 0.9, 1.8],
+        })
+        fig = figures.plot_metric_vs_horizon(metrics, metric='mae', by='model')
+        renderer = fig.canvas.get_renderer()
+        for ax in fig.axes:
+            legend = ax.get_legend()
+            if legend is not None:
+                # Compare both boxes in display coordinates: the legend's top
+                # must sit at or below the axes' bottom. Reading the anchor's
+                # y1 instead measures a pixel position, which is positive for
+                # any legend inside the canvas and so cannot discriminate.
+                self.assertLessEqual(legend.get_window_extent(renderer).y1,
+                                     ax.get_window_extent().y0)
+        plt.close(fig)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

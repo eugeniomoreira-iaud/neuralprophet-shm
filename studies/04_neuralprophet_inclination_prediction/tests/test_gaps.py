@@ -205,15 +205,32 @@ class TestPhaseOneFigures(unittest.TestCase):
         index = pd.date_range('2024-01-01', periods=300, freq='20min')
         values = np.sin(np.arange(300) / 10.0)
         values[50:70] = np.nan
+        frame = pd.DataFrame({'y': values, 'x': 1.0}, index=index)
         inventory = prediction.gap_inventory(
             pd.Series(values, index=index), freq='20min')
-        fig = figures.plot_gap_anatomy(inventory, title='t')
-        for ax in fig.axes:
-            legend = ax.get_legend()
-            if legend is not None:
-                self.assertLess(legend.get_bbox_to_anchor().y1, 0.0,
-                                'A legend must sit below its axes.')
-        plt.close(fig)
+        survival = prediction.segment_survival(
+            frame, ['y', 'x'], lag_hours=[1, 2], forecast_hours=[1],
+            freq='20min')
+
+        # plot_gap_anatomy draws no legend, so it alone cannot tell a correct
+        # placement from a broken guard; plot_segment_survival does draw one,
+        # which keeps this check live rather than vacuously passing.
+        for fig in (figures.plot_gap_anatomy(inventory, title='t'),
+                   figures.plot_segment_survival(survival, title='t')):
+            renderer = fig.canvas.get_renderer()
+            for ax in fig.axes:
+                legend = ax.get_legend()
+                if legend is not None:
+                    # Compare both boxes in display coordinates: the legend's
+                    # top must sit at or below the axes' bottom. Reading the
+                    # anchor's y1 instead measures a pixel position, which is
+                    # positive for any legend inside the canvas and so cannot
+                    # discriminate.
+                    self.assertLessEqual(
+                        legend.get_window_extent(renderer).y1,
+                        ax.get_window_extent().y0,
+                        'A legend must sit below its axes.')
+            plt.close(fig)
 
     def test_each_forecast_horizon_group_gets_a_distinct_line_style(self):
         import matplotlib.pyplot as plt
