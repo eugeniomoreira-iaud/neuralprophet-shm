@@ -431,10 +431,10 @@ def availability_route(core_ok, rich_ok, ar_ok=False, task='nowcast',
     return 'unavailable'
 
 
-def _score_group(group):
+def _score_group(group, naive_scale=None, alpha=0.10):
     """Compute scalar scores for one already selected group."""
     data = group[['y', 'yhat']].apply(pd.to_numeric, errors='coerce').dropna()
-    row = {
+    scores = {
         'n': int(len(data)),
         'mae': np.nan,
         'rmse': np.nan,
@@ -443,14 +443,14 @@ def _score_group(group):
     }
     if len(data):
         error = data['yhat'] - data['y']
-        row['mae'] = float(error.abs().mean())
-        row['rmse'] = float(np.sqrt(np.mean(error ** 2)))
-        row['bias'] = float(error.mean())
+        scores['mae'] = float(error.abs().mean())
+        scores['rmse'] = float(np.sqrt(np.mean(error ** 2)))
+        scores['bias'] = float(error.mean())
         if len(data) > 1:
             total = float(((data['y'] - data['y'].mean()) ** 2).sum())
             if total > 0:
                 residual = float((error ** 2).sum())
-                row['r2'] = 1.0 - residual / total
+                scores['r2'] = 1.0 - residual / total
 
     if {'q05', 'q95'}.issubset(group.columns):
         interval = group[['y', 'q05', 'q95']].apply(
@@ -458,16 +458,53 @@ def _score_group(group):
         if len(interval):
             covered = ((interval['y'] >= interval['q05'])
                        & (interval['y'] <= interval['q95']))
-            row['coverage_q05_q95'] = float(covered.mean())
-            row['width_q05_q95'] = float((interval['q95']
-                                          - interval['q05']).median())
+            scores['coverage_q05_q95'] = float(covered.mean())
+            scores['width_q05_q95'] = float((interval['q95']
+                                             - interval['q05']).median())
         else:
-            row['coverage_q05_q95'] = np.nan
-            row['width_q05_q95'] = np.nan
-    return row
+            scores['coverage_q05_q95'] = np.nan
+            scores['width_q05_q95'] = np.nan
+
+    # Scale-free error, so that horizons and cadences are comparable on one
+    # axis. The scale is the caller's in-sample naive mean absolute error; it is
+    # not derived here, because a scale computed on the evaluation rows would
+    # make the metric self-referential.
+    scores['mase'] = (scores['mae'] / naive_scale
+                      if naive_scale not in (None, 0) and np.isfinite(naive_scale)
+                      else np.nan)
+
+    lower_col, upper_col = 'q05', 'q95'
+    if lower_col in group.columns and upper_col in group.columns:
+        y = pd.to_numeric(group['y'], errors='coerce')
+        lower = pd.to_numeric(group[lower_col], errors='coerce')
+        upper = pd.to_numeric(group[upper_col], errors='coerce')
+        complete = y.notna() & lower.notna() & upper.notna()
+        y, lower, upper = y[complete], lower[complete], upper[complete]
+
+        # Pinball loss scores each quantile on its own terms rather than only
+        # asking whether the pair happened to bracket the observation.
+        for column, quantile, forecast in ((f'pinball_{lower_col}', 0.05, lower),
+                                           (f'pinball_{upper_col}', 0.95, upper)):
+            error = y - forecast
+            loss = np.where(error >= 0, quantile * error,
+                            (quantile - 1.0) * error)
+            scores[column] = float(np.mean(loss)) if len(loss) else np.nan
+
+        # Winkler interval score: width, plus a penalty proportional to how far
+        # outside the interval the observation fell.
+        width = upper - lower
+        penalty = np.where(y < lower, (2.0 / alpha) * (lower - y), 0.0) \
+            + np.where(y > upper, (2.0 / alpha) * (y - upper), 0.0)
+        scores['interval_score'] = (float(np.mean(width + penalty))
+                                    if len(width) else np.nan)
+    else:
+        scores['pinball_q05'] = np.nan
+        scores['pinball_q95'] = np.nan
+        scores['interval_score'] = np.nan
+    return scores
 
 
-def score_predictions(frame, group_cols):
+def score_predictions(frame, group_cols, naive_scale=None, alpha=0.10):
     """
     Score observed and predicted values, optionally by group.
 
@@ -483,16 +520,29 @@ def score_predictions(frame, group_cols):
     group_cols : sequence of str or None
         Columns defining independent score groups. Use ``None`` or an empty
         sequence for a single pooled score row.
+    naive_scale : float, optional
+        In-sample mean absolute error of a naive (e.g. persistence) forecast,
+        supplied by the caller. Used as the denominator of MASE. When
+        ``None`` (the default) or ``0`` or non-finite, ``mase`` is ``NaN``
+        rather than the column being absent, so the returned schema never
+        depends on this argument.
+    alpha : float, optional
+        Nominal miscoverage rate of the ``q05``/``q95`` interval, used to
+        weight the Winkler interval-score penalty for observations that fall
+        outside the interval. Default ``0.10``.
 
     Returns
     -------
     pd.DataFrame
-        One row per group with ``n``, ``mae``, ``rmse``, ``bias``, ``r2`` and,
-        when interval columns are present, coverage and width.
+        One row per group with ``n``, ``mae``, ``rmse``, ``bias``, ``r2``
+        and, when interval columns are present, coverage and width, followed
+        by ``mase`` (scale-free error against ``naive_scale``),
+        ``pinball_q05`` and ``pinball_q95`` (per-quantile pinball loss) and
+        ``interval_score`` (Winkler interval score).
     """
     group_cols = list(group_cols or [])
     if not group_cols:
-        return pd.DataFrame([_score_group(frame)])
+        return pd.DataFrame([_score_group(frame, naive_scale, alpha)])
 
     rows = []
     grouped = frame.groupby(group_cols, dropna=False, sort=True)
@@ -500,7 +550,7 @@ def score_predictions(frame, group_cols):
         if not isinstance(key, tuple):
             key = (key,)
         row = dict(zip(group_cols, key))
-        row.update(_score_group(group))
+        row.update(_score_group(group, naive_scale, alpha))
         rows.append(row)
     return pd.DataFrame(rows)
 

@@ -164,5 +164,52 @@ class TestResidualDiagnostics(unittest.TestCase):
         self.assertTrue(np.isnan(table['lb_stat'].iloc[1]))
 
 
+class TestScorePredictionsExtension(unittest.TestCase):
+
+    def _frame(self):
+        return pd.DataFrame({
+            'y': [0.0, 1.0, 2.0, 3.0],
+            'yhat': [0.5, 1.5, 1.5, 3.5],
+            'q05': [-1.0, 0.0, 1.0, 2.0],
+            'q95': [1.0, 2.0, 3.0, 4.0],
+            'model': ['a', 'a', 'b', 'b'],
+        })
+
+    def test_existing_columns_keep_their_names_order_and_values(self):
+        scores = prediction.score_predictions(self._frame(), ['model'])
+        expected = ['model', 'n', 'mae', 'rmse', 'bias', 'r2',
+                    'coverage_q05_q95', 'width_q05_q95']
+        self.assertEqual(list(scores.columns)[:len(expected)], expected)
+        self.assertAlmostEqual(scores['mae'].iloc[0], 0.5)
+
+    def test_new_columns_are_appended_after_the_existing_ones(self):
+        scores = prediction.score_predictions(self._frame(), ['model'])
+        self.assertEqual(list(scores.columns)[-4:],
+                         ['mase', 'pinball_q05', 'pinball_q95',
+                          'interval_score'])
+
+    def test_mase_is_missing_until_a_naive_scale_is_supplied(self):
+        without = prediction.score_predictions(self._frame(), ['model'])
+        self.assertTrue(without['mase'].isna().all())
+        withscale = prediction.score_predictions(
+            self._frame(), ['model'], naive_scale=0.5)
+        self.assertAlmostEqual(withscale['mase'].iloc[0], 1.0)
+
+    def test_pinball_loss_penalises_the_wrong_side_of_each_quantile(self):
+        frame = pd.DataFrame({'y': [10.0], 'yhat': [0.0],
+                              'q05': [0.0], 'q95': [1.0], 'model': ['a']})
+        scores = prediction.score_predictions(frame, ['model'])
+        # y above q95: the 0.95 quantile is penalised at weight 0.95.
+        self.assertAlmostEqual(scores['pinball_q95'].iloc[0], 0.95 * 9.0)
+        self.assertAlmostEqual(scores['pinball_q05'].iloc[0], 0.05 * 10.0)
+
+    def test_interval_score_adds_a_violation_penalty_to_the_width(self):
+        frame = pd.DataFrame({'y': [3.0], 'yhat': [0.0],
+                              'q05': [0.0], 'q95': [1.0], 'model': ['a']})
+        scores = prediction.score_predictions(frame, ['model'], alpha=0.10)
+        self.assertAlmostEqual(scores['interval_score'].iloc[0],
+                               1.0 + (2.0 / 0.10) * 2.0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
