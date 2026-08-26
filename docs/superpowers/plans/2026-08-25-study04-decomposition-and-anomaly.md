@@ -19,14 +19,10 @@ at every checkpoint for the user. Tasks marked *orchestrator* in the Notes are n
 **Tasks 1 to 12 are complete.** Phases 0, 1, 2 and 3 are done, so every library function the study
 needs now exists. Work is on branch `study04-rebuild`, cut from `main` at `9ebcc5c`, and the last
 commit of Phase 3 is `8c5f783`. Checkpoints 0 and 1–2 were shown to the user and approved on
-2026-08-25; **Checkpoint 3 was reached on 2026-08-26 and is where execution stopped.**
+2026-08-25, and Checkpoint 3 on 2026-08-26.
 
-**The design was amended at Checkpoint 3** and the tasks below were patched in place to match, at
-the user's direction, on 2026-08-26. Instrument eras are out of scope, D10 is retired, and the
-summer-2026 event is no longer detection evidence; the amendment is spec §11, and what it changed
-here is listed in "The Checkpoint 3 amendment" below. **The next action is Task 12A**, which gives
-the library the three physically motivated perturbations the amendment requires, after which
-Task 13 proceeds as patched.
+**The next action is Task 12A**, which gives the library the three physically motivated
+perturbations D12 requires, after which Phase 4 begins at Task 13.
 
 ### To resume in a new session
 
@@ -249,30 +245,6 @@ exist to prevent.
     colour, and the expected line is distinguished by its dash. The control-limit lines stay
     Vermilion deliberately — a control limit is a reference line, which is the role the accent is for.
 
-### The Checkpoint 3 amendment
-
-The user amended three of the design's premises at Checkpoint 3 and chose to have the tasks patched
-in place rather than re-planned from a fresh spec. The reasoning lives in spec §11; what changed in
-this plan is listed here so that a reader of the tasks below knows which parts are the amendment and
-which are original.
-
-- **Eras** (spec §11.1). Global Constraints replaced. One live use existed: the notebook's step 3
-  passed `era=window.get('era')` into `cadence_evidence`
-  (`neuralprophet_inclination_prediction_study.py:304`). It becomes `era=None`, and `NP_04` is
-  re-measured — expect a small change in `n_change` and in the change autocorrelations, since
-  differences that were previously discarded at the changeover are now kept. The library keeps its
-  `era` parameter for Studies 02 and 03, which are untouched.
-- **D10** (spec §11.2). Task 13 loses its raw-channel sensitivity step and two rows of `NP_06`; its
-  Markdown, its commit message and Checkpoint 4 lose the compensation argument. The Study 03
-  confrontation is untouched and remains the kill criterion.
-- **The event** (spec §11.3). Task 15 keeps the reference window that excludes summer 2026, but as a
-  precaution rather than as a test, and its verification no longer counts episodes inside that
-  window. `KNOWN_EVENT` is deleted from the parameter cell. **Task 16 is rewritten** around the three
-  mechanisms, and **Task 12A is inserted** to give `monitoring.inject_anomaly` the kinds it needs:
-  it implements `step`, `ramp` and `pulse`, not amplitude growth, phase change or drift.
-- **Report** (Tasks 19 and 20). The sections that cited the event are re-aimed at the mechanism
-  sweep; §11 of the spec is the authority for the wording.
-
 ### Decisions already taken, not to be reopened
 
 Wall temperature and solar radiation are out of scope. The study is rebuilt in place as study 04,
@@ -295,16 +267,15 @@ These were settled on 2026-08-25 and are recorded in section 10 of the design do
 - **Excluded from this study** (decision D11): wall temperature `twall` and solar radiation `sr`.
 - **Window:** `SEGMENT_START = '2023-06-21'` to the end of the archive.
 - **Response:** `inc_comp_cleaned`, read with `honour_spike=True` so interpolated values are returned missing.
-- **Instrument eras are out of scope entirely** (spec §11.1). Study 01's cleaned, compensated series
-  is this study's raw data. No era term, no era column read, no era label passed to any function —
-  `cadence_evidence` is called with `era=None`.
-- **Compensation is not on trial** (spec §11.2, retiring D10). The compensated channel is modelled
-  as given. No raw-channel fit, no comparison against `adc.DOCUMENTED_COEFF`, no claim about the
-  sign contradiction in `docs/raw-data-format.md` §7.5. Study 03's −2.79 mdeg/°C remains the
-  external check.
-- **The summer-2026 event is not detection evidence** (spec §11.3). It is excluded from the
-  reference window as a precaution, and no figure, table or sentence reports whether the detector
-  found it. Sensitivity is stated from injected perturbations of known physical shape instead.
+- **Instrument eras are out of scope entirely** (D9). Study 01's cleaned, compensated series is this
+  study's raw data. No era term, no era column read, no era label passed to any function —
+  `cadence_evidence` and `hourly_change` are called with `era=None`.
+- **Compensation is taken as given** (D10). The compensated channel is modelled as delivered. No
+  raw-channel fit, no comparison against `adc.DOCUMENTED_COEFF`, no claim about the sign
+  contradiction in `docs/raw-data-format.md` §7.5. Study 03's −2.79 mdeg/°C is the external check.
+- **The summer-2026 event is not detection evidence** (D12). It is excluded from the reference
+  window as a precaution, and no figure, table or sentence reports whether the detector found it.
+  Sensitivity is stated from injected perturbations shaped like damage instead.
 - **Commit messages** end with:
   ```
   Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
@@ -329,7 +300,7 @@ Measured 2026-08-25 over `2023-06-21 → 2026-08-21`, 83,305 slots on the 20-min
 | `corr(Δinc, Δtair)` | −0.7781 | −0.8925 |
 | `corr(inc, tair)` | −0.8647 | −0.8665 |
 
-Study 03's independently measured diurnal-band gain, which Model A must reproduce: **−2.79 mdeg/°C** (`r = −0.957`). The documented compensation coefficient is deliberately absent from this table — spec §11.2 puts compensation outside this study.
+Study 03's independently measured diurnal-band gain, which Model A must reproduce: **−2.79 mdeg/°C** (`r = −0.957`). The documented compensation coefficient is deliberately absent: D10 puts compensation outside this study.
 
 ---
 
@@ -3646,9 +3617,9 @@ EOF
 
 ### Task 12A: Perturbations with a physical mechanism
 
-Added 2026-08-26 by the Checkpoint 3 amendment (spec §11.3). The library can inject a step, a ramp
-and a pulse — generic shapes that say nothing about how a wall fails. The study now needs three
-shapes that do, and one helper that converts a timing shift into the amplitude it implies.
+The library can inject a step, a ramp and a pulse — generic shapes that say nothing about how a wall
+fails. D12 requires three shapes that do, and one helper that converts a timing shift into the
+amplitude it implies.
 
 **Files:**
 - Modify: `studies/shmlib/monitoring.py` (`inject_anomaly`, `detectability_curve`; append
@@ -3945,15 +3916,15 @@ EOF
 - Produces: notebook variables `model_a`, `predictions_a`, `components_a`, `residual_a`, consumed by
   Tasks 14–16.
 
-- [ ] **Step 0: Retire the era argument from step 3 (amendment, spec §11.1)**
+- [ ] **Step 0: Confirm step 3 reads no era label (D9)**
 
 In `neuralprophet_inclination_prediction_study.py`, the step 3 call to `prediction.cadence_evidence`
-passes `era=window.get('era')`. Replace that argument with `era=None` and put the reason in the
-comment above the call: instrument eras are Study 01's subject, and this study reads its input as a
-single anchored series. Executing the notebook in Step 6 regenerates `NP_04` without the era guard,
-so **expect `n_change` to rise slightly and the change autocorrelations to move in the last
-decimal** — differences that were previously discarded at the changeover are now kept. Record the new
-values; they supersede the Ruling P18 reproduction for those two rows.
+must pass `era=None`, with the reason in the comment above it: instrument eras are Study 01's
+subject, and this study reads its input as a single anchored series. Executing the notebook in
+Step 6 regenerates `NP_04` accordingly, so **expect `n_change` to be slightly higher and the change
+autocorrelations to move in the last decimal** against the values first measured in Phase 1, because
+differences at the changeover are no longer discarded. Record the new values; they are the ones the
+report quotes.
 
 - [ ] **Step 1: Add the step 4 parameter block to the parameter cell**
 
@@ -4151,13 +4122,9 @@ display(gains)
 gains.to_csv(OUTPUT_DIR / 'NP_06_learned_gains.csv', index=False)
 ```
 
-> **Amended 2026-08-26 (spec §11.2).** This task previously carried a sixth step that refitted the
-> raw, uncompensated channel and added a `Model A, raw channel` row and a `Documented compensation`
-> row to `NP_06`, so that the study could speak to the sign contradiction in
-> `docs/raw-data-format.md` §7.5. D10 is retired: compensation is Study 01's discussion and this
-> study is blind to it. The step and both rows are deleted, `RAW_TARGET_COLUMN` is no longer read by
-> this task, and the remaining steps are renumbered. Nothing else in the task changes — the Study 03
-> confrontation is independent of compensation and remains the kill criterion.
+`NP_06` carries the fitted gain and Study 03's three independent measurements of it, and nothing
+else. No raw-channel refit and no documented-coefficient row: D10 places compensation outside this
+study, and the Study 03 confrontation does not depend on it.
 
 - [ ] **Step 6: Execute and inspect**
 
@@ -4448,9 +4415,9 @@ CUSUM_H = 5.0
 # Coincidence window for the joint alarm.
 JOINT_WINDOW = '6h'
 
-# Amended 2026-08-26: KNOWN_EVENT is deleted. The summer-2026 stretch is kept
-# out of the reference window above, but it is not a test and no result is
-# stated from it (spec section 11.3).
+# No event window is parameterised. The summer-2026 stretch is kept out of the
+# reference window above, but it is not a test and no result is stated from it
+# (D12).
 
 # The false-alarm budget the charts are tuned to, in days between false alarms
 # on the in-control reference stretch. Every detection figure in this study is
@@ -4576,9 +4543,8 @@ PY
 Expected: a run length at or above `TARGET_ARL_DAYS` on the reference stretch. If no candidate `L`
 meets the budget, the residual is not in control over the reference window — return to Checkpoint 4
 rather than widening the limit until the alarms stop. The episode table is reported as it comes;
-**no episode is counted against the summer-2026 stretch and no verdict is stated about it**
-(spec §11.3), because a detector's sensitivity is established in Task 16 by injection, not by one
-large event.
+**no episode is counted against the summer-2026 stretch and no verdict is stated about it** (D12),
+because a detector's sensitivity is established in Task 16 by injection, not by one large event.
 
 - [ ] **Step 5: Commit**
 
@@ -4602,11 +4568,9 @@ EOF
 
 ### Task 16: Detectability against three damage mechanisms
 
-**Amended 2026-08-26 (spec §11.3).** This task previously swept generic pulses and then asked
-whether the detector found the summer-2026 event Study 01 flagged. The event is no longer used: it
-is too large to demonstrate sensitivity, and finding it would prove only that the detector is not
-broken. The sweep now runs over perturbations whose shape corresponds to a damage mechanism in a
-three-leaf stone wall, and the known-event cell is deleted outright.
+The sweep runs over perturbations whose shape corresponds to a damage mechanism in a three-leaf
+stone wall (D12). The summer-2026 event is not tested: it is too large to demonstrate sensitivity,
+and finding it would prove only that the detector is not broken.
 
 **Files:**
 - Modify: the notebook (append step 7b)
@@ -5379,7 +5343,7 @@ plainly whether the two methods agree, and by how much. Add the stability table
 stretches of the record is a finding, and one that does not is reported as instability. State that
 the gain is fitted on the compensated channel and is therefore what the wall does after Study 01's
 correction, which is the only quantity a monitoring system sees; do not argue about the correction
-itself (spec §11.2).
+itself (D10).
 
 - [ ] **Step 6: Add section 6 — is this reading expected?**
 
@@ -5401,7 +5365,7 @@ millidegrees for the swing, hours of shift for the timing, millidegrees per year
 mechanism undetected across the whole swept range is reported as a limit of this instrument and this
 model, which is a result about the method's reach and not a failure to be hidden.
 
-**No claim whatsoever is made about the summer-2026 stretch** (spec §11.3): it is too large to
+**No claim whatsoever is made about the summer-2026 stretch** (D12): it is too large to
 demonstrate sensitivity, and a detector that finds it has shown only that it is not broken.
 
 - [ ] **Step 8: Add section 8 — how far ahead is prediction worth anything?**

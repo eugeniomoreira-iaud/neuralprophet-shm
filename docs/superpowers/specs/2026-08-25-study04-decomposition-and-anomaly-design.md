@@ -47,9 +47,11 @@ on them; it does not re-derive them.
 | Native cadence | 20 minutes, 212,257 rows, 2018-07-26 → 2026-08-21 | archive header |
 | A real event exists | ST02 summer-2026 inclination anomaly, flagged at 5σ against a 24-hour rolling median | `DE_F05`, `DE_F14`, `de_lib.anomaly_by_channel` |
 
-The last row matters more than its size suggests: it is a **labelled event**, and therefore the
-only opportunity this project has to test an anomaly detector against something other than
-synthetic data.
+The last row is why the reference window stops in mid-2025: a window used to calibrate a detector
+must be in control, and Study 01 flagged that stretch. It is excluded as a precaution and nothing
+more. The event is far too large to say anything about sensitivity — a detector that finds a 5σ
+excursion has shown only that it is not broken — so this study states no result from it and measures
+its sensitivity by injection instead (D12).
 
 ### 2.2 From Study 03 — the couplings
 
@@ -79,11 +81,12 @@ Binding consequences:
   in its mount (`docs/raw-data-format.md` §7.1).
 - The **raw channel measures +1.63 mdeg/°C**, the wrong sign, an unresolved contradiction (§7.5).
   The compensated channel does not carry it: measured here, `corr(inc_comp_cleaned, tair) = −0.865`.
-- **Never estimate and subtract an era offset.** The two instrument eras are already anchored as a
-  single series (§3.3, §7.3).
-- **Compensation is not free.** `adc.DOCUMENTED_COEFF = 0.005` subtracts a thermal term of a size
-  comparable to the true thermal slope. Any coefficient this study fits on `inc_comp_cleaned` is a
-  *post-compensation residual* gain, and must be labelled as such.
+- **Instrument eras are not this study's business.** The two eras are already anchored as a single
+  series by Study 01 (§3.3, §7.3). Nothing here reads, labels or offsets them.
+- **Compensation has already happened.** `adc.DOCUMENTED_COEFF = 0.005` subtracts a thermal term of
+  a size comparable to the true thermal slope, and whether that is the right size is Study 01's
+  question. Any coefficient this study fits is what the wall does *after* that correction — which is
+  the only quantity a deployed monitoring system ever sees — and is labelled as such.
 
 ### 2.4 Measured for this design (2026-08-25, window 2023-06-21 → 2026-08-21)
 
@@ -198,18 +201,21 @@ The window spans 3.2 annual cycles with a 103-day hole in the last one. Yearly s
 fitted both ways and kept only if it improves held-out error; the comparison is reported either
 way.
 
-### D9 · No era offset term
+### D9 · Instrument eras are out of scope
 
-The two instrument eras are already anchored once as a single series by Study 01. Adding an era
-indicator would re-estimate a step that has been deliberately removed, and the documentation
-forbids it.
+Study 01's cleaned, compensated series is this study's raw material, and the changeover of
+21 February 2025 is a fact about parsing the `.adc` archive — Study 01's subject, not this one's. No
+era term is fitted, no era offset is estimated, and no era label is read: `cadence_evidence` and
+`hourly_change` are called with `era=None`. The two units are already anchored once as a single
+series, and re-deriving that anchoring here could only damage it.
 
-### D10 · The compensation itself is put on trial
+### D10 · Compensation is taken as given
 
-Model A is fitted twice: on `inc_comp_cleaned` (primary) and on the spike-masked raw `inc`
-(sensitivity). The `tair` coefficient learned on the raw channel is compared against
-`adc.DOCUMENTED_COEFF = 0.005` and against Study 03's −2.79 mdeg/°C. This is the one place where
-this study can speak to the §7.5 sign contradiction, and it costs one extra fit.
+Whether the documented coefficient is correctly sized, and what the raw channel would have shown,
+are Study 01's questions. This study is blind to them: it models `inc_comp_cleaned` as delivered,
+fits no raw channel, and makes no claim about the §7.5 sign contradiction. The gain it learns is a
+post-compensation gain, which is what a deployed system sees, and it is confronted with Study 03's
+independently measured −2.79 mdeg/°C — a comparison that does not depend on the compensation at all.
 
 ---
 
@@ -221,6 +227,27 @@ and a 24-hour horizon. Study 03 established that both are real drivers, so their
 scope decision and not a claim that they do not matter: the channels exist for less than half the
 window, and carrying them would force every result to be reported twice, on two incomparable
 windows. They are named in the limitations as the first candidate for an extension study.
+
+### D12 · Sensitivity is stated from injections shaped like damage
+
+The record holds one flagged event, and it is useless as a sensitivity test: a 5σ excursion found by
+a 24-hour rolling median is found by anything, so detecting it measures nothing but the detector's
+pulse. Sensitivity is therefore established by injecting departures of known size, length and
+**shape** into the residual, and an injected departure earns its place only if its shape corresponds
+to a mechanism a three-leaf stone wall can actually produce — two masonry leaves either side of a
+weaker rubble-and-mortar core:
+
+| Kind | Injected shape | Mechanism it stands for |
+|---|---|---|
+| **Amplitude growth** | A daily harmonic whose amplitude grows to the stated size over the stated duration, then holds | Progressive loss of composite action between the leaves — delamination at the leaf-to-core interface, or loss of through-stones. A less stiff section bends further under the same daily heating, so the diurnal swing grows while its timing and its mean stay put. |
+| **Phase change** | A daily harmonic in quadrature, of the amplitude a stated timing shift implies | A changed thermal path rather than a changed stiffness — water ingress raising the core's heat capacity, or a crack re-routing conduction. The wall answers the same forcing later or earlier. |
+| **Drift** | A linear accumulation at a stated rate, in mdeg per year, running to the end of the record | Creep of the lime-mortar core under sustained load, thermal ratcheting of the outer leaf, or foundation settlement. Slow, monotone, invisible in any single day. |
+
+Magnitudes stay in millidegrees, the unit the instrument reports; a phase change is quoted by the
+timing shift in hours that produced it, converted through the daily amplitude the decomposition
+measures. The generic step, ramp and pulse injections remain in the library as building blocks, but
+the study reports the three mechanisms above. Every detectability figure is quoted at the stated
+false-alarm budget, and an alarm counts only where the uncontaminated record is silent.
 
 ---
 
@@ -274,10 +301,9 @@ look perfect by never alarming.
 | Metric | Why it is here |
 |---|---|
 | **ARL₀** — in-control average run length on a quiet held-out window | The false-alarm rate, expressed as "one false alarm every N days". Fixed first; everything else is measured at that setting. |
-| **Detection delay** for injected step and ramp anomalies | How long the operator waits before the alarm fires. |
-| **Minimum detectable step** vs persistence duration | The headline operational number: the smallest movement, in mdeg, this system can find, and how long it must last. |
-| **Recall on the labelled summer-2026 event** | The only real event available. A detector that misses it is not deployable. |
-| **Precision against the 5σ rolling-median flag** | Agreement with Study 01's independent method, over the same window. |
+| **Detection delay** per injected mechanism | How long the operator waits before the alarm fires, counting only alarms the uncontaminated record does not raise. |
+| **Smallest detected departure** vs persistence duration, per mechanism | The headline operational number, stated three times because the mechanisms are not interchangeable: the smallest growth of the daily swing in mdeg, the smallest timing shift in hours, and the slowest drift in mdeg per year that this system finds — and how long each must last. |
+| **Mechanisms undetected across the swept range** | A limit of this instrument and this model, reported as such. A sensitivity claim without its blind spots is a sales figure. |
 
 ---
 
@@ -315,8 +341,10 @@ monitoring.ewma_chart(residuals, mu, sigma, lam, L)
 monitoring.cusum_chart(residuals, mu, sigma, k, h)
 monitoring.joint_alarm(ewma_alarm, cusum_alarm, window)
 monitoring.alarm_episodes(alarm, residuals)
-monitoring.inject_anomaly(series, kind, magnitude, start, duration)
-monitoring.detectability_curve(residuals, magnitudes, durations, chart_params)
+monitoring.inject_anomaly(series, kind, magnitude, start, duration, period)
+    # kind: 'step' | 'ramp' | 'pulse' | 'amplitude' | 'phase' | 'drift'  (D12)
+monitoring.phase_shift_amplitude(daily_amplitude, shift_hours, period_hours)
+monitoring.detectability_curve(residuals, magnitudes, durations, kind, chart_params)
 monitoring.average_run_length(alarm, freq)
 
 figures.plot_decomposition_stack(components, ...)
@@ -351,11 +379,11 @@ Tables (`outputs/`, LaTeX bodies alongside):
 | `NP_03_segment_survival.csv` | Segments and training windows surviving each `n_lags` choice |
 | `NP_04_cadence_evidence.csv` | Autocorrelation and coupling at both cadences — the D2 decision |
 | `NP_05_component_shares.csv` | Variance share of trend, daily, `tair`, `rh`, residual |
-| `NP_06_learned_gains.csv` | Fitted gains vs Study 03 and vs `DOCUMENTED_COEFF` |
+| `NP_06_learned_gains.csv` | Fitted gain against Study 03's three independent measurements |
 | `NP_07_nowcast_metrics.csv` | MAE, RMSE, bias, R², PICP, MPIW, pinball, interval score |
 | `NP_08_residual_diagnostics.csv` | Ljung–Box, residual scale, stability across folds |
 | `NP_09_alarm_episodes.csv` | Alarm start, end, duration, peak standardised residual |
-| `NP_10_detectability.csv` | Minimum detectable step by duration, at fixed ARL₀ |
+| `NP_10_detectability.csv` | Smallest detected departure by mechanism and duration, at fixed ARL₀ |
 | `NP_11_forecast_metrics.csv` | All metrics by horizon and model rung |
 | `NP_12_skill_vs_baseline.csv` | Paired block-bootstrap skill with intervals |
 | `NP_13_ablation.csv` | Increment attributable to each predictor |
@@ -365,8 +393,9 @@ Tables (`outputs/`, LaTeX bodies alongside):
 
 Figures: `NP_F01` on-structure record (exists) · `NP_F02` gap anatomy · `NP_F03` segment survival ·
 `NP_F04` cadence evidence · `NP_F05` decomposition stack · `NP_F06` daily cycle and regressor
-response · `NP_F07` observed vs expected with band · `NP_F08` control chart · `NP_F09`
-detectability curve · `NP_F10` skill vs horizon · `NP_F11` ablation · `NP_F12` gap closure.
+response · `NP_F07` observed vs expected with band · `NP_F08` control chart ·
+`NP_F09_detectability_{amplitude,phase,drift}` one curve per damage mechanism · `NP_F10` skill vs
+horizon · `NP_F11` ablation · `NP_F12` gap closure.
 
 ---
 
@@ -387,13 +416,14 @@ result that depends on it. Target length 12–16 pages.
      leakage.
    - 4.4 Why two models — what autoregression does to the seasonal component.
    - 4.5 How gaps are honoured — segment IDs, no imputation, and the fail-loud configuration.
-   - 4.6 Changepoints on covered time; no era offset.
+   - 4.6 Changepoints on covered time; why eras are out of scope.
    - 4.7 The metrics, and what each is for.
 5. **What the record is made of** — the decomposition; component shares; the learned thermal gain
-   set against Study 03's −2.79 mdeg/°C and against the documented coefficient. `NP_F05`, `NP_F06`.
+   set against Study 03's −2.79 mdeg/°C. `NP_F05`, `NP_F06`.
 6. **Is this reading expected?** — nowcast accuracy, interval calibration, `NP_F07`.
-7. **Judging a departure** — control charts, ARL₀, detection delay, minimum detectable step, the
-   summer-2026 event. `NP_F08`, `NP_F09`.
+7. **Judging a departure** — control charts, ARL₀, and detectability per damage mechanism: the
+   smallest amplitude growth, timing shift and drift the system finds, with what each stands for in
+   a three-leaf wall. `NP_F08`, `NP_F09`.
 8. **How far ahead is prediction worth anything?** — horizons, baselines, skill, ablation.
    `NP_F10`, `NP_F11`.
 9. **Can the model fill gaps?** — gap-closure verdict. `NP_F12`.
@@ -447,10 +477,11 @@ changepoints; the yearly-seasonality comparison; the raw-channel sensitivity fit
 > disagreement becomes the finding.**
 
 ### Phase 5 · Anomaly judgement — *O designs, S runs the sweeps*
-Reference window, control-chart tuning to a fixed ARL₀, injected-anomaly sweeps, the summer-2026
-event.
-> **Checkpoint 5:** ARL₀ measured and stated in days; a detectability curve exists; the labelled
-> event is either detected — with its delay reported — or the miss is explained.
+Reference window, control-chart tuning to a fixed ARL₀, and the injected sweeps over the three
+damage mechanisms of D12.
+> **Checkpoint 5:** ARL₀ measured and stated in days; a detectability curve exists for each
+> mechanism; the smallest departure found is stated per mechanism and persistence, in the unit that
+> makes it physical, and any mechanism the sweep never detects is reported as a blind spot.
 
 ### Phase 6 · Model B — forecast and its limit — *S runs, O interprets*
 The ablation ladder over horizons 1…168 h against three baselines, with paired block-bootstrap
@@ -495,66 +526,3 @@ Approved 2026-08-25.
    reused. The question the study answers is widened from prediction alone to decomposition,
    expectation and anomaly judgement, and its `README.md` is rewritten to say so.
 4. **Language** — English, matching study 03.
-
----
-
-## 11 · Amendment of 2026-08-26
-
-Three of the premises above are retired at the user's instruction, recorded here rather than in a
-separate document so that this file stays the single binding authority. The amendment was made at
-Checkpoint 3, with Phases 0 to 3 complete and no notebook step beyond step 3 yet written.
-
-### 11.1 · Instrument eras are out of scope
-
-Study 04 takes Study 01's cleaned, compensated series **as its raw data** and never reasons about
-the changeover of 21 February 2025. That the raw `.adc` archive has two eras is a fact about
-parsing, and parsing is Study 01's subject; by the time a value reaches this study the two eras have
-been anchored once, as a single series, and nothing here may re-derive, re-anchor or label them.
-
-Consequence: the notebook stops passing an era label into `prediction.cadence_evidence`, and `NP_04`
-is re-measured without one. The library keeps its `era` parameter — Studies 02 and 03 call it, and
-`hourly_change` still needs it — but this study passes `None`. The previous constraint "no era offset
-term" is superseded by the stronger one: **no era term of any kind, and no era column read.**
-
-### 11.2 · D10 is dropped — compensation is not on trial here
-
-The temperature compensation applied by Study 01 is Study 01's discussion. This study is blind to
-it: it models the compensated channel as given, and makes no claim about whether the documented
-coefficient is right, whether the compensation over-corrects, or what the raw channel would have
-shown. The sign contradiction recorded in `docs/raw-data-format.md` §7.5 is acknowledged as
-Study 01's open question and is not reopened.
-
-Consequence: the raw-channel sensitivity fit disappears, and with it the `Model A, raw channel` and
-`Documented compensation` rows of `NP_06`. What survives is the confrontation that does not depend
-on compensation at all — Model A's fitted air-temperature gain against Study 03's independently
-measured **−2.79 mdeg/°C**, which remains the study's external check and its kill criterion.
-
-### 11.3 · The summer-2026 event is not the anomaly evidence
-
-The event Study 01 flagged at station 02 in summer 2026 is too large and too obvious to demonstrate
-anything about a detector's sensitivity: finding it proves only that the detector is not broken.
-This study therefore makes **no detection claim from it**. It is still excluded from the reference
-window, because a reference window must be in control and Study 01 flagged that stretch — but it is
-excluded as a precaution, not used as a test, and no figure or table reports whether it was found.
-
-In its place the study injects perturbations whose shape corresponds to a physical mechanism, so
-that a sensitivity statement reads as "a movement of this kind and this size would be found", not
-"one anomaly of unknown character was found once". Three kinds, each with a mechanism a masonry
-engineer would recognise in a three-leaf stone wall — an outer leaf, an inner leaf, and a weaker
-rubble-and-mortar core between them:
-
-| Kind | Injected shape | Mechanism it stands for |
-|---|---|---|
-| **Amplitude growth** | A daily harmonic whose amplitude grows from zero to the stated size, then holds | Progressive loss of composite action between the leaves — delamination at the leaf-to-core interface, or loss of through-stones. The same daily thermal forcing then bends a less stiff section further, so the diurnal swing grows while its timing and mean do not. |
-| **Phase change** | A daily harmonic in quadrature, of the amplitude a stated timing shift implies | A change in the thermal path rather than in stiffness — water ingress raising the core's moisture content and thermal capacity, or a crack re-routing conduction. The wall responds to the same forcing later or earlier, which appears in the residual as a quadrature harmonic. |
-| **Drift** | A linear accumulation at a stated rate, in mdeg per year, running to the end of the record | Creep of the lime-mortar core under sustained load, thermal ratcheting of the outer leaf, or foundation settlement. Slow, monotone, and invisible in any single day. |
-
-Magnitudes stay in millidegrees, the unit the instrument reports, and the phase kind is quoted by
-the timing shift in hours that produced it, converted through the measured daily amplitude the
-decomposition already reports. The step, ramp and pulse injections built in Phase 3 remain in the
-library — they are the generic shapes, and the ramp is what a drift looks like over a bounded window
-— but the study's reported sweep is over the three mechanisms above.
-
-**What does not change.** The false-alarm budget still governs: every detectability number is quoted
-at a stated in-control run length, and the detection rule still counts only alarms the uncontaminated
-record does not raise. Phases 6, 7 and 8 are untouched by this amendment.
