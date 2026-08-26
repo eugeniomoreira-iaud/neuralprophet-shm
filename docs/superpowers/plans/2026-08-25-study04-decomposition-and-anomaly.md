@@ -16,7 +16,7 @@
 under `superpowers:subagent-driven-development`; the orchestrator reviews between tasks and stops
 at every checkpoint for the user. Tasks marked *orchestrator* in the Notes are not dispatched.
 
-**Nothing in this plan has been executed yet.** The next action is Task 1.
+**Task 1 is complete** (commit `5ac1df9`, branch `study04-rebuild`). The next action is Task 2.
 
 ### To resume in a new session
 
@@ -38,7 +38,7 @@ the purposes of resuming — its steps are ordered so that re-running from Step 
 
 | # | Task | Phase | Runner | Done |
 |---|---|---|---|---|
-| 1 | Remove fabricated claims and throwaway scripts | 0 | orchestrator | [ ] |
+| 1 | Remove fabricated claims and throwaway scripts | 0 | orchestrator | [x] |
 | 2 | `prediction.gap_inventory` | 1 | subagent | [ ] |
 | 3 | `prediction.segment_survival` | 1 | subagent | [ ] |
 | 4 | `prediction.cadence_evidence` | 2 | subagent | [ ] |
@@ -178,7 +178,7 @@ Study 03's independently measured diurnal-band gain, which Model A must reproduc
 - Consumes: nothing.
 - Produces: a folder in which no claim is unsupported by an artefact on disk. Later tasks assume the report `.tex` ends after the `NP_F01` figure and that `README.md` describes the rebuild in progress.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `studies/04_neuralprophet_inclination_prediction/tests/test_folder_honesty.py`:
 
@@ -244,7 +244,7 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2: Run it to confirm it fails**
+- [x] **Step 2: Run it to confirm it fails**
 
 Run from `studies/`:
 ```bash
@@ -252,7 +252,7 @@ python 04_neuralprophet_inclination_prediction/tests/test_folder_honesty.py
 ```
 Expected: three failures — `clean_up.py`/`replace_report.py` present, the report asserting `definitive 48-hour limit`, and the README naming `NP_01` … `NP_10` which do not exist.
 
-- [ ] **Step 3: Delete the throwaway scripts**
+- [x] **Step 3: Delete the throwaway scripts**
 
 ```bash
 cd studies/04_neuralprophet_inclination_prediction
@@ -261,11 +261,11 @@ cd ../..
 git rm replace_panels2.py replace_panels3.py
 ```
 
-- [ ] **Step 4: Remove the fabricated paragraph from the report**
+- [x] **Step 4: Remove the fabricated paragraph from the report**
 
 Delete the whole paragraph at `report/neuralprophet_inclination_prediction_report.tex:86` beginning `This updated study specifically executes this fourth movement`. Nothing replaces it; the introduction ends with the paragraph describing the four movements, and the `NP_F01` figure follows.
 
-- [ ] **Step 5: Correct the stale sentence in the notebook**
+- [x] **Step 5: Correct the stale sentence in the notebook**
 
 In `neuralprophet_inclination_prediction_study.py`, replace lines 44–45:
 
@@ -284,7 +284,7 @@ with:
 # reusable logic survives in shmlib.prediction.
 ```
 
-- [ ] **Step 6: Rewrite the study README**
+- [x] **Step 6: Rewrite the study README**
 
 Replace `studies/04_neuralprophet_inclination_prediction/README.md` with:
 
@@ -348,7 +348,7 @@ All reusable logic lives in `../shmlib/`. This folder holds the notebook, its pa
 outputs, its tests and its report — and no library code.
 ```
 
-- [ ] **Step 7: Correct the study 04 row of the studies index**
+- [x] **Step 7: Correct the study 04 row of the studies index**
 
 In `studies/README.md:32`, replace the row with:
 
@@ -356,7 +356,7 @@ In `studies/README.md:32`, replace the row with:
 | 4 | [`04_neuralprophet_inclination_prediction/`](04_neuralprophet_inclination_prediction/) | What is the compensated inclination record made of, is a newly arrived reading the one the measured environment predicts, and how far ahead is forecasting worth anything? | In progress |
 ```
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [x] **Step 8: Run the tests to verify they pass**
 
 Run from `studies/`:
 ```bash
@@ -364,7 +364,7 @@ python 04_neuralprophet_inclination_prediction/tests/test_folder_honesty.py
 ```
 Expected: `OK`, 4 tests.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -A
