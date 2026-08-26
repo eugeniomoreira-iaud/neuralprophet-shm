@@ -1864,3 +1864,140 @@ def plot_operator_grid(scans, stratum, band, drivers, title='', ncols=2,
     fig.suptitle(title, y=1.01, fontsize='small', fontweight='bold')
     viz.finish(fig, save_path, filename)
     return fig
+
+
+def plot_gap_anatomy(inventory, classes=None, title='', save_path=None,
+                     filename=None):
+    """
+    How the missing time is shaped: gap count and missing hours, by duration class.
+
+    Two panels answer two different questions about the same table. The left
+    counts gaps, which is what governs how badly contiguity is broken; the right
+    sums their hours, which is what governs how much record is absent. A record
+    can be dominated by one class on the left and another on the right, and the
+    difference decides what kind of problem filling it is.
+
+    Parameters
+    ----------
+    inventory : pd.DataFrame
+        Output of ``prediction.gap_inventory``.
+    classes : sequence of str or None, optional
+        Class order along the category axis. Default: the order in which the
+        classes appear in ``prediction.DEFAULT_GAP_CLASSES``.
+    title : str, optional
+        Figure title. Default ``''``.
+    save_path, filename : str or None, optional
+        Passed to ``viz.finish``; nothing is written when either is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    from shmlib import prediction as _prediction
+
+    if classes is None:
+        classes = [label for _, _, label in _prediction.DEFAULT_GAP_CLASSES]
+
+    counts = (inventory.groupby('gap_class')['n_slots'].size()
+              .reindex(classes).fillna(0.0))
+    hours = (inventory.groupby('gap_class')['duration_h'].sum()
+             .reindex(classes).fillna(0.0))
+
+    fig, axes = plt.subplots(1, 2, figsize=viz.figsize(viz.FIGURE_WIDTH, 2.4))
+    for ax, values, label in ((axes[0], counts, 'Number of gaps'),
+                              (axes[1], hours, 'Missing time [h]')):
+        ax.bar(range(len(classes)), values.to_numpy(), color=viz.INC_COLOUR,
+               width=0.72)
+        ax.set_xticks(range(len(classes)))
+        ax.set_xticklabels(classes)
+        ax.set_ylabel(label)
+        ax.set_xlabel('Gap duration')
+        viz.format_spines(ax)
+
+    total = hours.sum()
+    if total > 0:
+        share = hours / total
+        for position, value in enumerate(share.to_numpy()):
+            axes[1].annotate(f'{value:.0%}',
+                             (position, hours.to_numpy()[position]),
+                             ha='center', va='bottom', fontsize='small',
+                             color=viz.MARK_COLOUR)
+
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_segment_survival(survival, title='', save_path=None, filename=None):
+    """
+    Training windows surviving segmentation, against the length of window asked for.
+
+    Parameters
+    ----------
+    survival : pd.DataFrame
+        Output of ``prediction.segment_survival``, one row per configuration.
+    title : str, optional
+        Figure title. Default ``''``.
+    save_path, filename : str or None, optional
+        Passed to ``viz.finish``; nothing is written when either is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, ax = plt.subplots(figsize=viz.figsize(viz.FIGURE_WIDTH, 2.4))
+    handles = []
+    for position, (horizon, group) in enumerate(
+            survival.groupby('forecast_hours')):
+        style = '-' if position == 0 else '--'
+        line, = ax.plot(group['lag_hours'], group['n_windows'],
+                        color=viz.INC_COLOUR, linestyle=style, marker='o',
+                        linewidth=1.6, label=f'{int(horizon)} h horizon')
+        handles.append(line)
+    ax.set_xlabel('Autoregressive window [h]')
+    ax.set_ylabel('Training windows')
+    viz.format_spines(ax)
+    if title:
+        ax.set_title(title)
+    ax.legend(fontsize='small', ncol=len(handles), loc='upper center',
+              bbox_to_anchor=(0.5, -0.30), frameon=False)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_cadence_evidence(evidence, title='', save_path=None, filename=None):
+    """
+    The three measurements that fix the cadence and the target, side by side.
+
+    Parameters
+    ----------
+    evidence : pd.DataFrame
+        Output of ``prediction.cadence_evidence``.
+    title : str, optional
+        Figure title. Default ``''``.
+    save_path, filename : str or None, optional
+        Passed to ``viz.finish``; nothing is written when either is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    panels = (('level_autocorr1', 'Level lag-1\nautocorrelation'),
+              ('change_autocorr1', 'Change lag-1\nautocorrelation'),
+              ('corr_change', 'corr(change, driver change)'))
+    fig, axes = plt.subplots(1, len(panels),
+                             figsize=viz.figsize(viz.FIGURE_WIDTH, 2.2))
+    positions = range(len(evidence))
+    for ax, (column, label) in zip(axes, panels):
+        ax.bar(positions, evidence[column].to_numpy(), color=viz.INC_COLOUR,
+               width=0.6)
+        ax.axhline(0.0, color='black', linewidth=0.8)
+        ax.set_xticks(list(positions))
+        ax.set_xticklabels(evidence['cadence'])
+        ax.set_ylabel(label)
+        viz.format_spines(ax)
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig

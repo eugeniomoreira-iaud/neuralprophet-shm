@@ -152,5 +152,69 @@ class TestCadenceEvidence(unittest.TestCase):
                                nan_table['level_autocorr1'].iloc[0], places=9)
 
 
+class TestPhaseOneFigures(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        import matplotlib
+        matplotlib.use('Agg')
+
+    def test_each_figure_builds_and_saves_both_formats(self):
+        import tempfile
+        from pathlib import Path
+
+        import matplotlib.pyplot as plt
+
+        from shmlib import figures
+
+        index = pd.date_range('2024-01-01', periods=300, freq='20min')
+        values = np.sin(np.arange(300) / 10.0)
+        values[50:70] = np.nan
+        series = pd.Series(values, index=index)
+        frame = pd.DataFrame({'y': series, 'x': 1.0}, index=index)
+
+        inventory = prediction.gap_inventory(series, freq='20min')
+        survival = prediction.segment_survival(
+            frame, ['y', 'x'], lag_hours=[1, 2], forecast_hours=[1],
+            freq='20min')
+        evidence = prediction.cadence_evidence(
+            series.ffill(), pd.Series(np.arange(300.0), index=index))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, call in (
+                    ('NP_F02_gap_anatomy',
+                     lambda p, f: figures.plot_gap_anatomy(
+                         inventory, title='t', save_path=p, filename=f)),
+                    ('NP_F03_segment_survival',
+                     lambda p, f: figures.plot_segment_survival(
+                         survival, title='t', save_path=p, filename=f)),
+                    ('NP_F04_cadence_evidence',
+                     lambda p, f: figures.plot_cadence_evidence(
+                         evidence, title='t', save_path=p, filename=f))):
+                call(tmp, name)
+                for ext in ('png', 'svg'):
+                    self.assertTrue((Path(tmp) / f'{name}.{ext}').exists(),
+                                    f'{name}.{ext} was not written')
+            plt.close('all')
+
+    def test_no_legend_is_drawn_inside_the_axes(self):
+        import matplotlib.pyplot as plt
+
+        from shmlib import figures
+
+        index = pd.date_range('2024-01-01', periods=300, freq='20min')
+        values = np.sin(np.arange(300) / 10.0)
+        values[50:70] = np.nan
+        inventory = prediction.gap_inventory(
+            pd.Series(values, index=index), freq='20min')
+        fig = figures.plot_gap_anatomy(inventory, title='t')
+        for ax in fig.axes:
+            legend = ax.get_legend()
+            if legend is not None:
+                self.assertLess(legend.get_bbox_to_anchor().y1, 0.0,
+                                'A legend must sit below its axes.')
+        plt.close(fig)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
