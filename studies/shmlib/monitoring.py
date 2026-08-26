@@ -67,9 +67,66 @@ def reference_stats(residuals, start=None, end=None, robust=True):
 
 def _standardise(residuals, mu, sigma):
     values = pd.to_numeric(residuals, errors='coerce')
-    if not np.isfinite(sigma) or sigma == 0:
-        return pd.Series(np.nan, index=values.index)
+    if not np.isfinite(sigma) or sigma <= 0:
+        raise ValueError(
+            'sigma must be finite and positive; a degenerate reference window '
+            'cannot standardise a residual. Widen the reference window, or '
+            'check that it holds more than one distinct value.')
     return (values - mu) / sigma
+
+
+def _regular_step_hours(index, freq=None):
+    """
+    The grid spacing in hours, refusing an index that is not a regular grid.
+
+    Every duration this module reports is a slot count multiplied by one
+    spacing, which is only meaningful when the spacing is constant. An alarm
+    series whose rows were dropped across an outage, rather than carried as
+    missing values on a complete grid, would otherwise report an episode
+    spanning time the record does not cover.
+
+    Parameters
+    ----------
+    index : pd.DatetimeIndex
+        Index to measure.
+    freq : str or None, optional
+        Spacing the caller declared. When given it must agree with the index,
+        and it is what is returned for an index too short to measure. Default
+        ``None``.
+
+    Returns
+    -------
+    float
+        Spacing in hours, or ``NaN`` when the index is too short and no
+        ``freq`` was declared.
+
+    Raises
+    ------
+    ValueError
+        When the index carries more than one distinct spacing, or when ``freq``
+        contradicts the spacing the index actually has.
+    """
+    index = pd.DatetimeIndex(index)
+    declared_hours = (float(pd.Timedelta(freq) / pd.Timedelta(hours=1))
+                      if freq is not None else None)
+
+    if len(index) < 2:
+        return declared_hours if declared_hours is not None else np.nan
+
+    diffs = np.diff(index.to_numpy())
+    distinct = np.unique(diffs)
+    if distinct.size > 1:
+        raise ValueError(
+            f'index is not a regular grid: {distinct.size} distinct spacings '
+            f'found; first offending pair is '
+            f'{pd.Timestamp(index[0])} to {pd.Timestamp(index[1])}.')
+
+    step_hours = float(distinct[0] / np.timedelta64(1, 'h'))
+    if declared_hours is not None and not np.isclose(step_hours, declared_hours):
+        raise ValueError(
+            f'freq={freq!r} ({declared_hours} h) disagrees with the index '
+            f'spacing ({step_hours} h).')
+    return step_hours
 
 
 def ewma_chart(residuals, mu, sigma, lam=0.2, L=3.0):
@@ -99,6 +156,14 @@ def ewma_chart(residuals, mu, sigma, lam=0.2, L=3.0):
     pd.DataFrame
         Columns ``z``, ``ewma``, ``ucl``, ``lcl`` and ``alarm``, indexed as the
         input.
+
+    Raises
+    ------
+    ValueError
+        When ``sigma`` is not finite or not positive: a degenerate reference
+        window cannot standardise a residual, and reporting an all-``False``
+        alarm column in that case would read as a quiet structure rather than
+        as the broken reference window it actually is.
     """
     z = _standardise(residuals, mu, sigma)
     statistic = np.full(len(z), np.nan)
@@ -148,6 +213,14 @@ def cusum_chart(residuals, mu, sigma, k=0.5, h=5.0):
     pd.DataFrame
         Columns ``z``, ``cusum_high``, ``cusum_low``, ``limit`` and ``alarm``.
         ``cusum_low`` is reported as a positive magnitude.
+
+    Raises
+    ------
+    ValueError
+        When ``sigma`` is not finite or not positive: a degenerate reference
+        window cannot standardise a residual, and reporting an all-``False``
+        alarm column in that case would read as a quiet structure rather than
+        as the broken reference window it actually is.
     """
     z = _standardise(residuals, mu, sigma)
     high = np.zeros(len(z))
@@ -214,6 +287,13 @@ def alarm_episodes(alarm, residuals=None):
     pd.DataFrame
         Columns ``start``, ``end``, ``duration_h``, ``n_slots``, ``mean_z`` and
         ``peak_abs_z``. Empty with those columns when nothing alarmed.
+
+    Raises
+    ------
+    ValueError
+        When ``alarm``'s index is not a regular grid. ``duration_h`` is a slot
+        count times one spacing, which only means what it says when the
+        spacing is constant throughout.
     """
     columns = ['start', 'end', 'duration_h', 'n_slots', 'mean_z', 'peak_abs_z']
     flags = alarm.fillna(False).astype(bool)
@@ -222,8 +302,7 @@ def alarm_episodes(alarm, residuals=None):
     if positions.size == 0:
         return pd.DataFrame(columns=columns)
 
-    step_hours = ((index[1] - index[0]) / pd.Timedelta(hours=1)
-                  if len(index) > 1 else np.nan)
+    step_hours = _regular_step_hours(index)
     breaks = np.flatnonzero(np.diff(positions) != 1)
     starts = positions[np.r_[0, breaks + 1]]
     ends = positions[np.r_[breaks, positions.size - 1]]
@@ -264,9 +343,18 @@ def average_run_length(alarm, freq='20min'):
     dict
         ``n_episodes``, ``hours``, ``arl_hours``, ``arl_days``. The run lengths
         are infinite when nothing alarmed.
+
+    Raises
+    ------
+    ValueError
+        When ``alarm``'s index is not a regular grid, or when ``freq``
+        disagrees with the spacing the index actually has. ``hours`` is a slot
+        count times one spacing, which only means what it says when the two
+        agree.
     """
     episodes = alarm_episodes(alarm)
-    hours = float(len(alarm) * (pd.Timedelta(freq) / pd.Timedelta(hours=1)))
+    step_hours = _regular_step_hours(alarm.index, freq)
+    hours = float(len(alarm) * step_hours)
     count = int(len(episodes))
     arl_hours = hours / count if count else np.inf
     return {'n_episodes': count, 'hours': hours,

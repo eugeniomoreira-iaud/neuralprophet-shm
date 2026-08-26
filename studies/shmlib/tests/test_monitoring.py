@@ -59,6 +59,16 @@ class TestEwmaChart(unittest.TestCase):
         narrow = monitoring.ewma_chart(residuals, 0.0, 1.0, lam=0.2, L=2.0)
         self.assertTrue((wide['ucl'] > narrow['ucl']).all())
 
+    def test_a_zero_sigma_raises(self):
+        residuals = _quiet(100)
+        with self.assertRaises(ValueError):
+            monitoring.ewma_chart(residuals, 0.0, 0.0)
+
+    def test_a_non_finite_sigma_raises(self):
+        residuals = _quiet(100)
+        with self.assertRaises(ValueError):
+            monitoring.ewma_chart(residuals, 0.0, float('nan'))
+
 
 class TestCusumChart(unittest.TestCase):
 
@@ -83,6 +93,28 @@ class TestCusumChart(unittest.TestCase):
         chart = monitoring.cusum_chart(residuals, 0.0, 1.0)
         self.assertTrue(chart['alarm'].iloc[500:].any())
         self.assertTrue((chart['cusum_low'].iloc[500:] > 0).any())
+
+    def test_a_zero_sigma_raises(self):
+        residuals = _quiet(100)
+        with self.assertRaises(ValueError):
+            monitoring.cusum_chart(residuals, 0.0, 0.0)
+
+
+class TestGapHandling(unittest.TestCase):
+
+    def test_a_gap_does_not_disturb_either_accumulator(self):
+        residuals = _quiet(200)
+        residuals.iloc[100:110] = np.nan
+
+        ewma = monitoring.ewma_chart(residuals, 0.0, 1.0)
+        before = ewma['ewma'].iloc[99]
+        self.assertTrue((ewma['ewma'].iloc[100:110] == before).all())
+
+        cusum = monitoring.cusum_chart(residuals, 0.0, 1.0)
+        high_before = cusum['cusum_high'].iloc[99]
+        low_before = cusum['cusum_low'].iloc[99]
+        self.assertTrue((cusum['cusum_high'].iloc[100:110] == high_before).all())
+        self.assertTrue((cusum['cusum_low'].iloc[100:110] == low_before).all())
 
 
 class TestJointAlarm(unittest.TestCase):
@@ -126,6 +158,14 @@ class TestAlarmEpisodes(unittest.TestCase):
         self.assertAlmostEqual(episodes['peak_abs_z'].iloc[0], 7.0)
         self.assertAlmostEqual(episodes['mean_z'].iloc[0], 6.0)
 
+    def test_a_dropped_row_breaks_the_regular_grid_and_raises(self):
+        index = pd.date_range('2024-01-01', periods=100, freq='20min')
+        index = index.delete(50)
+        alarm = pd.Series(False, index=index)
+        alarm.iloc[10:16] = True
+        with self.assertRaises(ValueError):
+            monitoring.alarm_episodes(alarm)
+
 
 class TestAverageRunLength(unittest.TestCase):
 
@@ -146,6 +186,12 @@ class TestAverageRunLength(unittest.TestCase):
             pd.Series(False, index=index), freq='20min')
         self.assertEqual(result['n_episodes'], 0)
         self.assertTrue(np.isinf(result['arl_hours']))
+
+    def test_a_freq_that_disagrees_with_the_index_raises(self):
+        index = pd.date_range('2024-01-01', periods=144, freq='20min')
+        alarm = pd.Series(False, index=index)
+        with self.assertRaises(ValueError):
+            monitoring.average_run_length(alarm, freq='30min')
 
 
 if __name__ == '__main__':
