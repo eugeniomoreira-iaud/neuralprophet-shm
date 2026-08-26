@@ -593,6 +593,13 @@ class TestConformalInterval(unittest.TestCase):
 
 class TestRollingNowcast(unittest.TestCase):
 
+    def test_task_in_model_kwargs_raises_rather_than_colliding(self):
+        idx = pd.date_range('2025-01-01', periods=10, freq='1h')
+        frame = pd.DataFrame({'y': np.arange(10.0)}, index=idx)
+        with self.assertRaises(ValueError):
+            prediction.rolling_nowcast(
+                frame, min_train='1h', refit_every='1h', task='forecast')
+
     @classmethod
     def setUpClass(cls):
         n = 200
@@ -675,6 +682,65 @@ class TestRollingNowcast(unittest.TestCase):
         # 0.9 threshold below leaves comfortable margin without being tight
         # enough to flake on minor numerical differences across machines.
         self.assertLess(rolling_bias, 0.9 * frozen_bias)
+
+
+class TestPeriodScan(unittest.TestCase):
+
+    def _dates(self, n, freq='1D'):
+        return pd.date_range('2020-01-01', periods=n, freq=freq)
+
+    def test_a_clean_annual_sine_is_recovered_as_the_top_peak(self):
+        idx = self._dates(3 * 365)
+        t = np.arange(len(idx), dtype=float)
+        series = pd.Series(np.sin(2 * np.pi * t / 365.0), index=idx)
+
+        table = prediction.period_scan(series)
+
+        self.assertAlmostEqual(table['period_days'].iloc[0], 365.0,
+                               delta=365.0 * 0.02)
+
+    def test_the_same_sine_survives_30_percent_of_samples_missing(self):
+        # This is the property that justifies Lomb-Scargle over an FFT: an
+        # irregular, gappy sample must not need imputation to be scanned.
+        idx = self._dates(3 * 365)
+        t = np.arange(len(idx), dtype=float)
+        series = pd.Series(np.sin(2 * np.pi * t / 365.0), index=idx)
+        rng = np.random.default_rng(0)
+        drop = rng.choice(len(series), size=int(0.3 * len(series)),
+                          replace=False)
+        series.iloc[drop] = np.nan
+
+        table = prediction.period_scan(series)
+
+        self.assertAlmostEqual(table['period_days'].iloc[0], 365.0,
+                               delta=365.0 * 0.02)
+
+    def test_two_superposed_periods_both_appear_and_the_stronger_ranks_first(self):
+        # A Lomb-Scargle peak's width in period-space scales with p^2/span:
+        # over only three years the two components' sidelobes overlap and
+        # the second period never surfaces. Fifteen years narrows both
+        # peaks enough to separate cleanly, which is what this test needs
+        # to check, not an artefact of a too-short fixture.
+        idx = self._dates(15 * 365)
+        t = np.arange(len(idx), dtype=float)
+        series = pd.Series(
+            2.0 * np.sin(2 * np.pi * t / 365.0)
+            + 1.0 * np.sin(2 * np.pi * t / 120.0),
+            index=idx)
+
+        table = prediction.period_scan(series, top=5)
+
+        top_three = table['period_days'].iloc[:3].to_numpy()
+        self.assertTrue(np.any(np.abs(top_three - 365.0) < 365.0 * 0.02))
+        self.assertTrue(np.any(np.abs(top_three - 120.0) < 120.0 * 0.02))
+        self.assertAlmostEqual(table['period_days'].iloc[0], 365.0,
+                               delta=365.0 * 0.02)
+
+    def test_fewer_than_50_samples_raises(self):
+        idx = self._dates(10)
+        series = pd.Series(np.arange(10.0), index=idx)
+        with self.assertRaises(ValueError):
+            prediction.period_scan(series)
 
 
 if __name__ == '__main__':

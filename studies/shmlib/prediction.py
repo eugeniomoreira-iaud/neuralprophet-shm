@@ -1001,7 +1001,26 @@ def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
         returns, plus an ``origin`` column giving the fit origin each row was
         predicted from. Chronological by ``ds``, with no duplicated
         timestamps.
+
+    Raises
+    ------
+    ValueError
+        If ``'task'`` appears in ``model_kwargs``. ``rolling_nowcast``
+        evaluates nowcasts only; a caller passing ``task='forecast'`` (or
+        even a redundant ``task='nowcast'``) would otherwise collide with
+        the ``task='nowcast'`` this function already passes to
+        :func:`neuralprophet_backtest`, raising an opaque
+        ``TypeError: got multiple values for keyword argument 'task'``. A
+        walk-forward evaluation of the forecast task is a different
+        function, not yet written.
     """
+    if 'task' in model_kwargs:
+        raise ValueError(
+            "rolling_nowcast() evaluates nowcasts only and always calls "
+            "neuralprophet_backtest with task='nowcast'; it does not accept "
+            "'task' in model_kwargs. A walk-forward evaluation of the "
+            "forecast task is a different function.")
+
     ordered = frame.sort_index()
     index = pd.DatetimeIndex(ordered.index)
     empty_columns = ['ds', 'horizon_h', 'y', 'yhat', 'origin']
@@ -1585,4 +1604,102 @@ def residual_diagnostics(residuals, lags=(1, 24, 72)):
         'n': scale['n'],
         'std': scale['std'],
         'mad': scale['mad'],
+    })
+
+
+def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
+    """
+    Confirm, by measurement, that a claimed periodic component has the
+    period it is claimed to have — on a record too gappy for an FFT.
+
+    This exists to answer a specific kind of question honestly: when a
+    decomposition names a component ``season_yearly``, is there actually a
+    roughly annual period in the underlying record, or is that just the
+    label the model happened to give a term the fit found useful? An FFT
+    cannot answer this on a gapped structural record without first
+    imputing the gaps, which would let the imputation choice, not the
+    record, decide the answer. The Lomb-Scargle periodogram takes irregular,
+    gappy sampling as it comes: it fits a sinusoid of each candidate
+    frequency to the surviving samples directly, with no interpolation
+    step, so a claim about a component's period can rest on a measurement
+    of the actual timestamps present rather than on a figure the reader has
+    to trust.
+
+    Missing values are dropped, time is measured in days from the first
+    surviving sample, and the series mean is subtracted before the
+    periodogram is evaluated (:func:`scipy.signal.lombscargle` assumes a
+    zero baseline). Power is evaluated at ``n_periods`` candidate periods
+    spaced linearly between ``min_days`` and ``max_days``, normalized so
+    that a perfectly matched sinusoid is close to the periodogram's own
+    maximum. The strongest ``top`` peaks are returned, with any candidate
+    within 5% of an already-reported period skipped, so that one broad peak
+    around the true period does not fill the whole table with near-duplicate
+    rows.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Numeric signal indexed by timestamp. Missing values (``NaN`` or an
+        absent index entry) are dropped before scanning.
+    min_days, max_days : float, optional
+        Bounds, in days, of the candidate period grid. Defaults ``30.0`` and
+        ``900.0``, which spans from a month to roughly two and a half years
+        and so brackets an annual cycle with headroom on both sides.
+    n_periods : int, optional
+        Number of candidate periods evaluated, linearly spaced between
+        ``min_days`` and ``max_days``. Default ``4000``.
+    top : int, optional
+        Maximum number of peaks to return. Default ``5``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``rank`` (1-indexed, strongest first), ``period_days``,
+        ``period_years``, ``power``, plus ``n`` and ``span_days`` describing
+        the input series and repeated on every row. Fewer than ``top`` rows
+        are returned if fewer independent peaks survive the 5% suppression.
+
+    Raises
+    ------
+    ValueError
+        If fewer than 50 samples survive dropping missing values. A
+        periodogram built from fewer points than that is not a measurement
+        of a period, it is noise with a shape.
+    """
+    from scipy.signal import lombscargle
+
+    values = pd.to_numeric(series, errors='coerce').dropna()
+    if values.size < 50:
+        raise ValueError(
+            'period_scan: only {0} usable samples after dropping missing '
+            'values; at least 50 are required, because a periodogram built '
+            'from fewer points is noise, not a measurement.'.format(
+                values.size))
+
+    index = pd.DatetimeIndex(values.index)
+    t_days = ((index - index[0]) / pd.Timedelta(days=1)).to_numpy(dtype=float)
+    y = values.to_numpy(dtype=float) - float(values.mean())
+
+    periods = np.linspace(float(min_days), float(max_days), int(n_periods))
+    angular_freqs = 2.0 * np.pi / periods
+    power = lombscargle(t_days, y, angular_freqs, normalize=True)
+
+    order = np.argsort(power)[::-1]
+    kept_periods, kept_power = [], []
+    for i in order:
+        candidate = periods[i]
+        if any(abs(candidate - kept) / kept < 0.05 for kept in kept_periods):
+            continue
+        kept_periods.append(float(candidate))
+        kept_power.append(float(power[i]))
+        if len(kept_periods) >= int(top):
+            break
+
+    return pd.DataFrame({
+        'rank': np.arange(1, len(kept_periods) + 1),
+        'period_days': kept_periods,
+        'period_years': [p / 365.25 for p in kept_periods],
+        'power': kept_power,
+        'n': int(values.size),
+        'span_days': float(t_days[-1] - t_days[0]),
     })
