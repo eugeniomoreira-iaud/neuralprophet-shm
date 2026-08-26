@@ -148,8 +148,10 @@ def gap_inventory(series, freq='20min', classes=DEFAULT_GAP_CLASSES):
         Spacing of the analysis grid. Default ``'20min'``.
     classes : sequence of (float, float, str), optional
         Half-open duration bins in hours, as ``(low, high, label)``; a gap falls
-        in the first bin with ``low < duration_h <= high``. Default
-        ``DEFAULT_GAP_CLASSES``.
+        in the first bin with ``low < duration_h <= high``. Bins are expected to
+        tile the whole range of possible durations; a duration matching no bin
+        is not an error, it silently takes the label of the last class in
+        ``classes``. Default ``DEFAULT_GAP_CLASSES``.
 
     Returns
     -------
