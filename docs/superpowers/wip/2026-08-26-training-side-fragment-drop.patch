@@ -1,0 +1,173 @@
+diff --git a/studies/shmlib/prediction.py b/studies/shmlib/prediction.py
+index 4da659e..5348bfa 100644
+--- a/studies/shmlib/prediction.py
++++ b/studies/shmlib/prediction.py
+@@ -744,40 +744,53 @@ def _model_frame(frame, regressors):
+     return out
+ 
+ 
+-def _drop_singleton_segments(model_frame, context):
++def _drop_singleton_segments(model_frame, context, phase):
+     """
+-    Drop segments of fewer than two rows from a frame about to be predicted.
+-
+-    Inside ``model.predict``, NeuralProphet re-infers a sampling frequency
+-    for every segment independently, and a segment holding exactly one
+-    timestamp has no interval to measure that frequency from —
+-    ``df_utils.infer_frequency`` returns ``NaT``, and the library's own
+-    ``pd.to_timedelta(NaT)`` then raises ``ValueError: Invalid frequency:
+-    NaT``. This is not a corner case a caller can design around: any
+-    time-based slice of a segmented record — which is exactly what a
+-    walk-forward evaluation window is — can cut a long segment at the
+-    window boundary and leave a one-row stub on either side, so a one-row
+-    segment is a matter of when, not if. Only ``predict`` re-infers a
+-    frequency; ``fit`` is always called with an explicit ``freq`` in this
+-    module and is never at risk, so this is applied to a prediction frame
+-    only and the corresponding training frame is never touched.
++    Drop segments of fewer than two rows before a frame reaches NeuralProphet.
++
++    NeuralProphet re-infers a sampling frequency per segment independently,
++    both when fitting and when predicting, regardless of whether the caller
++    already supplied an explicit ``freq`` — ``fit`` calls
++    ``df_utils.infer_frequency`` on the training frame unconditionally, and
++    ``predict`` does the same on the frame it is given. A segment holding
++    exactly one timestamp has no interval for either call to measure a
++    frequency from: ``df_utils.infer_frequency`` returns ``NaT``, and the
++    library's own ``pd.to_timedelta(NaT)`` then raises ``ValueError: Invalid
++    frequency: NaT``. This is not a corner case a caller can design around:
++    any time-based slice of a segmented record — which is exactly what a
++    walk-forward window is, on both its training and its evaluation side —
++    can cut a long segment at the window boundary and leave a one-row stub
++    behind, so a one-row segment is a matter of when, not if.
+ 
+     A frame with no ``ID`` column, or whose segments all hold two or more
+     rows, is returned unchanged — this function is a no-op on every frame
+     that does not contain a singleton segment. When rows are dropped, a
+-    ``UserWarning`` names how many rows and how many segments were removed,
+-    so a caller is never silently short of predictions: those timestamps
+-    simply carry no row in the caller's returned long frame, which is the
+-    correct outcome for a one-row fragment no window can judge.
++    ``UserWarning`` names how many rows and how many segments were removed
++    and which side of the model they were dropped from, so a caller is
++    never silently short of predictions or training data, and a log
++    carrying both warnings cannot confuse one drop for the other. On the
++    prediction side those timestamps simply carry no row in the caller's
++    returned long frame, which is correct: a one-row fragment is not a
++    window any model can judge. On the training side those rows are not
++    training data in any meaningful sense either — a single observation
++    carries no lag, no seasonality and no changepoint for the model to
++    estimate from — and are removed rather than merged into a neighbouring
++    segment, because merging would silently bridge the gap segmentation
++    exists to keep the model from spanning.
+ 
+     Parameters
+     ----------
+     model_frame : pd.DataFrame
+         NeuralProphet-format frame (``ds``, ``y``, regressor columns, and
+-        optionally ``ID``) about to be passed to ``model.predict``.
++        optionally ``ID``) about to be passed to ``model.fit`` or
++        ``model.predict``.
+     context : str
+         Name of the calling function, included in the warning message so a
+         caller can tell where the drop happened.
++    phase : {'fitting', 'prediction'}
++        Which call the frame is about to be passed to, named in the warning
++        message so the training-side and prediction-side drops read as two
++        distinct events rather than one.
+ 
+     Returns
+     -------
+@@ -794,11 +807,13 @@ def _drop_singleton_segments(model_frame, context):
+ 
+     n_rows = int(singleton.sum())
+     n_segments = int(model_frame.loc[singleton, 'ID'].nunique())
++    consequence = ('those rows are removed from training, not merely left '
++                  'unscored' if phase == 'fitting' else
++                  'those timestamps receive no prediction')
+     warnings.warn(
+-        f'{context}: dropped {n_rows} row(s) across {n_segments} '
+-        'single-row segment(s) before prediction, because a segment of one '
+-        'row carries no frequency for NeuralProphet to infer; those '
+-        'timestamps receive no prediction.',
++        f'{context}: {n_rows} row(s) from {n_segments} segment(s) dropped '
++        f'before {phase}, because a segment of one row carries no '
++        f'frequency for NeuralProphet to infer; {consequence}.',
+         stacklevel=2)
+     return model_frame.loc[~singleton]
+ 
+@@ -936,15 +951,17 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
+     -------
+     model, pd.DataFrame
+         Fitted NeuralProphet model and long prediction table. A segment
+-        (identified by ``segment_id``) shorter than two rows in ``test`` is
+-        dropped from the frame handed to prediction before it is scored,
+-        because NeuralProphet re-infers a sampling frequency per segment at
+-        predict time and a single timestamp carries none to infer; see
+-        :func:`_drop_singleton_segments`. ``train`` is never affected, since
+-        ``fit`` always receives an explicit frequency. Dropping this way is
+-        a no-op whenever ``test`` carries no ``segment_id`` or every segment
+-        already holds two or more rows, and a ``UserWarning`` is raised
+-        whenever it is not.
++        (identified by ``segment_id``) shorter than two rows is dropped
++        before it can reach NeuralProphet, on both sides of the fit: from
++        ``train`` before ``model.fit``, and from ``test`` before
++        ``model.predict``. NeuralProphet infers a sampling frequency per
++        segment on both calls, regardless of the explicit ``freq`` this
++        wrapper already supplies, and a single timestamp carries none to
++        infer; see :func:`_drop_singleton_segments`. This is a no-op
++        whenever ``train`` and ``test`` carry no ``segment_id`` or every
++        segment already holds two or more rows, and a separate
++        ``UserWarning`` — naming which side, and how many rows and segments
++        — is raised for each side that is not.
+     """
+     if task not in {'forecast', 'nowcast'}:
+         raise ValueError("task must be 'forecast' or 'nowcast'")
+@@ -990,13 +1007,16 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
+     train_df = _model_frame(train, regressors)
+     test_df = _model_frame(test, regressors)
+     fit_freq = freq if freq is not None else _analysis_freq(train.index)
++    train_df = _drop_singleton_segments(train_df, 'neuralprophet_backtest',
++                                        'fitting')
+     model.fit(train_df, freq=fit_freq, progress='none', minimal=True)
+ 
+     segmented_test = 'segment_id' in test.columns
+     predict_df = test_df if task == 'nowcast' or segmented_test else pd.concat(
+         [train_df.tail(max(int(n_lags), int(regressor_lags))), test_df],
+         ignore_index=True)
+-    predict_df = _drop_singleton_segments(predict_df, 'neuralprophet_backtest')
++    predict_df = _drop_singleton_segments(predict_df, 'neuralprophet_backtest',
++                                          'prediction')
+     wide = model.predict(predict_df, decompose=bool(decompose))
+     keep_horizons = list(horizons or range(1, int(n_forecasts) + 1))
+     long = _long_predictions(
+@@ -1152,12 +1172,14 @@ def neuralprophet_predict(model, frame, regressors=(), horizons=(1,),
+         Long prediction table with ``ds``, optional ``ID``, horizon, observed
+         value, prediction, and optional interval columns. A segment
+         (identified by ``segment_id``) shorter than two rows in ``frame`` is
+-        dropped from the frame handed to prediction before it is scored,
+-        because NeuralProphet re-infers a sampling frequency per segment at
+-        predict time and a single timestamp carries none to infer; see
+-        :func:`_drop_singleton_segments`. This is a no-op whenever ``frame``
+-        carries no ``segment_id`` or every segment already holds two or more
+-        rows, and a ``UserWarning`` is raised whenever it is not.
++        dropped before it can reach NeuralProphet's ``model.predict``.
++        NeuralProphet infers a sampling frequency per segment in ``fit`` as
++        well as in ``predict``, regardless of any explicit ``freq`` a caller
++        supplied elsewhere, and a single timestamp carries none to infer;
++        see :func:`_drop_singleton_segments`. This is a no-op whenever
++        ``frame`` carries no ``segment_id`` or every segment already holds
++        two or more rows, and a ``UserWarning`` naming the row and segment
++        counts is raised whenever it is not.
+     """
+     model_frame = _model_frame(frame, regressors)
+     original_y = pd.to_numeric(
+@@ -1167,7 +1189,8 @@ def neuralprophet_predict(model, frame, regressors=(), horizons=(1,),
+         # NeuralProphet 0.9.0 crashes while restoring trailing missing y even
+         # though a zero-lag model does not consume the target at prediction.
+         model_frame['y'] = model_frame['y'].fillna(0.0)
+-    model_frame = _drop_singleton_segments(model_frame, 'neuralprophet_predict')
++    model_frame = _drop_singleton_segments(model_frame, 'neuralprophet_predict',
++                                           'prediction')
+     wide = model.predict(model_frame, decompose=bool(decompose))
+     long = _long_predictions(
+         wide, frame.index, 'segment_id' in frame.columns, list(horizons),

@@ -16,21 +16,63 @@
 under `superpowers:subagent-driven-development`; the orchestrator reviews between tasks and stops
 at every checkpoint for the user. Tasks marked *orchestrator* in the Notes are not dispatched.
 
-**Tasks 1 to 12 are complete.** Phases 0, 1, 2 and 3 are done, so every library function the study
-needs now exists. Work is on branch `study04-rebuild`, cut from `main` at `9ebcc5c`, and the last
-commit of Phase 3 is `8c5f783`. Checkpoints 0 and 1–2 were shown to the user and approved on
-2026-08-25, and Checkpoint 3 on 2026-08-26.
+**Tasks 1 to 13 and 12A are complete.** Phases 0 to 4 are done through Task 13. Work is on branch
+`study04-rebuild`, cut from `main` at `9ebcc5c`. Checkpoints 0 and 1–2 were approved on 2026-08-25,
+Checkpoint 3 and Checkpoint 4 on 2026-08-26.
 
-**The next action is Task 12A**, which gives the library the three physically motivated
-perturbations D12 requires, after which Phase 4 begins at Task 13.
+**Task 14 is in progress and the working tree is RED. Read "Resuming Task 14" below before
+anything else** — it names the one failing thing, why it fails, and the four steps that finish it.
+
+### Resuming Task 14
+
+**State on 2026-08-26, when the session ended mid-task.**
+
+Committed and green through `e33e7c6`. The working tree additionally carries, **uncommitted**:
+
+| Path | What it is |
+|---|---|
+| `studies/shmlib/prediction.py` | The training-side half of the one-row-segment fix. Incomplete: no tests, and it breaks two committed ones. Also saved as `docs/superpowers/wip/2026-08-26-training-side-fragment-drop.patch`, so it survives a `git checkout`. |
+| `…/neuralprophet_inclination_prediction_study.py` and `.ipynb` | Step 6 rewired to the rolling, conformal expectation, and `ROLLING_MIN_TRAIN` raised to `'365d'`. Coherent, but **the notebook cannot execute end to end** until the library fix is finished. The `.ipynb`'s stored outputs are from an older successful run and do not match its source. |
+| `.claude/settings.local.json` | Harness permissions. Never staged (Ruling P11). |
+
+**The one failing thing.** `test_decomposition.py` runs 45 and fails 2, both in
+`TestSingletonSegmentDroppedBeforePrediction`, both `AssertionError: 0 != 1`. Not a behavioural
+break: those tests match warnings on the literal phrase `single-row segment`, and the uncommitted
+edit rewords the message to `… row(s) from … segment(s) dropped before {phase}, because a segment of
+one row carries no frequency …`. Every other suite is green: `test_shmlib.py` 60,
+`test_monitoring.py` 39, `test_gaps.py` 16, `test_prediction.py` 20, `test_shmlib_study03.py` 44.
+
+**Four steps to finish Task 14.**
+
+1. **Reconcile the warning.** Either keep the phrase `single-row segment` in both messages, or update
+   the two committed tests to match the new wording. Prefer keeping the phrase: the tests match on it
+   deliberately, because NeuralProphet's own imports raise unrelated `UserWarning`s and
+   `assertWarns` only inspects the first.
+2. **Write the three training-side tests** the fix still lacks: a training frame carrying a one-row
+   segment fits rather than raising; the warning names the training side specifically; and a frame
+   with no short segments returns exactly what it returned before. Keep the `setUpClass` warm-up fit
+   and its comment — pytorch-lightning's first `Trainer` setup replaces `warnings.filters` wholesale
+   and would otherwise swallow the capture.
+3. **Prove it on the real record.** Rolling over the whole window with `refit_every='30d'`,
+   `min_train='365d'`, `epochs=1` must complete **all 24 eligible windows** of the 27 scheduled. Two
+   crashed before this fix, at origins 2025-09-13 and 2026-01-11, each on a one-row training segment;
+   the prediction side already works, including origin 2025-08-14, the window that first failed.
+4. **Re-run the notebook and check it honestly.** `jupytext --sync` then `nbconvert --execute`, and
+   then **read the printed lines back out of the `.ipynb`** — `nbconvert --inplace` exits 0 even when
+   a cell raises, which already cost this study one run whose stale outputs read as a successful
+   one. Then commit the notebook pair and show Checkpoint 4b.
+
+**What Checkpoint 4b must show.** `NP_07` with its three rows — rolling+conformal, frozen
+monitoring, frozen attribution — and whether raising `min_train` to a full annual cycle tightened the
+conformal interval and lifted coverage above the 71 % measured at 180 days. Then Task 15.
 
 ### To resume in a new session
 
 Say, or paste:
 
 > Continue the study 04 rebuild. Read
-> `docs/superpowers/plans/2026-08-25-study04-decomposition-and-anomaly.md`, find the first task
-> whose steps are unticked in the ledger below, and execute it with
+> `docs/superpowers/plans/2026-08-25-study04-decomposition-and-anomaly.md`, follow "Resuming
+> Task 14" in section 0 to finish the task in progress, then carry on with
 > `superpowers:subagent-driven-development`. Stop at the next checkpoint.
 
 The plan argues from `docs/superpowers/specs/2026-08-25-study04-decomposition-and-anomaly-design.md`,
@@ -87,9 +129,9 @@ the purposes of resuming — its steps are ordered so that re-running from Step 
 | 10 | `shmlib.monitoring` — charts and episodes | 3 | subagent | [x] |
 | 11 | Anomaly injection and detectability | 3 | subagent | [x] |
 | 12 | The remaining figures | 3 | subagent | [x] |
-| 12A | Perturbations with a physical mechanism | 3 | subagent | [ ] |
-| 13 | Fit Model A, confront Study 03 | 4 | orchestrator | [ ] |
-| 14 | The expectation and its calibration | 4 | orchestrator | [ ] |
+| 12A | Perturbations with a physical mechanism | 3 | subagent | [x] |
+| 13 | Fit Model A, confront Study 03 | 4 | orchestrator | [x] |
+| 14 | The expectation and its calibration | 4 | orchestrator | [ ] in progress |
 | 15 | Charts tuned to a false-alarm budget | 5 | orchestrator | [ ] |
 | 16 | Detectability and the known event | 5 | orchestrator | [ ] |
 | 17 | The ablation ladder | 6 | subagent | [ ] |
@@ -147,6 +189,15 @@ Task 6, **3** after Task 12, **4** after Task 13, **5** after Task 16, **6** aft
 | `4f45e35` | 11 | Fix: a docstring that described behaviour the code does not have |
 | `eff8416` | 12 | `plot_decomposition_stack`, `plot_prediction_band`, `plot_control_chart`, `plot_metric_vs_horizon`, `plot_detectability` |
 | `8c5f783` | 12 | Fix: the accent colour stops encoding a data category in two figures |
+| `df2f124` | 12A | `inject_anomaly` gains amplitude growth, phase change and drift; `phase_shift_amplitude` |
+| `7c4bc61` | 13 | Fix: a decomposition aggregate is no longer counted beside its own parts |
+| `ac43d26` | 13 | Fix: figure lines break across a dropped outage instead of interpolating through it |
+| `f7119f0` | 13 | Notebook steps 4 and 5; the decomposition and the Study 03 confrontation |
+| `1cb80b2` | 13 | Model A fitted twice, for attribution and for monitoring |
+| `f7325bb` | 14 | `rolling_nowcast` and `conformal_interval` |
+| `d7378b1` | 14 | `rolling_nowcast` refuses `task=`; `period_scan` added |
+| `a89b9a6` | 14 | Fix: `period_scan` suppresses neighbours by resolution and reports it |
+| `e33e7c6` | 14 | Fix: a one-row segment is dropped before prediction instead of crashing |
 
 ### Rulings taken during execution, which later tasks must honour
 
@@ -244,6 +295,54 @@ exist to prevent.
     convention reserves it for annotations and event markers. Both take the inclination identity
     colour, and the expected line is distinguished by its dash. The control-limit lines stay
     Vermilion deliberately — a control limit is a reference line, which is the role the accent is for.
+
+### Rulings taken during Phase 4, and the measurements behind them
+
+Recorded here because the execution ledger lives under `.superpowers/`, which is gitignored. Every
+number below was measured on this record, not assumed.
+
+17. **Model A is fitted twice.** The user asked for the annual term to be forced on. Forcing it made
+    the out-of-sample decomposition *worse*: the trend ran to +310 mdeg across the evaluation
+    stretch while the residual ramped to −200. Measuring all four configurations, split at the
+    training origin, showed why — the annual term and the piecewise-linear trend are collinear over
+    3.2 cycles with a 103-day hole, so they cancel in-sample and diverge on extrapolation:
+
+    | yearly | growth | in σ | in MAD | out σ | out MAD | out mean | gain |
+    |---|---|---|---|---|---|---|---|
+    | False | linear | 9.58 | 2.92 | 20.84 | 13.05 | +47.5 | −3.05 |
+    | False | off | 15.11 | 9.12 | 17.03 | 9.25 | +22.6 | −3.29 |
+    | True | linear | 4.24 | 2.31 | **41.95** | 19.71 | −43.6 | −2.54 |
+    | True | off | 11.86 | 3.31 | **13.75** | **2.74** | +28.8 | −2.56 |
+
+    The seasonal arch first named at Checkpoint 4 was therefore **trend extrapolation**, not the
+    annual cycle. The attribution fit keeps the trend and owns `NP_05`, `NP_06`, `NP_F05` and the
+    drift, read over the training window only; the monitoring fit drops it and owns the residual.
+    The learned gain is unmoved by the choice, so the Study 03 confrontation never depended on it.
+18. **The drift is read in-sample only,** at **−2.77 mdeg/yr**. `NP_16` shows why the trend cannot be
+    trusted further: re-estimated on thirds it gives +38.6, +4.8 and +45.5 mdeg/yr, while the thermal
+    gain over the same thirds is −2.47, −2.33, −2.39 — the gain is a physical constant, the trend is
+    not a stable estimate.
+19. **The expectation is refitted, not frozen.** A fit frozen at the training origin sits +28.75 mdeg
+    from the record over the following year, with **82 % of its mean square error in that single
+    offset**. `rolling_nowcast` refits every 30 days; the drift a month can accumulate is about
+    0.23 mdeg.
+20. **The interval is conformal.** NeuralProphet's quantile regression covers **68.7 % in-sample**
+    where it promises 90 %, because the residual has a tight core and fat tails (MAD 3.3, σ 11.8).
+21. **`min_train` must hold a full annual cycle.** At 180 days the early windows fit an annual term
+    to less than one cycle, where it is unidentifiable; their residuals are the widest in the record
+    and they fatten exactly the tails the conformal interval calibrates on. Raised to `'365d'`.
+22. **A periodogram table states its own resolution.** Lomb–Scargle peak width goes as
+    `period² / span`, which is ±104 days at an annual period on this record. The annual claim is
+    **one** entry — 347.4 d — not the four near-annual rows a fixed-fraction rule returned.
+23. **A one-row segment carries no frequency.** NeuralProphet re-infers one per segment in **both**
+    `fit` and `predict`, whatever `freq` is passed, and a walk-forward slicing by time will clip a
+    segment to one row eventually. They are dropped from both frames, with the two sides warned
+    separately. An earlier claim in this plan that `fit` was safe was wrong, and was corrected on
+    the implementer's evidence from `neuralprophet/df_utils.py`.
+
+**A hazard worth knowing:** `nbconvert --inplace` **exits 0 on a failed execution**. A stale
+`outputs/` then reads as a successful run with unchanged numbers, which cost this study one
+misdiagnosis. Verify every run by reading the printed lines back out of the `.ipynb`.
 
 ### Decisions already taken, not to be reopened
 
@@ -4251,8 +4350,10 @@ EOF
   `NP_F06_daily_cycle_and_response.{png,svg}`, `NP_F07_observed_vs_expected.{png,svg}`
 
 **Interfaces:**
-- Consumes: `predictions_a` and `components_a` from Task 13; `prediction.score_predictions`,
-  `figures.plot_prediction_band`, `figures.plot_decomposition_stack`.
+- Consumes: `predictions_m` and `components_a` from Task 13 — the expectation is scored on the
+  **monitoring** fit, and only the interpretable-components figure reads the attribution fit;
+  `prediction.score_predictions`, `figures.plot_prediction_band`,
+  `figures.plot_decomposition_stack`.
 - Produces: notebook variable `naive_scale_a`, consumed by Task 17 so that MASE is computed
   against one scale throughout.
 
@@ -4288,13 +4389,28 @@ EOF
 # the score is no longer comparable with the coverage beside it.
 ```
 
-- [ ] **Step 2: Add `NOWCAST_INTERVAL_ALPHA` to the parameter cell**
+- [ ] **Step 2: Add the step 6 parameters to the parameter cell**
 
 ```python
+# Nominal miss rate of the interval, used by the Winkler interval score. It must
+# match MODEL_A_QUANTILES above: change both together or the score stops being
+# comparable with the coverage reported beside it.
 NOWCAST_INTERVAL_ALPHA = 0.10
+
+# The stretch drawn in the observed-against-expected figure. One month, chosen
+# for readability rather than for flattery: it sits inside the evaluation period
+# and carries both complete days and dropouts.
+NOWCAST_VIEW = ('2025-11-01', '2025-12-01')
+
+# The stretch drawn in the daily-cycle figure. A fortnight, short enough that
+# individual cycles are legible.
+COMPONENT_VIEW = ('2025-11-01', '2025-11-15')
 ```
 
 - [ ] **Step 3: Add the step 6 code cell**
+
+Both fits are scored, so that the cost of the trend is visible rather than asserted, and the
+monitoring row is the one the study reports as its expectation.
 
 ```python
 # %%
@@ -4304,32 +4420,43 @@ NOWCAST_INTERVAL_ALPHA = 0.10
 naive_scale_a = float(
     prediction.hourly_change(train_a['y'], freq=MODEL_FREQ_A).abs().mean())
 
-nowcast_scores = prediction.score_predictions(
-    predictions_a, [], naive_scale=naive_scale_a,
-    alpha=NOWCAST_INTERVAL_ALPHA)
+nowcast_scores = pd.concat([
+    prediction.score_predictions(
+        predictions_m, [], naive_scale=naive_scale_a,
+        alpha=NOWCAST_INTERVAL_ALPHA).assign(fit='monitoring'),
+    prediction.score_predictions(
+        predictions_a, [], naive_scale=naive_scale_a,
+        alpha=NOWCAST_INTERVAL_ALPHA).assign(fit='attribution'),
+], ignore_index=True)
 nowcast_scores.insert(0, 'model', 'Model A · tair + rh')
+nowcast_scores.insert(1, 'fit', nowcast_scores.pop('fit'))
 display(nowcast_scores)
 nowcast_scores.to_csv(OUTPUT_DIR / 'NP_07_nowcast_metrics.csv', index=False)
 
-print(f'Nominal coverage {1 - NOWCAST_INTERVAL_ALPHA:.0%}, '
-      f'observed {nowcast_scores["coverage_q05_q95"].iloc[0]:.1%}, '
-      f'median width {nowcast_scores["width_q05_q95"].iloc[0]:.2f} mdeg')
+monitoring_row = nowcast_scores[nowcast_scores['fit'] == 'monitoring'].iloc[0]
+print(f'Monitoring fit — nominal coverage '
+      f'{1 - NOWCAST_INTERVAL_ALPHA:.0%}, observed '
+      f'{monitoring_row["coverage_q05_q95"]:.1%}, median width '
+      f'{monitoring_row["width_q05_q95"]:.2f} mdeg, '
+      f'MASE {monitoring_row["mase"]:.2f}')
 ```
 
 ```python
 # %%
 # One month of the evaluation period, drawn at readable density.
-view = predictions_a.set_index('ds').sort_index().loc['2025-11-01':'2025-12-01']
+view = predictions_m.set_index('ds').sort_index().loc[
+    NOWCAST_VIEW[0]:NOWCAST_VIEW[1]]
 figures.plot_prediction_band(
-    view['y'], view['yhat'], view['q05'], view['q95'],
+    view['y'], view['yhat'], view['q05'], view['q95'], freq=MODEL_FREQ_A,
     title='Observed inclination against what the measured environment predicted',
     save_path=str(OUTPUT_DIR), filename='NP_F07_observed_vs_expected')
 
 # The two interpretable components on their own axes: the daily cycle the model
 # fitted, and the response it attributes to air temperature.
 figures.plot_decomposition_stack(
-    components_a.loc['2025-11-01':'2025-11-15'],
+    components_a.loc[COMPONENT_VIEW[0]:COMPONENT_VIEW[1]],
     columns=['season_daily', 'future_regressor_tair', 'future_regressor_rh'],
+    freq=MODEL_FREQ_A,
     title='The daily cycle and the response to the measured environment',
     save_path=str(OUTPUT_DIR), filename='NP_F06_daily_cycle_and_response')
 plt.show()
