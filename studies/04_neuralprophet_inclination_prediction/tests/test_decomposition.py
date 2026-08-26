@@ -120,6 +120,38 @@ class TestComponentVarianceShares(unittest.TestCase):
         self.assertNotIn('y', list(table['component']))
         self.assertNotIn('yhat1', list(table['component']))
 
+    def _components_with_regressor_split(self, n=500, include_parts=True):
+        index = pd.date_range('2024-01-01', periods=n, freq='1h')
+        tair = np.linspace(-1.0, 1.0, n)
+        rh = np.full(n, 0.01)
+        data = {
+            'trend': np.linspace(0.0, 1.0, n),
+            'season_daily': 10.0 * np.sin(np.arange(n) / 24.0 * 2 * np.pi),
+            'future_regressors_additive': tair + rh,
+        }
+        if include_parts:
+            data['future_regressor_tair'] = tair
+            data['future_regressor_rh'] = rh
+        data['residual'] = np.full(n, 0.5)
+        data['y'] = np.zeros(n)
+        data['yhat1'] = np.zeros(n)
+        return pd.DataFrame(data, index=index)
+
+    def test_an_aggregate_is_dropped_when_its_constituents_are_present(self):
+        table = prediction.component_variance_shares(
+            self._components_with_regressor_split(include_parts=True))
+        components = list(table['component'])
+        self.assertNotIn('future_regressors_additive', components)
+        self.assertIn('future_regressor_tair', components)
+        self.assertIn('future_regressor_rh', components)
+        self.assertAlmostEqual(table['share'].sum(), 1.0, places=6)
+
+    def test_an_aggregate_is_kept_when_no_constituent_is_present(self):
+        table = prediction.component_variance_shares(
+            self._components_with_regressor_split(include_parts=False))
+        self.assertIn('future_regressors_additive', list(table['component']))
+        self.assertAlmostEqual(table['share'].sum(), 1.0, places=6)
+
 
 class TestResidualDiagnostics(unittest.TestCase):
 
@@ -276,6 +308,42 @@ class TestModelFigures(unittest.TestCase):
                     self.assertTrue((Path(tmp) / f'{name}.{ext}').exists(),
                                     f'{name}.{ext} was not written')
             plt.close('all')
+
+    def test_decomposition_stack_panels_match_the_components_the_table_keeps(self):
+        import matplotlib.pyplot as plt
+
+        from shmlib import figures
+
+        n = 200
+        index = pd.date_range('2024-01-01', periods=n, freq='20min')
+        tair = np.linspace(-1.0, 1.0, n)
+        rh = np.full(n, 0.01)
+        components = pd.DataFrame({
+            'trend': np.linspace(0.0, 1.0, n),
+            'season_daily': np.sin(np.arange(n) / 72.0 * 2 * np.pi),
+            'future_regressors_additive': tair + rh,
+            'future_regressor_tair': tair,
+            'future_regressor_rh': rh,
+            'residual': np.full(n, 0.5),
+            'y': np.zeros(n),
+            'yhat1': np.zeros(n),
+        }, index=index)
+
+        table = prediction.component_variance_shares(components)
+        kept = list(table['component'])
+        # The aggregate must not survive into the table's kept components:
+        # counting it beside its own parts is exactly the bug this guards.
+        self.assertNotIn('future_regressors_additive', kept)
+
+        fig = figures.plot_decomposition_stack(components, title='t')
+        self.assertEqual(len(fig.axes), len(kept))
+        expected_labels = {c.replace('future_regressor_', '')
+                           .replace('lagged_regressor_', '')
+                           .replace('_', ' ')
+                           for c in kept}
+        actual_labels = {ax.get_ylabel() for ax in fig.axes}
+        self.assertEqual(actual_labels, expected_labels)
+        plt.close(fig)
 
     def test_legends_sit_below_their_axes(self):
         import matplotlib.pyplot as plt

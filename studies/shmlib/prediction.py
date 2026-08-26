@@ -1236,6 +1236,64 @@ def decompose_components(model, frame, regressors=(), freq=None):
 _NON_COMPONENT_COLUMNS = ('y', 'yhat1', 'ID')
 
 
+# NeuralProphet emits a family aggregate column (the plural-plus-suffix form,
+# left) alongside the per-term columns that sum to it (the shared
+# singular-prefixed family, right) whenever both the aggregate and its parts
+# are requested from the model. Counting the aggregate beside its own parts
+# double-counts the same variation, so this mapping lets both
+# ``component_variance_shares`` and ``figures.plot_decomposition_stack`` drop
+# an aggregate whenever at least one column of its family is present, and keep
+# it otherwise, from one place.
+AGGREGATE_CONSTITUENT_PREFIXES = {
+    'future_regressors_additive': 'future_regressor_',
+    'future_regressors_multiplicative': 'future_regressor_',
+    'seasonalities_additive': 'season_',
+    'seasonalities_multiplicative': 'season_',
+    'events_additive': 'event_',
+    'events_multiplicative': 'event_',
+}
+
+
+def decomposition_columns(components, columns=None):
+    """
+    Component columns to treat as one term each, redundant aggregates dropped.
+
+    NeuralProphet's decomposition can include both a family aggregate (e.g.
+    ``future_regressors_additive``) and the per-term columns that sum to it
+    (e.g. ``future_regressor_tair``, ``future_regressor_rh``). Keeping both
+    counts the same contribution twice, so this drops an aggregate whenever at
+    least one column of its family (see ``AGGREGATE_CONSTITUENT_PREFIXES``) is
+    also present in ``columns``. When a model's parts were never emitted or
+    never requested, the aggregate is the only representation of that family's
+    contribution and is kept.
+
+    Parameters
+    ----------
+    components : pd.DataFrame
+        Output of ``decompose_components``.
+    columns : sequence of str or None, optional
+        Candidate component columns. ``None`` takes every column except
+        ``y``, ``yhat1`` and ``ID``. Default ``None``.
+
+    Returns
+    -------
+    list of str
+        ``columns`` (or the default column set), in their original order,
+        with a redundant aggregate removed for each family whose constituents
+        are present.
+    """
+    if columns is None:
+        columns = [c for c in components.columns
+                   if c not in _NON_COMPONENT_COLUMNS]
+    columns = list(columns)
+    present = set(columns)
+    return [c for c in columns
+            if not (c in AGGREGATE_CONSTITUENT_PREFIXES
+                    and any(other != c and other.startswith(
+                        AGGREGATE_CONSTITUENT_PREFIXES[c])
+                        for other in present))]
+
+
 def component_variance_shares(components, columns=None):
     """
     What share of the fitted variation each additive component carries.
@@ -1243,7 +1301,11 @@ def component_variance_shares(components, columns=None):
     This is the decomposition's headline claim expressed as a number: a record
     whose daily component carries most of the variance is a thermometer, and one
     whose trend does is a structure that is moving. The residual is included as
-    a component so that the shares are comparable and sum to one.
+    a component so that the shares are comparable and sum to one. A family
+    aggregate (e.g. ``future_regressors_additive``) is dropped whenever at
+    least one of its constituent columns (e.g. ``future_regressor_tair``) is
+    also present, via :func:`decomposition_columns`, so that a regressor's
+    contribution is never counted once whole and once in parts.
 
     Parameters
     ----------
@@ -1259,10 +1321,8 @@ def component_variance_shares(components, columns=None):
         Columns ``component``, ``variance``, ``share``, ``mean`` and
         ``peak_to_peak``, ordered by descending share.
     """
-    if columns is None:
-        columns = [c for c in components.columns
-                   if c not in _NON_COMPONENT_COLUMNS]
-    frame = components.loc[:, list(columns)].apply(
+    columns = decomposition_columns(components, columns)
+    frame = components.loc[:, columns].apply(
         pd.to_numeric, errors='coerce')
 
     variance = frame.var(ddof=0)

@@ -2020,7 +2020,12 @@ def plot_decomposition_stack(components, columns=None, title='',
         Output of ``prediction.decompose_components``.
     columns : sequence of str or None, optional
         Components to draw, in panel order. ``None`` draws every component
-        column, ending with the residual. Default ``None``.
+        column, ending with the residual. Either way, a family aggregate
+        (e.g. ``future_regressors_additive``) is dropped whenever one of its
+        constituent columns (e.g. ``future_regressor_tair``) is also present,
+        via ``prediction.decomposition_columns``, so the panel drawn here can
+        never disagree with what ``prediction.component_variance_shares``
+        counts. Default ``None``.
     title : str, optional
         Figure title. Default ``''``.
     save_path, filename : str or None, optional
@@ -2030,12 +2035,9 @@ def plot_decomposition_stack(components, columns=None, title='',
     -------
     matplotlib.figure.Figure
     """
-    if columns is None:
-        columns = [c for c in components.columns
-                   if c not in ('y', 'yhat1', 'ID', 'residual')]
-        if 'residual' in components.columns:
-            columns = columns + ['residual']
-    columns = list(columns)
+    from shmlib import prediction as _prediction
+
+    columns = _prediction.decomposition_columns(components, columns)
 
     fig, axes = plt.subplots(
         len(columns), 1, sharex=True,
