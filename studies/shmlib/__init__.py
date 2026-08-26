@@ -67,7 +67,7 @@ It is a different library from ``heritageshm/`` at the repository root: that one
 is the production pipeline, this one is the studies' common ground.
 """
 
-from . import adc, site, solar, meteo, proxies, quality, compare, coupling, tables, viz, figures  # noqa: E501,F401
+from . import adc, site, solar, meteo, monitoring, proxies, quality, compare, coupling, tables, viz, figures  # noqa: E501,F401
 
-__all__ = ['adc', 'site', 'solar', 'meteo', 'proxies', 'quality', 'compare',
-           'coupling', 'tables', 'viz', 'figures']
+__all__ = ['adc', 'site', 'solar', 'meteo', 'monitoring', 'proxies', 'quality',
+           'compare', 'coupling', 'tables', 'viz', 'figures']
