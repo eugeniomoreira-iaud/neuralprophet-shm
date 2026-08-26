@@ -215,6 +215,25 @@ class TestPhaseOneFigures(unittest.TestCase):
                                 'A legend must sit below its axes.')
         plt.close(fig)
 
+    def test_each_forecast_horizon_group_gets_a_distinct_line_style(self):
+        import matplotlib.pyplot as plt
+
+        from shmlib import figures
+
+        survival = pd.DataFrame({
+            'lag_hours': [1, 2, 3, 1, 2, 3, 1, 2, 3],
+            'forecast_hours': [1, 1, 1, 8, 8, 8, 24, 24, 24],
+            'n_windows': [10, 9, 8, 6, 5, 4, 3, 2, 1],
+        })
+        fig = figures.plot_segment_survival(survival, title='t')
+        ax = fig.axes[0]
+        drawn_styles = [line.get_linestyle() for line in ax.get_lines()]
+        self.assertEqual(len(drawn_styles), 3)
+        self.assertEqual(len(set(drawn_styles)), 3,
+                         'Each forecast-horizon group must draw a distinct '
+                         'line style.')
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -1948,9 +1948,10 @@ def plot_segment_survival(survival, title='', save_path=None, filename=None):
     """
     fig, ax = plt.subplots(figsize=viz.figsize(viz.FIGURE_WIDTH, 2.4))
     handles = []
+    styles = ('-', '--', ':', '-.')
     for position, (horizon, group) in enumerate(
             survival.groupby('forecast_hours')):
-        style = '-' if position == 0 else '--'
+        style = styles[position % len(styles)]
         line, = ax.plot(group['lag_hours'], group['n_windows'],
                         color=viz.INC_COLOUR, linestyle=style, marker='o',
                         linewidth=1.6, label=f'{int(horizon)} h horizon')
