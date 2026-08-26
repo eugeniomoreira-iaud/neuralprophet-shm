@@ -68,6 +68,39 @@ def _clip_note(series, limits, unit):
             f'to {values.min():.3g} {unit}')
 
 
+def _reindex_regular(data, freq):
+    """
+    Reindex a series or frame onto a regular grid, or leave it untouched.
+
+    Segmented modelling data skips a missing timestamp outright rather than
+    carrying it as a ``NaN`` row, so a line plotted straight from it joins
+    across an outage instead of breaking there — a figure that quietly draws
+    the interpolation the study explicitly refuses to compute. Reindexing
+    onto ``pd.date_range(data.index.min(), data.index.max(), freq=freq)``
+    first restores every absent slot as ``NaN``, which matplotlib then
+    renders as a gap in the line.
+
+    Parameters
+    ----------
+    data : pd.Series or pd.DataFrame
+        Time-indexed data about to be plotted.
+    freq : str or None
+        Grid spacing to reindex onto. ``None`` returns ``data`` unchanged, so
+        that a caller which does not pass a frequency keeps today's
+        behaviour exactly.
+
+    Returns
+    -------
+    pd.Series or pd.DataFrame
+        ``data`` as given when ``freq`` is ``None``, otherwise reindexed onto
+        the regular grid, same type as the input.
+    """
+    if freq is None:
+        return data
+    grid = pd.date_range(data.index.min(), data.index.max(), freq=freq)
+    return data.reindex(grid)
+
+
 def plot_source_panels(df, columns, title, colours=None, labels=None,
                        quantities=None, units=None, ranges=None,
                        circular=proxies.CIRCULAR, panel_height=1.15,
@@ -2004,7 +2037,7 @@ def plot_cadence_evidence(evidence, title='', save_path=None, filename=None):
     return fig
 
 
-def plot_decomposition_stack(components, columns=None, title='',
+def plot_decomposition_stack(components, columns=None, freq=None, title='',
                              save_path=None, filename=None):
     """
     One panel per additive component, on a shared clock.
@@ -2026,6 +2059,12 @@ def plot_decomposition_stack(components, columns=None, title='',
         via ``prediction.decomposition_columns``, so the panel drawn here can
         never disagree with what ``prediction.component_variance_shares``
         counts. Default ``None``.
+    freq : str or None, optional
+        Grid spacing ``components`` is reindexed onto before plotting, so
+        that a timestamp segmentation dropped outright — as opposed to
+        carrying as ``NaN`` — reappears as a gap in the line rather than a
+        straight interpolation across it. ``None`` plots the data as given.
+        Default ``None``.
     title : str, optional
         Figure title. Default ``''``.
     save_path, filename : str or None, optional
@@ -2037,6 +2076,7 @@ def plot_decomposition_stack(components, columns=None, title='',
     """
     from shmlib import prediction as _prediction
 
+    components = _reindex_regular(components, freq)
     columns = _prediction.decomposition_columns(components, columns)
 
     fig, axes = plt.subplots(
@@ -2059,8 +2099,9 @@ def plot_decomposition_stack(components, columns=None, title='',
     return fig
 
 
-def plot_prediction_band(observed, expected, lower, upper, title='',
-                         highlight=None, save_path=None, filename=None):
+def plot_prediction_band(observed, expected, lower, upper, freq=None,
+                         title='', highlight=None, save_path=None,
+                         filename=None):
     """
     Observed against expected, with the prediction interval drawn behind them.
 
@@ -2070,6 +2111,12 @@ def plot_prediction_band(observed, expected, lower, upper, title='',
         Measured and predicted values, on a shared index.
     lower, upper : pd.Series
         Interval bounds, same index.
+    freq : str or None, optional
+        Grid spacing each of ``observed``, ``expected``, ``lower`` and
+        ``upper`` is reindexed onto before plotting, so that a timestamp
+        segmentation dropped outright — as opposed to carrying as ``NaN`` —
+        reappears as a gap in the line rather than a straight interpolation
+        across it. ``None`` plots the data as given. Default ``None``.
     title : str, optional
         Figure title. Default ``''``.
     highlight : sequence of (start, end) or None, optional
@@ -2081,6 +2128,11 @@ def plot_prediction_band(observed, expected, lower, upper, title='',
     -------
     matplotlib.figure.Figure
     """
+    observed = _reindex_regular(observed, freq)
+    expected = _reindex_regular(expected, freq)
+    lower = _reindex_regular(lower, freq)
+    upper = _reindex_regular(upper, freq)
+
     fig, ax = plt.subplots(figsize=viz.figsize(viz.FIGURE_WIDTH, 2.6))
 
     ax.fill_between(observed.index, lower, upper, color=viz.INC_COLOUR,
@@ -2103,8 +2155,8 @@ def plot_prediction_band(observed, expected, lower, upper, title='',
     return fig
 
 
-def plot_control_chart(chart, statistic='ewma', episodes=None, title='',
-                       save_path=None, filename=None):
+def plot_control_chart(chart, statistic='ewma', episodes=None, freq=None,
+                       title='', save_path=None, filename=None):
     """
     A control statistic against its limits, with alarming episodes shaded.
 
@@ -2118,6 +2170,12 @@ def plot_control_chart(chart, statistic='ewma', episodes=None, title='',
     episodes : pd.DataFrame or None, optional
         Output of ``monitoring.alarm_episodes``, shaded behind the statistic.
         Default ``None``.
+    freq : str or None, optional
+        Grid spacing ``chart`` is reindexed onto before plotting, so that a
+        timestamp segmentation dropped outright — as opposed to carrying as
+        ``NaN`` — reappears as a gap in the line rather than a straight
+        interpolation across it. ``None`` plots the data as given. Default
+        ``None``.
     title : str, optional
         Figure title. Default ``''``.
     save_path, filename : str or None, optional
@@ -2127,6 +2185,8 @@ def plot_control_chart(chart, statistic='ewma', episodes=None, title='',
     -------
     matplotlib.figure.Figure
     """
+    chart = _reindex_regular(chart, freq)
+
     fig, ax = plt.subplots(figsize=viz.figsize(viz.FIGURE_WIDTH, 2.4))
 
     for _, episode in (episodes if episodes is not None

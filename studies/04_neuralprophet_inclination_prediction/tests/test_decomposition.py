@@ -345,6 +345,46 @@ class TestModelFigures(unittest.TestCase):
         self.assertEqual(actual_labels, expected_labels)
         plt.close(fig)
 
+    def _sparse_components(self):
+        # Segmentation drops a missing timestamp outright rather than
+        # carrying it as a NaN row, so the interior stretch below is deleted
+        # from the index, not filled with NaN.
+        full_index = pd.date_range('2024-01-01', periods=100, freq='20min')
+        sparse_index = full_index.delete(np.arange(30, 60))
+        n = len(sparse_index)
+        components = pd.DataFrame({
+            'trend': np.linspace(0.0, 1.0, n),
+            'residual': np.zeros(n),
+            'y': np.zeros(n),
+            'yhat1': np.zeros(n),
+        }, index=sparse_index)
+        return full_index, components
+
+    def test_decomposition_stack_breaks_the_line_across_a_dropped_stretch(self):
+        import matplotlib.pyplot as plt
+
+        from shmlib import figures
+
+        full_index, components = self._sparse_components()
+        fig = figures.plot_decomposition_stack(
+            components, freq='20min', title='t')
+        ydata = fig.axes[0].get_lines()[0].get_ydata()
+        self.assertEqual(len(ydata), len(full_index))
+        self.assertTrue(np.any(~np.isfinite(ydata)))
+        plt.close(fig)
+
+    def test_decomposition_stack_freq_none_plots_the_sparse_data_as_given(self):
+        import matplotlib.pyplot as plt
+
+        from shmlib import figures
+
+        _, components = self._sparse_components()
+        fig = figures.plot_decomposition_stack(components, title='t')
+        ydata = fig.axes[0].get_lines()[0].get_ydata()
+        self.assertEqual(len(ydata), len(components))
+        self.assertTrue(np.all(np.isfinite(ydata)))
+        plt.close(fig)
+
     def test_legends_sit_below_their_axes(self):
         import matplotlib.pyplot as plt
 
