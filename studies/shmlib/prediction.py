@@ -120,6 +120,83 @@ def contiguous_segments(frame, required, min_length=1, freq='1h'):
     return out
 
 
+DEFAULT_GAP_CLASSES = (
+    (0.0, 1.0, '<=1h'),
+    (1.0, 6.0, '1-6h'),
+    (6.0, 24.0, '6-24h'),
+    (24.0, 168.0, '1-7d'),
+    (168.0, np.inf, '>7d'),
+)
+
+
+def gap_inventory(series, freq='20min', classes=DEFAULT_GAP_CLASSES):
+    """
+    One row per maximal run of missing slots, classified by duration.
+
+    The series is first reindexed onto a regular grid of spacing ``freq``, so
+    that time absent from the index counts as missing rather than disappearing.
+    A coverage percentage says how much time is missing; this says how that time
+    is shaped, which is what decides whether filling it is interpolation or
+    reconstruction.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Numeric signal indexed by timestamp. Missing is ``NaN`` or an absent
+        timestamp.
+    freq : str, optional
+        Spacing of the analysis grid. Default ``'20min'``.
+    classes : sequence of (float, float, str), optional
+        Half-open duration bins in hours, as ``(low, high, label)``; a gap falls
+        in the first bin with ``low < duration_h <= high``. Default
+        ``DEFAULT_GAP_CLASSES``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``start``, ``end``, ``duration_h``, ``n_slots``, ``gap_class``,
+        in chronological order. Empty with those columns when nothing is
+        missing.
+    """
+    columns = ['start', 'end', 'duration_h', 'n_slots', 'gap_class']
+    values = pd.to_numeric(series, errors='coerce')
+    index = pd.DatetimeIndex(values.index)
+    if len(index) == 0:
+        return pd.DataFrame(columns=columns)
+
+    grid = pd.date_range(index.min(), index.max(), freq=freq)
+    values = values.reindex(grid)
+    step_hours = pd.Timedelta(freq) / pd.Timedelta(hours=1)
+
+    missing = values.isna().to_numpy()
+    if not missing.any():
+        return pd.DataFrame(columns=columns)
+
+    positions = np.flatnonzero(missing)
+    breaks = np.flatnonzero(np.diff(positions) != 1)
+    starts = positions[np.r_[0, breaks + 1]]
+    ends = positions[np.r_[breaks, positions.size - 1]]
+    n_slots = ends - starts + 1
+    duration_h = n_slots * step_hours
+
+    labels = []
+    for hours in duration_h:
+        label = classes[-1][2]
+        for low, high, name in classes:
+            if low < hours <= high:
+                label = name
+                break
+        labels.append(label)
+
+    return pd.DataFrame({
+        'start': grid[starts],
+        'end': grid[ends],
+        'duration_h': duration_h,
+        'n_slots': n_slots,
+        'gap_class': labels,
+    }, columns=columns)
+
+
 def expanding_segment_folds(segment_ids, initial_segments, n_folds):
     """
     Chronological expanding folds over whole contiguous segments.
