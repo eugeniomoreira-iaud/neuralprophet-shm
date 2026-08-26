@@ -16,10 +16,17 @@
 under `superpowers:subagent-driven-development`; the orchestrator reviews between tasks and stops
 at every checkpoint for the user. Tasks marked *orchestrator* in the Notes are not dispatched.
 
-**Tasks 1 to 6 are complete.** Phases 0, 1 and 2 are done. Work is on branch `study04-rebuild`,
-cut from `main` at `9ebcc5c`, and the last commit of Phase 2 is `95edd35`. **The next action is
-Task 7**, the first task of Phase 3. Checkpoints 0 and 1–2 were shown to the user and approved on
-2026-08-25.
+**Tasks 1 to 12 are complete.** Phases 0, 1, 2 and 3 are done, so every library function the study
+needs now exists. Work is on branch `study04-rebuild`, cut from `main` at `9ebcc5c`, and the last
+commit of Phase 3 is `8c5f783`. Checkpoints 0 and 1–2 were shown to the user and approved on
+2026-08-25; **Checkpoint 3 was reached on 2026-08-26 and is where execution stopped.**
+
+**The next action is not Task 13.** While the working tree was being inspected at Checkpoint 3, the
+design document was found carrying an uncommitted note from the user — under the heading "ATTENTION
+PLEASE! THIS NEED TO BE UPDATED" — that changes three of the design's premises and asks for a new
+spec document naming what each change affects. Its content and measured impact are recorded in
+"The design note that interrupts Phase 4" below. Phase 4 as written implements decisions the note
+retires, so the note is resolved first.
 
 ### To resume in a new session
 
@@ -47,19 +54,23 @@ which makes two tests in `test_prediction.py` fail spuriously. Every command in 
 `conda activate` does not survive a non-interactive shell, so use the absolute path. Warnings about
 `pkg_resources` being deprecated and `Importing plotly failed` are normal noise in this environment.
 
-**Current test state**, all passing, run from `studies/`:
+**Current test state**, all 229 passing, measured 2026-08-26 from `studies/`:
 
 | File | Tests |
 |---|---|
 | `04_neuralprophet_inclination_prediction/tests/test_gaps.py` | 16 |
+| `04_neuralprophet_inclination_prediction/tests/test_decomposition.py` | 22 |
 | `04_neuralprophet_inclination_prediction/tests/test_prediction.py` | 20 |
 | `04_neuralprophet_inclination_prediction/tests/test_folder_honesty.py` | 4 |
 | `shmlib/tests/test_shmlib.py` | 60 |
+| `shmlib/tests/test_monitoring.py` | 28 |
 | `03_thermomechanical_response/tests/test_shmlib_study03.py` | 44 |
 | `02_proxy_forcing_characterization/tests/test_shmlib_study02.py` | 35 |
 
-`test_gaps.py` holds **16** tests, not the 14 this plan predicts, because Tasks 4 and 5 each gained
-a guard test for a defect found during review. Later tasks must not "correct" the count downwards.
+**Every count above is higher than this plan predicts, and none may be "corrected" downwards.**
+Each excess test is a guard added when a review found a defect: `test_gaps.py` holds 16 rather than
+14 (Tasks 4 and 5), `test_monitoring.py` 28 rather than 20 (Rulings P24 and P25), and
+`test_decomposition.py` 22 rather than the 19 Task 12 predicts as its result (Rulings P21 and P28).
 
 ### Ledger
 
@@ -74,12 +85,12 @@ the purposes of resuming — its steps are ordered so that re-running from Step 
 | 4 | `prediction.cadence_evidence` | 2 | subagent | [x] |
 | 5 | Phase 1 and 2 figures | 2 | subagent | [x] |
 | 6 | Notebook steps 1–3 | 1–2 | orchestrator | [x] |
-| 7 | Changepoints and the decomposition path | 3 | subagent | [ ] |
-| 8 | Component shares and residual diagnostics | 3 | subagent | [ ] |
-| 9 | Extend `score_predictions` | 3 | subagent | [ ] |
-| 10 | `shmlib.monitoring` — charts and episodes | 3 | subagent | [ ] |
-| 11 | Anomaly injection and detectability | 3 | subagent | [ ] |
-| 12 | The remaining figures | 3 | subagent | [ ] |
+| 7 | Changepoints and the decomposition path | 3 | subagent | [x] |
+| 8 | Component shares and residual diagnostics | 3 | subagent | [x] |
+| 9 | Extend `score_predictions` | 3 | subagent | [x] |
+| 10 | `shmlib.monitoring` — charts and episodes | 3 | subagent | [x] |
+| 11 | Anomaly injection and detectability | 3 | subagent | [x] |
+| 12 | The remaining figures | 3 | subagent | [x] |
 | 13 | Fit Model A, confront Study 03 | 4 | orchestrator | [ ] |
 | 14 | The expectation and its calibration | 4 | orchestrator | [ ] |
 | 15 | Charts tuned to a false-alarm budget | 5 | orchestrator | [ ] |
@@ -124,6 +135,17 @@ Task 6, **3** after Task 12, **4** after Task 13, **5** after Task 16, **6** aft
 | `f9d7ffc` | 5 | Fix: line styles cycle across forecast-horizon groups |
 | `e4f35e0` | 6 | Notebook steps 1–3; the record, the gap anatomy, the cadence evidence |
 | `95edd35` | — | Plan ledger tick |
+| `de073bd` | — | Execution state recorded so the rebuild could resume elsewhere |
+| `ab9b6b4` | 7 | `covered_changepoints`, `decompose_components`; five additive arguments on `neuralprophet_backtest`, one on `neuralprophet_predict` |
+| `1814125` | 8 | `component_variance_shares`, `residual_diagnostics` |
+| `d986d73` | 8 | Fix: an untestable Ljung–Box lag is reported as `NaN` instead of raising |
+| `f00904a` | 9 | `score_predictions` gains `mase`, `pinball_q05`, `pinball_q95`, `interval_score` |
+| `1fdc5a0` | 10 | `shmlib/monitoring.py`: reference statistics, EWMA, CUSUM, joint alarm, episodes, run length |
+| `f7789a5` | 10 | Fix: raise on a degenerate `sigma`; enforce the regular-grid precondition |
+| `0faf499` | 11 | `inject_anomaly`, `detectability_curve`, with an attributable detection rule |
+| `4f45e35` | 11 | Fix: a docstring that described behaviour the code does not have |
+| `eff8416` | 12 | `plot_decomposition_stack`, `plot_prediction_band`, `plot_control_chart`, `plot_metric_vs_horizon`, `plot_detectability` |
+| `8c5f783` | 12 | Fix: the accent colour stops encoding a data category in two figures |
 
 ### Rulings taken during execution, which later tasks must honour
 
@@ -176,6 +198,80 @@ does not survive to another clone.
    from the float, so a fractional hour would be labelled differently from how it was used — latent,
    as the documented contract is int-only; and `gap_inventory`'s classification falls back to the
    last class's label when a duration matches no bin, which is documented rather than prevented.
+
+### Rulings taken during Phase 3
+
+Same status as the list above: decided by the orchestrator while executing, against the plan text
+that prompted them, with the design document as the binding authority. Six of the nine were taken
+because a mandated test or a mandated line was wrong, and in every case the measurement that settled
+it is quoted, because the alternative — trusting the plan over the evidence — is what these rulings
+exist to prevent.
+
+8. **The plan's line numbers for Phase 3 are stale by about +221 lines.** The preflight claimed
+   Tasks 2 to 4 append at end of file; they append after `contiguous_segments`, so everything below
+   moved. Every Phase 3 dispatch located its target by function name instead. Current positions:
+   `_score_group` 434, `score_predictions` 470, `_model_frame` 592, `_analysis_freq` 606,
+   `neuralprophet_backtest` 675, `neuralprophet_predict` 775.
+9. **`residual_diagnostics` reports an untestable lag rather than raising.** `acorr_ljungbox` raises
+   when a lag is not shorter than the surviving series. The guard is a no-op wherever the old code
+   returned, and keeps one row per requested lag.
+10. **`_standardise` raises on a degenerate `sigma`.** It used to return an all-NaN `z`, and
+    `ewma_chart` then filled its alarm column with `False` — a broken reference window read as a
+    quiet structure, which is the worst failure a monitoring system has.
+11. **`alarm_episodes` and `average_run_length` enforce the regular grid they document.** Both
+    derived durations from one spacing without checking it, so an alarm series with rows dropped
+    across an outage would report an episode spanning time the record does not cover.
+12. **The CUSUM test asserted luck, not behaviour.** `assertFalse(alarm.iloc[:900].any())` on pure
+    noise holds for 5 of 50 seeds — a two-sided CUSUM with `k = 0.5`, `h = 5` has an in-control
+    average run length of a few hundred samples. Replaced with a rate bound and a pre/post contrast.
+13. **`detectability_curve` counted alarms it had not caused.** It searched to the end of the
+    record, so a **0.01 mdeg** pulse was reported detected with a **114.7 h** delay off a false alarm
+    on the clean series — an error inflating the study's headline sensitivity. Detection is now
+    attributable, counting only slots the uncontaminated run leaves silent, and bounded by a
+    documented `response_window='24h'` argument that the notebook passes explicitly.
+14. **`assertGreater(delay_h, 0.0)` demanded the detector be late.** A 5-sigma step alarms on its
+    first contaminated sample. The "detected sooner" claim moved to its own test, where it is
+    verifiable: 1.0 detected at 1.67 h against 2.0 at 0.67 h.
+15. **The legend tests used an accessor that cannot answer the question.**
+    `legend.get_bbox_to_anchor().y1` is a display-pixel position, positive for any legend on the
+    canvas, so `assertLess(..., 0.0)` can never pass for a legend that exists. Both test files now
+    compare `legend.get_window_extent(renderer).y1` against `ax.get_window_extent().y0`. This also
+    repaired the dead guard Ruling 7 above recorded in `test_gaps.py`, which is now pointed at a
+    figure that draws a legend.
+16. **The accent colour stopped encoding data.** `plot_decomposition_stack` painted the residual
+    panel Vermilion and `plot_prediction_band` painted the expected trajectory Vermilion; the
+    convention reserves it for annotations and event markers. Both take the inclination identity
+    colour, and the expected line is distinguished by its dash. The control-limit lines stay
+    Vermilion deliberately — a control limit is a reference line, which is the role the accent is for.
+
+### The design note that interrupts Phase 4
+
+Found uncommitted in
+`docs/superpowers/specs/2026-08-25-study04-decomposition-and-anomaly-design.md` at Checkpoint 3, in
+the user's own words. It asks that the study disregard instrument eras entirely, because Study 01
+owns them and Study 04 takes the cleaned and compensated series as its raw data; that **D10 be
+dropped**, because compensation is Study 01's discussion and this study is blind to it; and that the
+summer-2026 event **not** be used as the anomaly, because the error is too obvious to be a good
+example — synthetic perturbations with a physical rationale are wanted instead, such as a gradual
+amplitude increase, a small phase change or a general drift, tied to plausible damage mechanisms in
+three-leaf stone masonry. It closes by asking for a new design document identifying what each change
+affects.
+
+Measured impact, so the amendment starts from facts rather than from a re-read:
+
+- **Eras.** One live use survives in this study: the notebook's step 3 passes
+  `era=window.get('era')` into `cadence_evidence`
+  (`neuralprophet_inclination_prediction_study.py:304`). `NP_04` is re-measured; the library keeps
+  the parameter for other callers, and Studies 02 and 03 are untouched.
+- **D10.** This lands on Task 13, the next task. Its step code builds the gains table from three
+  rows — Model A's gain on the compensated channel, a fit on the *uncompensated* channel, and
+  `adc.DOCUMENTED_COEFF` — and dropping D10 removes the last two and shrinks `NP_06`. The Study 03
+  confrontation at −2.79 mdeg/°C is independent of D10 and survives.
+- **The event.** Task 15 excludes `KNOWN_EVENT = ('2026-06-15', '2026-08-21')` when choosing its
+  reference window, and **Task 16 is built on that event outright**. The perturbations the note asks
+  for do not exist in the library: `monitoring.inject_anomaly` implements `step`, `ramp` and `pulse`,
+  not amplitude growth, phase shift or drift. Honouring the note therefore reopens `monitoring.py`,
+  rewrites Task 16, and edits the report sections that cite the event.
 
 ### Decisions already taken, not to be reopened
 
