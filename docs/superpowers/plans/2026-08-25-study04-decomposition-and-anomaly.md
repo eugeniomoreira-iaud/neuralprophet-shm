@@ -16,7 +16,7 @@
 under `superpowers:subagent-driven-development`; the orchestrator reviews between tasks and stops
 at every checkpoint for the user. Tasks marked *orchestrator* in the Notes are not dispatched.
 
-**Task 1 is complete** (commit `5ac1df9`, branch `study04-rebuild`). The next action is Task 2.
+**Tasks 1 to 6 are complete** (branch `study04-rebuild`, through `e4f35e0`). Phase 1 and Phase 2 are done; the next action is Task 7. Note: `test_gaps.py` holds 16 tests, not the 14 the plan predicted — Tasks 4 and 5 each gained a guard test.
 
 ### To resume in a new session
 
@@ -39,11 +39,11 @@ the purposes of resuming — its steps are ordered so that re-running from Step 
 | # | Task | Phase | Runner | Done |
 |---|---|---|---|---|
 | 1 | Remove fabricated claims and throwaway scripts | 0 | orchestrator | [x] |
-| 2 | `prediction.gap_inventory` | 1 | subagent | [ ] |
-| 3 | `prediction.segment_survival` | 1 | subagent | [ ] |
-| 4 | `prediction.cadence_evidence` | 2 | subagent | [ ] |
-| 5 | Phase 1 and 2 figures | 2 | subagent | [ ] |
-| 6 | Notebook steps 1–3 | 1–2 | orchestrator | [ ] |
+| 2 | `prediction.gap_inventory` | 1 | subagent | [x] |
+| 3 | `prediction.segment_survival` | 1 | subagent | [x] |
+| 4 | `prediction.cadence_evidence` | 2 | subagent | [x] |
+| 5 | Phase 1 and 2 figures | 2 | subagent | [x] |
+| 6 | Notebook steps 1–3 | 1–2 | orchestrator | [x] |
 | 7 | Changepoints and the decomposition path | 3 | subagent | [ ] |
 | 8 | Component shares and residual diagnostics | 3 | subagent | [ ] |
 | 9 | Extend `score_predictions` | 3 | subagent | [ ] |
@@ -404,7 +404,7 @@ EOF
   slots, plus the module constant `DEFAULT_GAP_CLASSES`. Task 4 plots it; Task 5 exports it as
   `NP_02`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `studies/04_neuralprophet_inclination_prediction/tests/test_gaps.py`:
 
@@ -465,7 +465,7 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run from `studies/`:
 ```bash
@@ -473,7 +473,7 @@ python 04_neuralprophet_inclination_prediction/tests/test_gaps.py
 ```
 Expected: `AttributeError: module 'shmlib.prediction' has no attribute 'gap_inventory'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `studies/shmlib/prediction.py`:
 
@@ -555,14 +555,14 @@ def gap_inventory(series, freq='20min', classes=DEFAULT_GAP_CLASSES):
     }, columns=columns)
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 python 04_neuralprophet_inclination_prediction/tests/test_gaps.py
 ```
 Expected: `OK`, 4 tests.
 
-- [ ] **Step 5: Verify nothing else broke**
+- [x] **Step 5: Verify nothing else broke**
 
 ```bash
 python shmlib/tests/test_shmlib.py
@@ -571,7 +571,7 @@ python 03_thermomechanical_response/tests/test_shmlib_study03.py
 ```
 Expected: all `OK`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add studies/shmlib/prediction.py studies/04_neuralprophet_inclination_prediction/tests/test_gaps.py
@@ -602,7 +602,7 @@ EOF
   `max_segment_h`, `n_surviving`, `n_windows`. One row per `(lag_hours, forecast_hours)` pair.
   Task 4 plots it; Task 5 exports it as `NP_03`; Task 18 reads `n_windows` to choose `n_lags`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `studies/04_neuralprophet_inclination_prediction/tests/test_gaps.py`, above the
 `if __name__` block:
@@ -652,14 +652,14 @@ class TestSegmentSurvival(unittest.TestCase):
         self.assertEqual(table['n_segments'].iloc[0], 0)
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 python 04_neuralprophet_inclination_prediction/tests/test_gaps.py
 ```
 Expected: `AttributeError: module 'shmlib.prediction' has no attribute 'segment_survival'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `studies/shmlib/prediction.py`:
 
@@ -725,14 +725,14 @@ def segment_survival(frame, required, lag_hours, forecast_hours, freq='20min'):
     return pd.DataFrame(rows)
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 python 04_neuralprophet_inclination_prediction/tests/test_gaps.py
 ```
 Expected: `OK`, 8 tests.
 
-- [ ] **Step 5: Verify nothing else broke**
+- [x] **Step 5: Verify nothing else broke**
 
 ```bash
 python shmlib/tests/test_shmlib.py
@@ -741,7 +741,7 @@ python 03_thermomechanical_response/tests/test_shmlib_study03.py
 ```
 Expected: all `OK`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add studies/shmlib/prediction.py studies/04_neuralprophet_inclination_prediction/tests/test_gaps.py
@@ -777,7 +777,7 @@ EOF
 Design decisions D1, D2 and D3 rest entirely on this table. It exists so that the choice of target
 and cadence is a reported measurement rather than a preference.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `studies/04_neuralprophet_inclination_prediction/tests/test_gaps.py`, above the
 `if __name__` block:
@@ -824,14 +824,14 @@ class TestCadenceEvidence(unittest.TestCase):
         self.assertLess(table['n_change'].iloc[0], without['n_change'].iloc[0])
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 python 04_neuralprophet_inclination_prediction/tests/test_gaps.py
 ```
 Expected: `AttributeError: module 'shmlib.prediction' has no attribute 'cadence_evidence'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `studies/shmlib/prediction.py`:
 
@@ -909,14 +909,14 @@ def cadence_evidence(response, driver, era=None, cadences=('20min', '1h'),
     return pd.DataFrame(rows)
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 python 04_neuralprophet_inclination_prediction/tests/test_gaps.py
 ```
 Expected: `OK`, 12 tests.
 
-- [ ] **Step 5: Verify nothing else broke**
+- [x] **Step 5: Verify nothing else broke**
 
 ```bash
 python shmlib/tests/test_shmlib.py
@@ -925,7 +925,7 @@ python 03_thermomechanical_response/tests/test_shmlib_study03.py
 ```
 Expected: all `OK`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add studies/shmlib/prediction.py studies/04_neuralprophet_inclination_prediction/tests/test_gaps.py
@@ -960,7 +960,7 @@ EOF
 
   Task 6 calls all three.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `studies/04_neuralprophet_inclination_prediction/tests/test_gaps.py`, above the
 `if __name__` block:
@@ -1030,14 +1030,14 @@ class TestPhaseOneFigures(unittest.TestCase):
         plt.close(fig)
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 python 04_neuralprophet_inclination_prediction/tests/test_gaps.py
 ```
 Expected: `AttributeError: module 'shmlib.figures' has no attribute 'plot_gap_anatomy'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `studies/shmlib/figures.py`:
 
@@ -1179,14 +1179,14 @@ def plot_cadence_evidence(evidence, title='', save_path=None, filename=None):
     return fig
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 python 04_neuralprophet_inclination_prediction/tests/test_gaps.py
 ```
 Expected: `OK`, 14 tests.
 
-- [ ] **Step 5: Verify nothing else broke**
+- [x] **Step 5: Verify nothing else broke**
 
 ```bash
 python shmlib/tests/test_shmlib.py
@@ -1195,7 +1195,7 @@ python 02_proxy_forcing_characterization/tests/*.py
 ```
 Expected: all `OK`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add studies/shmlib/figures.py studies/04_neuralprophet_inclination_prediction/tests/test_gaps.py
@@ -1233,7 +1233,7 @@ The existing loaders default to `site.ANALYSIS_FREQ = '1h'`. This study needs th
 20-minute grid for Model A, so every loader call passes `freq=NATIVE_FREQ` explicitly. That is a
 parameter the notebook owns, not a library default to change.
 
-- [ ] **Step 1: Extend the imports cell**
+- [x] **Step 1: Extend the imports cell**
 
 Replace line 69 of the notebook source:
 
@@ -1251,7 +1251,7 @@ from shmlib import adc, figures, monitoring, prediction, proxies, site, tables, 
 charts of step 7, and `tables` the LaTeX bodies of step 10. Importing them here keeps the imports
 cell the single place a reader learns what the study depends on.
 
-- [ ] **Step 2: Replace the parameter cell**
+- [x] **Step 2: Replace the parameter cell**
 
 Replace the cell at lines 77–123 of the notebook source with:
 
@@ -1343,7 +1343,7 @@ SURVIVAL_LAG_HOURS = (4, 8, 12, 24, 48)
 SURVIVAL_FORECAST_HOURS = (8, 24)
 ```
 
-- [ ] **Step 3: Rewrite step 1 to load on the native grid**
+- [x] **Step 3: Rewrite step 1 to load on the native grid**
 
 Replace the loading cell (lines 134–164) with:
 
@@ -1380,7 +1380,7 @@ coverage.reset_index().to_csv(OUTPUT_DIR / 'NP_01_window_coverage.csv',
                               index=False)
 ```
 
-- [ ] **Step 4: Add the step 2 Markdown cell**
+- [x] **Step 4: Add the step 2 Markdown cell**
 
 ```markdown
 # %% [markdown]
@@ -1408,7 +1408,7 @@ coverage.reset_index().to_csv(OUTPUT_DIR / 'NP_01_window_coverage.csv',
 # other and are reported jointly.
 ```
 
-- [ ] **Step 5: Add the step 2 code cell**
+- [x] **Step 5: Add the step 2 code cell**
 
 ```python
 # %%
@@ -1437,7 +1437,7 @@ figures.plot_segment_survival(
 plt.show()
 ```
 
-- [ ] **Step 6: Add the step 3 Markdown and code cells**
+- [x] **Step 6: Add the step 3 Markdown and code cells**
 
 ```markdown
 # %% [markdown]
@@ -1480,7 +1480,7 @@ figures.plot_cadence_evidence(
 plt.show()
 ```
 
-- [ ] **Step 7: Sync and execute the notebook**
+- [x] **Step 7: Sync and execute the notebook**
 
 ```bash
 cd studies/04_neuralprophet_inclination_prediction
@@ -1489,7 +1489,7 @@ jupyter nbconvert --to notebook --execute --inplace \
   neuralprophet_inclination_prediction_study.ipynb --ExecutePreprocessor.timeout=1800
 ```
 
-- [ ] **Step 8: Verify the numbers against the reference table**
+- [x] **Step 8: Verify the numbers against the reference table**
 
 ```bash
 python - <<'PY'
@@ -1511,7 +1511,7 @@ level autocorrelation `0.99771`, change autocorrelation `-0.0581` and `+0.3494`.
 means the loaders are not reading the native grid — check that every `freq=NATIVE_FREQ` and
 `min_count=1` argument is present.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add studies/04_neuralprophet_inclination_prediction/neuralprophet_inclination_prediction_study.py \
