@@ -8,6 +8,7 @@ is eligible for a given task, and how large a paired bootstrap block should be.
 """
 
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -743,6 +744,65 @@ def _model_frame(frame, regressors):
     return out
 
 
+def _drop_singleton_segments(model_frame, context):
+    """
+    Drop segments of fewer than two rows from a frame about to be predicted.
+
+    Inside ``model.predict``, NeuralProphet re-infers a sampling frequency
+    for every segment independently, and a segment holding exactly one
+    timestamp has no interval to measure that frequency from —
+    ``df_utils.infer_frequency`` returns ``NaT``, and the library's own
+    ``pd.to_timedelta(NaT)`` then raises ``ValueError: Invalid frequency:
+    NaT``. This is not a corner case a caller can design around: any
+    time-based slice of a segmented record — which is exactly what a
+    walk-forward evaluation window is — can cut a long segment at the
+    window boundary and leave a one-row stub on either side, so a one-row
+    segment is a matter of when, not if. Only ``predict`` re-infers a
+    frequency; ``fit`` is always called with an explicit ``freq`` in this
+    module and is never at risk, so this is applied to a prediction frame
+    only and the corresponding training frame is never touched.
+
+    A frame with no ``ID`` column, or whose segments all hold two or more
+    rows, is returned unchanged — this function is a no-op on every frame
+    that does not contain a singleton segment. When rows are dropped, a
+    ``UserWarning`` names how many rows and how many segments were removed,
+    so a caller is never silently short of predictions: those timestamps
+    simply carry no row in the caller's returned long frame, which is the
+    correct outcome for a one-row fragment no window can judge.
+
+    Parameters
+    ----------
+    model_frame : pd.DataFrame
+        NeuralProphet-format frame (``ds``, ``y``, regressor columns, and
+        optionally ``ID``) about to be passed to ``model.predict``.
+    context : str
+        Name of the calling function, included in the warning message so a
+        caller can tell where the drop happened.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``model_frame``, or a copy with singleton-segment rows removed.
+    """
+    if 'ID' not in model_frame.columns:
+        return model_frame
+
+    sizes = model_frame.groupby('ID')['ID'].transform('size')
+    singleton = sizes < 2
+    if not singleton.any():
+        return model_frame
+
+    n_rows = int(singleton.sum())
+    n_segments = int(model_frame.loc[singleton, 'ID'].nunique())
+    warnings.warn(
+        f'{context}: dropped {n_rows} row(s) across {n_segments} '
+        'single-row segment(s) before prediction, because a segment of one '
+        'row carries no frequency for NeuralProphet to infer; those '
+        'timestamps receive no prediction.',
+        stacklevel=2)
+    return model_frame.loc[~singleton]
+
+
 def _analysis_freq(index):
     """Infer an hourly-style frequency string for NeuralProphet."""
     freq = pd.infer_freq(pd.DatetimeIndex(index))
@@ -875,7 +935,16 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
     Returns
     -------
     model, pd.DataFrame
-        Fitted NeuralProphet model and long prediction table.
+        Fitted NeuralProphet model and long prediction table. A segment
+        (identified by ``segment_id``) shorter than two rows in ``test`` is
+        dropped from the frame handed to prediction before it is scored,
+        because NeuralProphet re-infers a sampling frequency per segment at
+        predict time and a single timestamp carries none to infer; see
+        :func:`_drop_singleton_segments`. ``train`` is never affected, since
+        ``fit`` always receives an explicit frequency. Dropping this way is
+        a no-op whenever ``test`` carries no ``segment_id`` or every segment
+        already holds two or more rows, and a ``UserWarning`` is raised
+        whenever it is not.
     """
     if task not in {'forecast', 'nowcast'}:
         raise ValueError("task must be 'forecast' or 'nowcast'")
@@ -927,6 +996,7 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
     predict_df = test_df if task == 'nowcast' or segmented_test else pd.concat(
         [train_df.tail(max(int(n_lags), int(regressor_lags))), test_df],
         ignore_index=True)
+    predict_df = _drop_singleton_segments(predict_df, 'neuralprophet_backtest')
     wide = model.predict(predict_df, decompose=bool(decompose))
     keep_horizons = list(horizons or range(1, int(n_forecasts) + 1))
     long = _long_predictions(
@@ -1080,7 +1150,14 @@ def neuralprophet_predict(model, frame, regressors=(), horizons=(1,),
     -------
     pd.DataFrame
         Long prediction table with ``ds``, optional ``ID``, horizon, observed
-        value, prediction, and optional interval columns.
+        value, prediction, and optional interval columns. A segment
+        (identified by ``segment_id``) shorter than two rows in ``frame`` is
+        dropped from the frame handed to prediction before it is scored,
+        because NeuralProphet re-infers a sampling frequency per segment at
+        predict time and a single timestamp carries none to infer; see
+        :func:`_drop_singleton_segments`. This is a no-op whenever ``frame``
+        carries no ``segment_id`` or every segment already holds two or more
+        rows, and a ``UserWarning`` is raised whenever it is not.
     """
     model_frame = _model_frame(frame, regressors)
     original_y = pd.to_numeric(
@@ -1090,6 +1167,7 @@ def neuralprophet_predict(model, frame, regressors=(), horizons=(1,),
         # NeuralProphet 0.9.0 crashes while restoring trailing missing y even
         # though a zero-lag model does not consume the target at prediction.
         model_frame['y'] = model_frame['y'].fillna(0.0)
+    model_frame = _drop_singleton_segments(model_frame, 'neuralprophet_predict')
     wide = model.predict(model_frame, decompose=bool(decompose))
     long = _long_predictions(
         wide, frame.index, 'segment_id' in frame.columns, list(horizons),

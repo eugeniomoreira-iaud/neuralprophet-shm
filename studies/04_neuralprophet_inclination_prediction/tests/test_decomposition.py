@@ -8,6 +8,7 @@ the model is accurate.
 import os
 import sys
 import unittest
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -772,6 +773,109 @@ class TestPeriodScan(unittest.TestCase):
         series = pd.Series(np.arange(10.0), index=idx)
         with self.assertRaises(ValueError):
             prediction.period_scan(series)
+
+
+class TestSingletonSegmentDroppedBeforePrediction(unittest.TestCase):
+    """A one-row segment carries no frequency; slicing by time makes one eventually."""
+
+    @classmethod
+    def setUpClass(cls):
+        # A model's first fit/predict call in a fresh process disturbs the
+        # warnings machinery once (observed: pytorch-lightning's first
+        # Trainer setup replaces `warnings.filters` wholesale, which can
+        # swallow a `catch_warnings(record=True)` capture started before
+        # it). One throwaway fit here absorbs that one-time cost so the
+        # warning assertions below test this module's behaviour, not an
+        # unrelated cold-start artefact of the training library.
+        idx = pd.date_range('2025-01-01 00:00', periods=10, freq='20min')
+        warm = pd.DataFrame({'y': np.arange(10.0)}, index=idx)
+        prediction.neuralprophet_backtest(
+            warm, warm, task='nowcast', epochs=1, n_lags=0, quantiles=(),
+            freq='20min')
+
+    def _train(self):
+        idx = pd.date_range('2025-01-01 00:00', periods=30, freq='20min')
+        steps = np.arange(len(idx), dtype=float)
+        return pd.DataFrame({
+            'y': np.sin(steps / 5.0),
+            'x': np.cos(steps / 7.0),
+            'segment_id': ['TR'] * len(idx),
+        }, index=idx)
+
+    def _test_with_fragment(self):
+        idx_s1 = pd.date_range('2025-01-01 10:00', periods=5, freq='20min')
+        idx_s2 = pd.date_range('2025-01-01 12:00', periods=5, freq='20min')
+        idx_s3 = pd.date_range('2025-01-01 14:00', periods=1, freq='20min')
+        idx = idx_s1.append(idx_s2).append(idx_s3)
+        steps = np.arange(len(idx), dtype=float)
+        segment_id = ['S1'] * 5 + ['S2'] * 5 + ['S3'] * 1
+        return pd.DataFrame({
+            'y': np.sin(steps / 5.0),
+            'x': np.cos(steps / 7.0),
+            'segment_id': segment_id,
+        }, index=idx)
+
+    def test_a_one_row_segment_is_dropped_not_crashed(self):
+        # Record every warning rather than assertWarns/assertWarnsRegex:
+        # NeuralProphet's own import and fit/predict path already raises
+        # unrelated UserWarnings (pkg_resources deprecation, MPS
+        # availability) ahead of ours, and both of those unittest helpers
+        # only examine the first warning of the matching class, which would
+        # make this test fail on noise rather than on the property it
+        # checks.
+        train = self._train()
+        test = self._test_with_fragment()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            _, out = prediction.neuralprophet_backtest(
+                train, test, regressors=('x',), task='nowcast', epochs=1,
+                n_lags=0, quantiles=(), freq='20min')
+        drop_warnings = [w for w in caught
+                         if 'single-row segment' in str(w.message)]
+        self.assertEqual(len(drop_warnings), 1)
+        self.assertTrue(issubclass(drop_warnings[0].category, UserWarning))
+
+        self.assertEqual(set(out['ID']), {'S1', 'S2'})
+        self.assertEqual(len(out), 10)
+        self.assertTrue(np.isfinite(out['yhat']).all())
+
+    def test_dropping_the_fragment_is_a_no_op_on_the_healthy_segments(self):
+        train = self._train()
+        test_with_fragment = self._test_with_fragment()
+        test_without_fragment = test_with_fragment[
+            test_with_fragment['segment_id'] != 'S3']
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            _, with_fragment = prediction.neuralprophet_backtest(
+                train, test_with_fragment, regressors=('x',), task='nowcast',
+                epochs=1, n_lags=0, quantiles=(), freq='20min')
+        self.assertEqual(
+            len([w for w in caught
+                if 'single-row segment' in str(w.message)]), 1)
+
+        # Record every warning instead of escalating any to an exception:
+        # NeuralProphet's own fit/predict already raises unrelated,
+        # known-benign warnings this test has no business failing on. Only
+        # the drop warning's absence is asserted.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            _, without_fragment = prediction.neuralprophet_backtest(
+                train, test_without_fragment, regressors=('x',),
+                task='nowcast', epochs=1, n_lags=0, quantiles=(),
+                freq='20min')
+        drop_warnings = [w for w in caught
+                         if 'single-row segment' in str(w.message)]
+        self.assertEqual(drop_warnings, [])
+
+        self.assertEqual(len(with_fragment), len(without_fragment))
+        self.assertEqual(set(with_fragment['ds']), set(without_fragment['ds']))
+        with_sorted = with_fragment.sort_values('ds').reset_index(drop=True)
+        without_sorted = without_fragment.sort_values(
+            'ds').reset_index(drop=True)
+        np.testing.assert_allclose(with_sorted['yhat'].to_numpy(),
+                                   without_sorted['yhat'].to_numpy())
 
 
 if __name__ == '__main__':
