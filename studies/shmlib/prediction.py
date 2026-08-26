@@ -260,6 +260,79 @@ def segment_survival(frame, required, lag_hours, forecast_hours, freq='20min'):
     return pd.DataFrame(rows)
 
 
+def cadence_evidence(response, driver, era=None, cadences=('20min', '1h'),
+                     freq='20min'):
+    """
+    Statistics that decide the modelling cadence and the prediction target.
+
+    Reported per candidate cadence: the persistence of the level, the memory
+    left in its gap-safe first difference, the scale of that difference, its
+    coupling to a driver, and the drift implied by its mean. A level whose
+    lag-one autocorrelation is near unity cannot be scored honestly, and a
+    difference whose lag-one autocorrelation is negative is dominated by
+    measurement noise rather than by the increment it is meant to carry.
+
+    Parameters
+    ----------
+    response : pd.Series
+        Structural response, on the finest available grid.
+    driver : pd.Series
+        Environmental driver to correlate against, same index.
+    era : pd.Series or None, optional
+        Instrument-era label per timestamp; a difference crossing a change of
+        label is discarded. Default ``None``.
+    cadences : sequence of str, optional
+        Grids to evaluate. The first must be the native one. Default
+        ``('20min', '1h')``.
+    freq : str, optional
+        Native spacing of the inputs. Default ``'20min'``.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per cadence, with ``cadence``, ``n_level``, ``n_change``,
+        ``level_autocorr1``, ``change_autocorr1``, ``change_std``,
+        ``change_mad``, ``corr_level``, ``corr_change`` and ``drift_per_year``.
+    """
+    response = pd.to_numeric(response, errors='coerce')
+    driver = pd.to_numeric(driver, errors='coerce').reindex(response.index)
+    era_values = _as_series(era, response.index, name='era')
+
+    rows = []
+    for cadence in cadences:
+        if cadence == freq:
+            level, force = response, driver
+            labels = era_values
+        else:
+            level = response.resample(cadence).mean()
+            force = driver.resample(cadence).mean()
+            labels = (era_values.resample(cadence).first()
+                      if era_values is not None else None)
+
+        change = hourly_change(level, era=labels, freq=cadence)
+        driver_change = hourly_change(force, era=labels, freq=cadence)
+        steps_per_year = pd.Timedelta(days=365) / pd.Timedelta(cadence)
+
+        level_pair = pd.concat([level, force], axis=1).dropna()
+        change_pair = pd.concat([change, driver_change], axis=1).dropna()
+
+        rows.append({
+            'cadence': cadence,
+            'n_level': int(level.notna().sum()),
+            'n_change': int(change.notna().sum()),
+            'level_autocorr1': float(level.autocorr(1)),
+            'change_autocorr1': float(change.autocorr(1)),
+            'change_std': float(change.std()),
+            'change_mad': float((change - change.median()).abs().median()),
+            'corr_level': (float(level_pair.iloc[:, 0].corr(level_pair.iloc[:, 1]))
+                           if len(level_pair) > 1 else np.nan),
+            'corr_change': (float(change_pair.iloc[:, 0].corr(change_pair.iloc[:, 1]))
+                            if len(change_pair) > 1 else np.nan),
+            'drift_per_year': float(change.mean() * steps_per_year),
+        })
+    return pd.DataFrame(rows)
+
+
 def expanding_segment_folds(segment_ids, initial_segments, n_folds):
     """
     Chronological expanding folds over whole contiguous segments.

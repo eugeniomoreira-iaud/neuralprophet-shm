@@ -94,5 +94,48 @@ class TestSegmentSurvival(unittest.TestCase):
         self.assertEqual(table['n_segments'].iloc[0], 0)
 
 
+class TestCadenceEvidence(unittest.TestCase):
+
+    def _pair(self, n=6 * 24 * 30):
+        index = pd.date_range('2024-01-01', periods=n, freq='20min')
+        phase = np.arange(n) / (3 * 24) * 2 * np.pi
+        driver = pd.Series(10.0 * np.sin(phase), index=index)
+        # Drift kept well below the coupled amplitude so it does not dilute
+        # the level correlation this test asserts.
+        response = pd.Series(-2.0 * driver.to_numpy() + 0.002 * np.arange(n),
+                             index=index)
+        return response, driver
+
+    def test_reports_one_row_per_cadence_with_the_documented_columns(self):
+        response, driver = self._pair()
+        table = prediction.cadence_evidence(response, driver)
+        self.assertEqual(list(table['cadence']), ['20min', '1h'])
+        for column in ('level_autocorr1', 'change_autocorr1', 'change_std',
+                       'change_mad', 'corr_level', 'corr_change',
+                       'drift_per_year'):
+            self.assertIn(column, table.columns)
+
+    def test_recovers_the_sign_of_a_known_coupling(self):
+        response, driver = self._pair()
+        table = prediction.cadence_evidence(response, driver).set_index('cadence')
+        self.assertLess(table.loc['1h', 'corr_level'], -0.9)
+        self.assertLess(table.loc['1h', 'corr_change'], -0.9)
+
+    def test_white_noise_on_the_level_shows_as_negative_change_autocorrelation(self):
+        response, driver = self._pair()
+        rng = np.random.default_rng(0)
+        noisy = response + rng.normal(0.0, 20.0, len(response))
+        table = prediction.cadence_evidence(noisy, driver).set_index('cadence')
+        self.assertLess(table.loc['20min', 'change_autocorr1'], 0.0)
+
+    def test_an_era_boundary_is_never_differenced_across(self):
+        response, driver = self._pair(n=200)
+        era = pd.Series('legacy', index=response.index)
+        era.iloc[100:] = 'current'
+        table = prediction.cadence_evidence(response, driver, era=era)
+        without = prediction.cadence_evidence(response, driver)
+        self.assertLess(table['n_change'].iloc[0], without['n_change'].iloc[0])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
