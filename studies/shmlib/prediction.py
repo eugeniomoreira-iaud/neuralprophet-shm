@@ -675,7 +675,9 @@ def _long_predictions(predictions, test_index, has_id, horizons, quantiles):
 def neuralprophet_backtest(train, test, regressors=(), task='forecast',
                            n_lags=24, n_forecasts=24, regressor_lags=12,
                            horizons=None, epochs=30, yearly=False,
-                           quantiles=(0.05, 0.95), seed=0):
+                           quantiles=(0.05, 0.95), seed=0, growth='off',
+                           changepoints=None, n_changepoints=10, freq=None,
+                           decompose=False):
     """
     Fit one NeuralProphet model and return long out-of-sample predictions.
 
@@ -711,6 +713,24 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
         Prediction quantiles. Default ``(0.05, 0.95)``.
     seed : int, optional
         Random seed. Default ``0``.
+    growth : {'off', 'linear'}, optional
+        Trend specification. ``'off'`` fits a constant offset and is the
+        default, which is what a change-valued target needs; ``'linear'``
+        fits a piecewise-linear trend and is what a level-valued target needs.
+    changepoints : pd.DatetimeIndex or None, optional
+        Explicit changepoint locations, normally from
+        ``covered_changepoints``. ``None`` lets NeuralProphet space
+        ``n_changepoints`` of them along the training range, which on a gapped
+        record can place one inside an outage. Default ``None``.
+    n_changepoints : int, optional
+        Number of changepoints when ``changepoints`` is ``None``. Ignored
+        otherwise. Default ``10``.
+    freq : str or None, optional
+        Frequency handed to NeuralProphet. ``None`` infers it from the training
+        index. Default ``None``.
+    decompose : bool, optional
+        Whether ``model.predict`` returns component columns beside the
+        prediction. Default ``False``, which is what a scoring run needs.
 
     Returns
     -------
@@ -731,7 +751,10 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
         n_forecasts = 1
 
     model = NeuralProphet(
-        growth='off',
+        growth=growth,
+        changepoints=(list(pd.DatetimeIndex(changepoints))
+                      if changepoints is not None else None),
+        n_changepoints=int(n_changepoints),
         n_lags=int(n_lags),
         n_forecasts=int(n_forecasts),
         daily_seasonality=True,
@@ -757,14 +780,14 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
 
     train_df = _model_frame(train, regressors)
     test_df = _model_frame(test, regressors)
-    fit_freq = _analysis_freq(train.index)
+    fit_freq = freq if freq is not None else _analysis_freq(train.index)
     model.fit(train_df, freq=fit_freq, progress='none', minimal=True)
 
     segmented_test = 'segment_id' in test.columns
     predict_df = test_df if task == 'nowcast' or segmented_test else pd.concat(
         [train_df.tail(max(int(n_lags), int(regressor_lags))), test_df],
         ignore_index=True)
-    wide = model.predict(predict_df, decompose=False)
+    wide = model.predict(predict_df, decompose=bool(decompose))
     keep_horizons = list(horizons or range(1, int(n_forecasts) + 1))
     long = _long_predictions(
         wide, test.index, 'segment_id' in test.columns, keep_horizons,
@@ -773,7 +796,7 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
 
 
 def neuralprophet_predict(model, frame, regressors=(), horizons=(1,),
-                          quantiles=(0.05, 0.95)):
+                          quantiles=(0.05, 0.95), decompose=False):
     """
     Predict new same-time rows with an already fitted NeuralProphet model.
 
@@ -789,6 +812,9 @@ def neuralprophet_predict(model, frame, regressors=(), horizons=(1,),
         Horizons to keep from the model output. Default ``(1,)``.
     quantiles : sequence of float, optional
         Prediction quantiles to reshape when present. Default ``(0.05, 0.95)``.
+    decompose : bool, optional
+        Whether component columns are requested from the model. Default
+        ``False``.
 
     Returns
     -------
@@ -804,7 +830,7 @@ def neuralprophet_predict(model, frame, regressors=(), horizons=(1,),
         # NeuralProphet 0.9.0 crashes while restoring trailing missing y even
         # though a zero-lag model does not consume the target at prediction.
         model_frame['y'] = model_frame['y'].fillna(0.0)
-    wide = model.predict(model_frame, decompose=False)
+    wide = model.predict(model_frame, decompose=bool(decompose))
     long = _long_predictions(
         wide, frame.index, 'segment_id' in frame.columns, list(horizons),
         quantiles)
@@ -1059,3 +1085,99 @@ def gap_closure_summary(inclination, estimates, era=None, freq='1h'):
         'gap_id', 'start', 'end', 'recovery', 'n_missing', 'status',
         'prior_anchor', 'observed_recovery', 'predicted_recovery',
         'closure_error'])
+
+
+def covered_changepoints(index, n_changepoints, observed_mask=None):
+    """
+    Trend changepoints placed on time the record actually covers.
+
+    A changepoint placed inside an outage is constrained by no observation, and
+    the trend is free to move arbitrarily across it. Placing changepoints at
+    quantiles of the observed timestamps rather than uniformly along the axis
+    keeps every one of them anchored to data.
+
+    Parameters
+    ----------
+    index : pd.DatetimeIndex
+        Full analysis grid, covered and uncovered alike.
+    n_changepoints : int
+        Number of changepoints requested. Silently clipped when fewer covered
+        samples exist.
+    observed_mask : pd.Series or array-like or None, optional
+        Boolean per timestamp, true where a value is present. ``None`` treats
+        every timestamp as covered. Default ``None``.
+
+    Returns
+    -------
+    pd.DatetimeIndex
+        Increasing changepoint locations, of length at most ``n_changepoints``.
+    """
+    index = pd.DatetimeIndex(index)
+    if observed_mask is None:
+        covered = index
+    else:
+        mask = _as_series(observed_mask, index).fillna(False).astype(bool)
+        covered = index[mask.to_numpy()]
+    if len(covered) == 0:
+        return pd.DatetimeIndex([])
+
+    count = int(min(int(n_changepoints), len(covered)))
+    if count <= 0:
+        return pd.DatetimeIndex([])
+    quantiles = np.linspace(0.0, 1.0, count + 2)[1:-1]
+    positions = np.unique((quantiles * (len(covered) - 1)).round().astype(int))
+    return pd.DatetimeIndex(covered[positions])
+
+
+def decompose_components(model, frame, regressors=(), freq=None):
+    """
+    The additive parts NeuralProphet fitted, aligned to the study's index.
+
+    NeuralProphet returns its decomposition as extra columns beside the
+    prediction. This reshapes them into one timestamp-indexed table, adds the
+    observed value and the residual, and leaves the component names as the model
+    produced them, so that a reader can trace any column back to the term that
+    made it.
+
+    Parameters
+    ----------
+    model : object
+        Fitted NeuralProphet model, exposing ``predict(df, decompose=True)``.
+    frame : pd.DataFrame
+        Datetime-indexed rows with ``y``, the regressors, and optionally
+        ``segment_id``.
+    regressors : sequence of str, optional
+        Regressor columns to pass through. Default empty.
+    freq : str or None, optional
+        Unused by the model at prediction time; accepted so callers may pass
+        the study's grid for symmetry with ``neuralprophet_backtest``. Default
+        ``None``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Indexed by timestamp, carrying every component column the model
+        produced, plus ``y``, ``yhat1``, ``residual`` and, when the input was
+        segmented, ``ID``.
+    """
+    model_frame = _model_frame(frame, regressors)
+    if getattr(model, 'n_lags', None) == 0:
+        model_frame['y'] = model_frame['y'].fillna(0.0)
+    wide = model.predict(model_frame, decompose=True)
+
+    reserved = {'ds', 'y'}
+    components = [c for c in wide.columns
+                  if c not in reserved and not c.startswith('yhat')
+                  and '%' not in c and c != 'ID']
+
+    out = wide.loc[:, ['ds'] + components].copy()
+    out['yhat1'] = wide['yhat1'] if 'yhat1' in wide.columns else np.nan
+    if 'ID' in wide.columns:
+        out['ID'] = wide['ID']
+    out = out.set_index('ds')
+    out.index.name = frame.index.name
+
+    observed = pd.to_numeric(frame['y'], errors='coerce') if 'y' in frame else None
+    out['y'] = observed.reindex(out.index) if observed is not None else np.nan
+    out['residual'] = out['y'] - out['yhat1']
+    return out
