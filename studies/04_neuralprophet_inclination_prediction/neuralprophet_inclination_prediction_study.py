@@ -107,11 +107,10 @@ MODEL_FREQ_B = '1h'             # forecast skill
 # measurement. No earlier or intermediate version of this channel is used.
 TARGET_COLUMN = 'inc_comp_cleaned'
 
-# The raw channel, spike-masked, used once as a sensitivity in step 5: fitting
-# the thermal term rather than subtracting the documented coefficient is the
-# only way this study can speak to the sign contradiction of
-# docs/raw-data-format.md section 7.5.
-RAW_TARGET_COLUMN = 'inc'
+# No raw channel is read. Compensation is Study 01's discussion and this study
+# is blind to it (D10): the compensated, cleaned channel above is the raw
+# material here, and the sign contradiction of docs/raw-data-format.md section
+# 7.5 stays Study 01's open question.
 
 # ---------------------------------------------------------------------------
 # The window
@@ -139,6 +138,41 @@ PREDICTOR_COLUMNS = ('tair', 'rh')
 # that it is not a silent channel - it reaches r = -0.673 in the diurnal band -
 # so it marks a conservative floor rather than a zero.
 CONTROL_COLUMN = 'batt'
+
+# ---------------------------------------------------------------------------
+# Model A - decomposition and expectation
+# ---------------------------------------------------------------------------
+# Zero autoregressive lags. With n_lags > 0 the autoregressive component absorbs
+# most of the diurnal structure, and the seasonal component becomes the
+# periodicity left over after it rather than the wall's thermal cycle. A
+# decomposition meant to be read as physics must therefore carry no AR term.
+MODEL_A_LAGS = 0
+
+# Piecewise-linear trend. The drift is the structurally interesting component
+# and does not exist under growth='off'.
+MODEL_A_GROWTH = 'linear'
+
+# Changepoints are placed at quantiles of the observed timestamps rather than
+# uniformly along the axis: this window contains outages of 40, 42, 17 and 103
+# days, and a changepoint inside one is constrained by no data.
+MODEL_A_CHANGEPOINTS = 12
+
+# Yearly seasonality is fitted both ways and kept only if it improves held-out
+# error. The window spans 3.2 annual cycles with a 103-day hole in the last one,
+# which is not obviously enough to identify an annual term.
+MODEL_A_YEARLY_CANDIDATES = (False, True)
+
+MODEL_A_EPOCHS = 30
+MODEL_A_QUANTILES = (0.05, 0.95)
+MODEL_A_SEED = 0
+
+# Training origin: the model is fitted on everything before this instant and
+# judged on everything after it. Chronological, never random.
+MODEL_A_TRAIN_END = '2025-09-01'
+
+# Minimum segment length, in slots. A segment shorter than a day cannot inform
+# a daily seasonality, and contributes noise to the trend.
+MODEL_A_MIN_SEGMENT = 72
 
 # ---------------------------------------------------------------------------
 # Channel maps
@@ -300,8 +334,11 @@ plt.show()
 # on this record it does not.
 
 # %%
+# No era label is passed (D9). Study 01 anchored the two instrument eras once,
+# as a single series, and this study reads that product as its raw material;
+# labelling the changeover here would only invite a second anchoring.
 cadence = prediction.cadence_evidence(
-    window[TARGET_COLUMN], window['tair_str'], era=window.get('era'),
+    window[TARGET_COLUMN], window['tair_str'], era=None,
     cadences=(MODEL_FREQ_A, MODEL_FREQ_B), freq=NATIVE_FREQ)
 display(cadence)
 
@@ -310,3 +347,141 @@ figures.plot_cadence_evidence(
     cadence, title='What fixes the cadence and the target',
     save_path=str(OUTPUT_DIR), filename='NP_F04_cadence_evidence')
 plt.show()
+
+# %% [markdown]
+# ## 4 · What the record is made of
+#
+# The level is decomposed into a trend, a daily cycle, the response to the two
+# environmental channels measured beside it, and a remainder. The level is used
+# here and nowhere else in this study: its lag-one autocorrelation is 0.998, so
+# an error metric computed against it would measure the sampling interval rather
+# than the model. What it is good for is the trend, which no differenced target
+# can recover — the mean of the gap-safe change implies −65.7 mdeg/yr at twenty
+# minutes and +0.97 mdeg/yr at one hour on this same record, because segment
+# endpoints do not sample the diurnal cycle uniformly.
+#
+# Nothing is interpolated. Rows missing any required channel are dropped, the
+# remainder is split into contiguous segments, and each segment is handed to
+# NeuralProphet under its own identifier, so no fitted window ever spans a gap.
+# Imputation is disabled explicitly: with `impute_missing=True`, its default,
+# NeuralProphet silently fabricates gaps of at least thirty hours.
+#
+# ### Parameter Tuning Guidance
+#
+# **`MODEL_A_LAGS`** — autoregressive lags; must stay `0`. Any positive value
+# transfers the diurnal cycle from the seasonal component into the
+# autoregressive one and makes the decomposition unreadable as physics.
+#
+# **`MODEL_A_GROWTH`** — `'linear'` or `'off'`; default `'linear'`. Under
+# `'off'` the trend is a constant and the drift disappears.
+#
+# **`MODEL_A_CHANGEPOINTS`** — number of trend changepoints, placed on covered
+# time; default `12`, roughly one per quarter of the window. More changepoints
+# track shorter movements at the cost of absorbing signal that belongs to the
+# seasonal or regressor terms.
+#
+# **`MODEL_A_YEARLY_CANDIDATES`** — whether an annual term is fitted; both are
+# tried and the comparison is reported in `NP_06`.
+#
+# **`MODEL_A_TRAIN_END`** — the frozen training origin. Everything after it is
+# out of sample. Moving it later buys training data and costs evaluation data.
+#
+# **`MODEL_A_MIN_SEGMENT`** — shortest usable run, in slots; default `72`, one
+# day at twenty minutes.
+
+# %%
+frame_a = (window.rename(columns={TARGET_COLUMN: 'y'})
+           .rename(columns={f'{name}_str': name for name in PREDICTOR_COLUMNS})
+           .loc[:, ['y'] + list(PREDICTOR_COLUMNS)])
+
+segmented_a = prediction.contiguous_segments(
+    frame_a, required=['y'] + list(PREDICTOR_COLUMNS),
+    min_length=MODEL_A_MIN_SEGMENT, freq=MODEL_FREQ_A)
+
+train_a = segmented_a.loc[:MODEL_A_TRAIN_END]
+test_a = segmented_a.loc[MODEL_A_TRAIN_END:]
+changepoints_a = prediction.covered_changepoints(
+    train_a.index, MODEL_A_CHANGEPOINTS)
+
+print(f'Model A: {len(train_a):,} training rows in '
+      f'{train_a["segment_id"].nunique()} segments, '
+      f'{len(test_a):,} evaluation rows')
+
+# %%
+fits = {}
+for yearly in MODEL_A_YEARLY_CANDIDATES:
+    model, predictions = prediction.neuralprophet_backtest(
+        train_a, test_a, regressors=PREDICTOR_COLUMNS, task='nowcast',
+        n_lags=MODEL_A_LAGS, epochs=MODEL_A_EPOCHS, yearly=yearly,
+        quantiles=MODEL_A_QUANTILES, seed=MODEL_A_SEED,
+        growth=MODEL_A_GROWTH, changepoints=changepoints_a,
+        freq=MODEL_FREQ_A)
+    fits[yearly] = (model, predictions)
+    scores = prediction.score_predictions(predictions, [])
+    print(f'yearly={yearly}: out-of-sample MAE {scores["mae"].iloc[0]:.3f} mdeg')
+
+MODEL_A_YEARLY = min(
+    fits, key=lambda flag: prediction.score_predictions(
+        fits[flag][1], [])['mae'].iloc[0])
+model_a, predictions_a = fits[MODEL_A_YEARLY]
+print(f'Chosen: yearly={MODEL_A_YEARLY}')
+
+# %% [markdown]
+# ## 5 · The components, and whether they agree with Study 03
+#
+# The fitted air-temperature contribution is the one number in this study that
+# can be checked against an independent measurement. Study 03 screened the same
+# response against the same channel by a completely different method — a lag and
+# gain scan on the diurnal band — and measured **−2.79 mdeg/°C** with
+# `r = −0.957`, a value that survived substitution of the ground station
+# (−2.23) and ERA5 (−2.04) for the on-structure sensor. If this decomposition
+# reproduces it, two unrelated methods agree on a physical constant. If it does
+# not, that disagreement is the study's finding and the work stops here rather
+# than proceeding to build an anomaly detector on a model that does not describe
+# the wall.
+#
+# The gain is fitted on the compensated channel, which this study takes as its
+# raw data. Whether Study 01's compensation is correctly sized is Study 01's
+# question, and it is not reopened here (D10): the number below is what the wall
+# does after that correction, which is the only quantity a monitoring system
+# ever sees.
+
+# %%
+components_a = prediction.decompose_components(
+    model_a, segmented_a, regressors=PREDICTOR_COLUMNS)
+residual_a = components_a['residual']
+
+shares = prediction.component_variance_shares(components_a)
+diagnostics = prediction.residual_diagnostics(residual_a, lags=(1, 72, 216))
+display(shares)
+display(diagnostics)
+
+shares.to_csv(OUTPUT_DIR / 'NP_05_component_shares.csv', index=False)
+diagnostics.to_csv(OUTPUT_DIR / 'NP_08_residual_diagnostics.csv', index=False)
+
+figures.plot_decomposition_stack(
+    components_a.loc[MODEL_A_TRAIN_END:], freq=MODEL_FREQ_A,
+    title='What the inclination record is made of',
+    save_path=str(OUTPUT_DIR), filename='NP_F05_decomposition_stack')
+plt.show()
+
+# %%
+# The learned thermal gain, set against Study 03's three independent statements
+# of it.
+paired = pd.concat([components_a['future_regressor_tair'],
+                    segmented_a['tair']], axis=1).dropna()
+paired.columns = ['contribution', 'tair']
+learned_gain = np.polyfit(paired['tair'], paired['contribution'], 1)[0]
+
+gains = pd.DataFrame([
+    {'source': 'Model A, compensated channel', 'gain_mdeg_per_degC': learned_gain,
+     'method': 'NeuralProphet future regressor', 'n': len(paired)},
+    {'source': 'Study 03, diurnal band', 'gain_mdeg_per_degC': -2.79,
+     'method': 'lag and gain scan', 'n': np.nan},
+    {'source': 'Study 03, ground station', 'gain_mdeg_per_degC': -2.23,
+     'method': 'lag and gain scan', 'n': np.nan},
+    {'source': 'Study 03, ERA5', 'gain_mdeg_per_degC': -2.04,
+     'method': 'lag and gain scan', 'n': np.nan},
+])
+display(gains)
+gains.to_csv(OUTPUT_DIR / 'NP_06_learned_gains.csv', index=False)
