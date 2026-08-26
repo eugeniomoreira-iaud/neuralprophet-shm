@@ -149,6 +149,12 @@ sample the diurnal cycle uniformly, so the mean increment is a biased drift esti
 the decomposition a requirement rather than an ornament: only a trend fitted to the level, with
 the daily cycle carried by an explicit seasonal term, estimates drift without that bias.
 
+The trend is read **over the training window only**. Past its last changepoint a piecewise-linear
+trend is an extrapolation, and on a record whose evaluation stretch opens with a 103-day hole that
+extrapolation is the largest error anywhere in the decomposition — measured here, it inflates the
+residual's standard deviation from 13.8 mdeg to 41.9 and drives excursions to −194 mdeg. A trend is
+evidence where observations constrain it and arithmetic thereafter.
+
 ### D4 · Contemporaneous regressors in the nowcast are not leakage
 
 The anomaly model consumes `tair` and `rh` measured at the same instant as the inclination it
@@ -161,17 +167,29 @@ only past predictor values. The two are never scored on the same table.
 
 With `n_lags > 0`, NeuralProphet's AR component absorbs most of the diurnal structure, and the
 seasonal component becomes the periodicity *left over after* AR — not the wall's thermal cycle.
-Reporting that as physics would be wrong. The study therefore fits:
+Reporting that as physics would be wrong. Model A is fitted **twice**, because attribution and monitoring want opposite things from the
+trend and one fit cannot serve both. The attribution fit keeps the trend, since the drift is the
+structurally interesting component and does not exist without it. The monitoring fit drops it,
+because an extrapolated trend is the largest error in the out-of-sample residual by a factor of
+three, and a control chart calibrated on it would spend its alarm budget on the model's own
+arithmetic. Dropping it also leaves the drift *inside* the residual, which is where a monitoring
+system should meet a drift — in front of the detector, not subtracted away behind it.
 
-| | **Model A — decomposition & expectation** | **Model B — forecast** |
-|---|---|---|
-| Target | `inc_comp_cleaned` level | gap-safe hourly change |
-| Grid | 20 min | 1 h |
-| `n_lags` | 0 | 24 (tuned against segment survival) |
-| Regressors | `tair`, `rh` contemporaneous (future regressors) | `tair` lagged, past only |
-| `growth` | `linear`, changepoints constrained to covered time | `off` |
-| Reads | trend, daily seasonality, regressor contributions, residual | skill against baselines, horizon limit |
-| Answers | Is this reading expected? How much drift is there? | How far ahead is prediction worth anything? |
+| | **Model A — attribution** | **Model A — monitoring** | **Model B — forecast** |
+|---|---|---|---|
+| Target | `inc_comp_cleaned` level | same | gap-safe hourly change |
+| Grid | 20 min | 20 min | 1 h |
+| `n_lags` | 0 | 0 | 24 (tuned against segment survival) |
+| Regressors | `tair`, `rh` contemporaneous (future regressors) | same | `tair` lagged, past only |
+| `growth` | `linear`, changepoints constrained to covered time | `off` | `off` |
+| Yearly term | fitted | fitted | not applicable |
+| Reads | trend and drift, daily seasonality, regressor contributions, component shares | the residual that becomes the expectation error and the control statistic | skill against baselines, horizon limit |
+| Answers | What is the record made of? How much drift is there? | Is this reading expected? Is this a departure? | How far ahead is prediction worth anything? |
+
+Measured over the evaluation stretch, the two Model A fits differ exactly where it matters: residual
+σ 41.9 mdeg for the attribution fit against 13.8 for the monitoring fit, and residual MAD 19.7
+against 2.7. In-sample they agree closely, which is why the split is invisible until a model is
+asked to extrapolate.
 
 ### D6 · Ablation is mandatory, or nothing is attributable
 
@@ -195,11 +213,20 @@ coverage. This window contains outages of 40, 42, 17 and 103 days. A changepoint
 is constrained by no data and lets the trend wander. Changepoints are therefore placed at
 quantiles of the *observed* timestamps, and trend is never read across a gap.
 
-### D8 · Yearly seasonality is tested, not assumed
+### D8 · Yearly seasonality is measured, and then kept whatever the measurement says
 
-The window spans 3.2 annual cycles with a 103-day hole in the last one. Yearly seasonality is
-fitted both ways and kept only if it improves held-out error; the comparison is reported either
-way.
+The window spans 3.2 annual cycles with a 103-day hole in the last one, which is not obviously
+enough to identify an annual term. It is therefore fitted both ways and the comparison is reported —
+but the annual term is carried forward regardless of which way the held-out error falls.
+
+The two criteria genuinely disagree on this record: the annual term costs about 12 mdeg of held-out
+MAE. Keeping it anyway follows from what Model A is for. It is read as an attribution of variation
+to named causes, and a cause left out of a model does not leave the record: it moves into the
+residual. Every control chart in Phase 5 is calibrated on that residual, so an unmodelled annual
+cycle — measured here at roughly 75 mdeg peak to trough — would be read as a structural departure,
+spend the entire false-alarm budget on the seasons, and bury the millidegree-scale movements the
+detector exists to find. A forecasting study would choose the other way; this one is not a
+forecasting study.
 
 ### D9 · Instrument eras are out of scope
 

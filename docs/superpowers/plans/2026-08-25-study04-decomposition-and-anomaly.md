@@ -3919,8 +3919,10 @@ EOF
   `prediction.neuralprophet_backtest`, `prediction.decompose_components`,
   `prediction.component_variance_shares`, `prediction.residual_diagnostics`,
   `figures.plot_decomposition_stack`.
-- Produces: notebook variables `model_a`, `predictions_a`, `components_a`, `residual_a`, consumed by
-  Tasks 14–16.
+- Produces: notebook variables `model_a`, `predictions_a`, `components_a` from the attribution fit,
+  and `model_m`, `predictions_m`, `components_m`, `residual_a` from the monitoring fit. Tasks 14–16
+  judge readings against the **monitoring** fit; `residual_a` is its residual, not the attribution
+  fit's.
 
 - [ ] **Step 0: Confirm step 3 reads no era label (D9)**
 
@@ -3944,19 +3946,44 @@ report quotes.
 # decomposition meant to be read as physics must therefore carry no AR term.
 MODEL_A_LAGS = 0
 
-# Piecewise-linear trend. The drift is the structurally interesting component
-# and does not exist under growth='off'.
+# Two fits, because one model cannot do both jobs on this record.
+#
+# The attribution fit carries a piecewise-linear trend: the drift is the
+# structurally interesting component and does not exist under growth='off'.
+# Its numbers are read in-sample, where a fitted trend is constrained by data.
 MODEL_A_GROWTH = 'linear'
+
+# The monitoring fit carries no trend at all. Measured on this record, a
+# piecewise-linear trend extrapolated past its last changepoint dominates
+# everything downstream: over the evaluation stretch the residual of the
+# attribution fit has a standard deviation of 41.9 mdeg and reaches -194,
+# against 13.8 and -43 for the same model without the trend. A control chart
+# calibrated on the first would spend its entire alarm budget on the model's
+# own extrapolation error. Dropping the trend leaves the drift inside the
+# residual, which is the right place for it: a monitoring system should watch
+# a drift, not have it subtracted away before it looks.
+MODEL_A_MONITOR_GROWTH = 'off'
 
 # Changepoints are placed at quantiles of the observed timestamps rather than
 # uniformly along the axis: this window contains outages of 40, 42, 17 and 103
 # days, and a changepoint inside one is constrained by no data.
 MODEL_A_CHANGEPOINTS = 12
 
-# Yearly seasonality is fitted both ways and kept only if it improves held-out
-# error. The window spans 3.2 annual cycles with a 103-day hole in the last one,
-# which is not obviously enough to identify an annual term.
+# Yearly seasonality is fitted both ways, because the comparison is worth
+# reporting: the window spans 3.2 annual cycles with a 103-day hole in the last
+# one, which is not obviously enough to identify an annual term, and on this
+# record the annual term costs held-out accuracy rather than buying it.
 MODEL_A_YEARLY_CANDIDATES = (False, True)
+
+# The annual term is kept regardless of that comparison. Model A exists to
+# attribute variation to named causes, not to minimise a forecast error, and the
+# two goals disagree here. Without the term the residual carries a slow arch of
+# about 75 mdeg peak to trough - the annual cycle itself - and everything
+# downstream reads the residual as evidence of structural departure. A detector
+# calibrated on it would spend its alarm budget on the seasons and could not see
+# a millidegree-scale movement underneath. Leaving a known cause unmodelled to
+# buy held-out accuracy would be buying the wrong thing.
+MODEL_A_YEARLY = True
 
 MODEL_A_EPOCHS = 30
 MODEL_A_QUANTILES = (0.05, 0.95)
@@ -3998,16 +4025,31 @@ MODEL_A_MIN_SEGMENT = 72
 # transfers the diurnal cycle from the seasonal component into the
 # autoregressive one and makes the decomposition unreadable as physics.
 #
-# **`MODEL_A_GROWTH`** — `'linear'` or `'off'`; default `'linear'`. Under
-# `'off'` the trend is a constant and the drift disappears.
+# **`MODEL_A_GROWTH`** — trend of the attribution fit; `'linear'` or `'off'`,
+# default `'linear'`. Under `'off'` the trend is a constant and the drift
+# disappears, which is why the attribution fit keeps it.
+#
+# **`MODEL_A_MONITOR_GROWTH`** — trend of the monitoring fit; default `'off'`.
+# This is the fit whose residual becomes the expectation error of step 6 and the
+# control statistic of step 7. It carries no trend because an extrapolated one
+# is the largest error in the residual by a factor of three, and because the
+# drift belongs in front of the detector rather than behind it.
 #
 # **`MODEL_A_CHANGEPOINTS`** — number of trend changepoints, placed on covered
 # time; default `12`, roughly one per quarter of the window. More changepoints
 # track shorter movements at the cost of absorbing signal that belongs to the
 # seasonal or regressor terms.
 #
-# **`MODEL_A_YEARLY_CANDIDATES`** — whether an annual term is fitted; both are
-# tried and the comparison is reported in `NP_06`.
+# **`MODEL_A_YEARLY_CANDIDATES`** — which annual settings are fitted for the
+# comparison; both, so the cost of the annual term is measured and reported
+# rather than assumed.
+#
+# **`MODEL_A_YEARLY`** — which of them is carried forward; default `True`. This
+# is deliberately not the held-out winner. Model A is read as an attribution of
+# variation to named causes, and an annual cycle left out of the model does not
+# cease to exist: it moves into the residual, where the control charts of step 7
+# would read it as a structural departure. Set it to `False` only for a study
+# whose purpose is forecast accuracy rather than attribution.
 #
 # **`MODEL_A_TRAIN_END`** — the frozen training origin. Everything after it is
 # out of sample. Moving it later buys training data and costs evaluation data.
@@ -4052,11 +4094,14 @@ for yearly in MODEL_A_YEARLY_CANDIDATES:
     scores = prediction.score_predictions(predictions, [])
     print(f'yearly={yearly}: out-of-sample MAE {scores["mae"].iloc[0]:.3f} mdeg')
 
-MODEL_A_YEARLY = min(
+# The held-out winner is reported, and then not obeyed: see MODEL_A_YEARLY.
+mae_optimal = min(
     fits, key=lambda flag: prediction.score_predictions(
         fits[flag][1], [])['mae'].iloc[0])
 model_a, predictions_a = fits[MODEL_A_YEARLY]
-print(f'Chosen: yearly={MODEL_A_YEARLY}')
+print(f'Lowest held-out MAE at yearly={mae_optimal}; '
+      f'carried forward yearly={MODEL_A_YEARLY} '
+      f'({"agrees" if mae_optimal == MODEL_A_YEARLY else "overridden for attribution"})')
 ```
 
 - [ ] **Step 4: Add the step 5 Markdown cell**
@@ -4100,7 +4145,7 @@ shares.to_csv(OUTPUT_DIR / 'NP_05_component_shares.csv', index=False)
 diagnostics.to_csv(OUTPUT_DIR / 'NP_08_residual_diagnostics.csv', index=False)
 
 figures.plot_decomposition_stack(
-    components_a.loc[MODEL_A_TRAIN_END:],
+    components_a.loc[MODEL_A_TRAIN_END:], freq=MODEL_FREQ_A,
     title='What the inclination record is made of',
     save_path=str(OUTPUT_DIR), filename='NP_F05_decomposition_stack')
 plt.show()
