@@ -67,7 +67,8 @@ from IPython.display import display
 sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('../..'))
 
-from shmlib import adc, figures, prediction, proxies, site, tables, viz
+from shmlib import (adc, figures, monitoring, prediction, proxies, site,
+                    tables, viz)
 
 warnings.filterwarnings('ignore')
 logging.getLogger('pytorch_lightning').setLevel(logging.ERROR)
@@ -275,6 +276,97 @@ ON_STRUCTURE_COLUMNS = (
 # The chosen value is read off NP_03 in step 2 and set in step 6.
 SURVIVAL_LAG_HOURS = (4, 8, 12, 24, 48)
 SURVIVAL_FORECAST_HOURS = (8, 24)
+
+# ---------------------------------------------------------------------------
+# Monitoring
+# ---------------------------------------------------------------------------
+# The reference window, which is also where the monitored record begins. Every
+# limit drawn is a multiple of the centre and scale estimated here, so a window
+# containing a departure would calibrate the detector against the very thing it
+# is meant to find.
+#
+# It ends well before the stretch Study 01 flagged in summer 2026 - excluded as
+# a precaution, since a reference window must be in control. This study makes no
+# detection claim about that stretch (spec section 11.3).
+#
+# It starts after the rolling expectation's burn-in rather than at the first
+# window that exists. Measured on this record, the residual's 30-day rolling
+# mean runs -60.5, -61.0, -34.2 and -35.5 mdeg over June to September 2024 and
+# then settles to +3.4 and stays inside roughly +/-20 mdeg for the remainder.
+# The early windows train on barely one calendar annual cycle, holed by outages
+# of 40, 42 and 17 days, so their annual term is fitted to less than one cycle -
+# the same effect that forced ROLLING_MIN_TRAIN up from 180 days, still present
+# at 365. Those months are excluded from the monitored record as well as from
+# the reference window: an expectation wrong by 60 mdeg because it has not yet
+# seen a full cycle is a fact about the model, and reporting it as a structural
+# departure would be a false claim.
+REFERENCE_START = '2024-10-01'
+REFERENCE_END = '2025-06-01'
+
+# EWMA smoothing and limit width. Lambda smaller reacts more slowly and finds
+# smaller sustained shifts; L wider means fewer false alarms and later
+# detection. L is swept over EWMA_L_CANDIDATES in step 7 and the value meeting
+# the false-alarm budget replaces the one set here.
+EWMA_LAMBDA = 0.05
+EWMA_L = 3.0
+
+# The limit widths swept, in standard deviations. The range runs far past the
+# 2 to 5 a control-chart text would offer, and deliberately. Those widths are
+# derived for independent samples; this residual has a lag-one autocorrelation
+# of 0.997 at twenty minutes and still 0.98 at twenty-four hours, so a textbook
+# width against it buys days between false alarms rather than months. The width
+# that meets the budget is therefore found by measurement over a range wide
+# enough to bracket it, and the run length it delivers is reported beside the
+# number of episodes it rests on, because at a wide limit that count is a
+# handful of excursions rather than a rate.
+EWMA_L_CANDIDATES = np.arange(2.0, 15.01, 0.25)
+
+# CUSUM slack and decision interval, in standard deviations.
+CUSUM_K = 0.5
+CUSUM_H = 5.0
+
+# Coincidence window for the joint alarm.
+JOINT_WINDOW = '6h'
+
+# No event window is parameterised. The summer-2026 stretch is kept out of the
+# reference window above, but it is not a test and no result is stated from it
+# (D12).
+
+# The false-alarm budget the charts are tuned to, in days between false alarms
+# on the in-control reference stretch. Every detection figure in this study is
+# only comparable at a stated run length, and this is it.
+TARGET_ARL_DAYS = 90.0
+
+# ---------------------------------------------------------------------------
+# Detectability sweep
+# ---------------------------------------------------------------------------
+# Injected departures, in millidegrees and hours. The magnitudes bracket the
+# residual's own scale so that the curve crosses from undetectable to certain
+# inside the swept range; the durations span a working day to a fortnight.
+DETECT_MAGNITUDES = (0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
+DETECT_DURATIONS = ('6h', '24h', '72h', '168h', '336h')
+
+# The three mechanisms swept, each a shape a three-leaf wall can produce:
+#   'amplitude' - the daily swing grows while its timing and mean hold, which is
+#                 what loss of composite action between the leaves looks like;
+#   'phase'     - the response arrives earlier or later against the same
+#                 forcing, which is a change in the thermal path rather than in
+#                 stiffness, such as water in the core;
+#   'drift'     - a slow monotone accumulation, the shape of mortar creep,
+#                 thermal ratcheting or settlement.
+DETECT_KINDS = ('amplitude', 'phase', 'drift')
+
+# Timing shifts probed for the phase mechanism, in hours. Each is converted into
+# the residual amplitude it implies through the fitted daily amplitude, so the
+# result is quoted as the shift an engineer would picture rather than as a
+# millidegree figure with no mechanism attached.
+DETECT_PHASE_SHIFTS_H = (0.25, 0.5, 1.0, 2.0)
+
+# Drift rates probed, in millidegrees per year.
+DETECT_DRIFT_RATES = (1.0, 2.0, 5.0, 10.0, 20.0)
+
+# How long after a departure ends an alarm still counts as having found it.
+DETECT_RESPONSE_WINDOW = '24h'
 
 # %% [markdown]
 # ## 1 · The window and the on-structure record
@@ -834,3 +926,228 @@ stability.to_csv(OUTPUT_DIR / 'NP_16_component_stability.csv', index=False)
 
 signs = np.sign(stability['tair_gain_mdeg_per_degC'])
 print('Thermal gain keeps its sign across thirds:', bool(signs.nunique() == 1))
+
+# %% [markdown]
+# ## 7 · Judging a departure
+#
+# The residual of step 6 is what remains after the daily cycle and the measured
+# environment have been accounted for. A departure is a stretch where that
+# remainder stops behaving as it did over the reference window.
+#
+# Two charts run together because they fail in different ways. The exponentially
+# weighted average answers "has the level moved and stayed moved", which is the
+# shape a structural departure takes; the cumulative sum accumulates evidence
+# and finds a shift too small to breach a limit on any single sample, provided
+# it persists. An alarm is raised only where both agree within a coincidence
+# window, which trades a little sensitivity for a large reduction in isolated
+# false alarms.
+#
+# A detector can be made to look perfect by never alarming, so the settings are
+# fixed the other way round: the limit width is chosen to meet a stated
+# false-alarm budget on the in-control stretch, and every detection figure that
+# follows is quoted at that budget.
+#
+# ### Parameter Tuning Guidance
+#
+# **`REFERENCE_START`, `REFERENCE_END`** — the in-control window, and also where
+# the monitored record begins. Must exclude any stretch suspected of carrying a
+# departure; on this record it ends before the one Study 01 flagged in summer
+# 2026. That exclusion is a precaution about calibration, not a claim that the
+# detector finds it. The start excludes the rolling expectation's burn-in, whose
+# size is measured in the parameter cell's comment; moving it earlier admits
+# months in which the expectation is wrong by tens of millidegrees for a reason
+# that has nothing to do with the wall.
+#
+# **`EWMA_L_CANDIDATES`** — the limit widths swept. The range must bracket the
+# width that meets the budget, and on a residual this autocorrelated that width
+# is far above the textbook range. Widening the range is not the same as
+# widening the limit until the alarms stop: the budget is fixed first, and the
+# width is whatever meets it.
+#
+# **`TARGET_ARL_DAYS`** — days of watched time per false alarm; default `90`.
+# Lower it and the system finds smaller movements sooner while crying wolf more
+# often. This is the operator's dial, and it is the axis every other detection
+# number is quoted against.
+#
+# **`EWMA_LAMBDA`** — smoothing weight; default `0.05`, tuned for sustained
+# shifts rather than spikes. **`EWMA_L`** is swept to meet the budget rather
+# than set by hand.
+#
+# **`CUSUM_K`, `CUSUM_H`** — slack and decision interval, in standard
+# deviations; defaults `0.5` and `5.0`, the textbook pair for detecting a
+# one-sigma shift quickly.
+#
+# **`JOINT_WINDOW`** — how close in time the two charts must agree; default
+# `'6h'`. Wider admits more coincidences and raises the false-alarm rate.
+
+# %%
+# The charts need a regular grid. `alarm_episodes` and `average_run_length`
+# derive every duration they report from a slot count times one spacing, and
+# refuse an index whose rows were dropped across an outage, because an episode
+# would otherwise be reported as spanning time the record does not cover. The
+# rolling residual exists only where a window predicted, so it is placed back
+# onto the complete twenty-minute grid with the missing slots carried as NaN.
+# The charts skip a NaN rather than reading it as a zero departure: the
+# statistic is held across a gap rather than relaxed towards the centre, which
+# is what a monitoring system does when readings stop arriving.
+residual_grid = residual_a.reindex(
+    pd.date_range(residual_a.index.min(), residual_a.index.max(),
+                  freq=MODEL_FREQ_A)).loc[REFERENCE_START:]
+print(f'Residual on the grid: {len(residual_grid):,} slots from '
+      f'{residual_grid.index.min().date()}, '
+      f'{residual_grid.notna().sum():,} observed '
+      f'({residual_grid.notna().mean():.1%})')
+print(f'Residual autocorrelation: {residual_grid.autocorr(1):.4f} at one slot, '
+      f'{residual_grid.autocorr(72):.4f} at twenty-four hours. A control chart '
+      f'assumes neither.')
+
+reference_a = monitoring.reference_stats(
+    residual_grid, start=REFERENCE_START, end=REFERENCE_END, robust=True)
+in_control = residual_grid.loc[REFERENCE_START:REFERENCE_END]
+print(f'Reference: mu={reference_a["mu"]:.3f} mdeg, '
+      f'sigma={reference_a["sigma"]:.3f} mdeg, n={reference_a["n"]:,}, '
+      f'sd {in_control.std():.3f} mdeg, window '
+      f'{in_control.dropna().index.min()} to '
+      f'{in_control.dropna().index.max()}')
+
+# Choose the limit width that meets the false-alarm budget on the in-control
+# stretch, rather than accepting a conventional value and reporting whatever
+# rate it happens to give.
+budget = []
+for candidate_L in EWMA_L_CANDIDATES:
+    ewma = monitoring.ewma_chart(in_control, reference_a['mu'],
+                                 reference_a['sigma'],
+                                 lam=EWMA_LAMBDA, L=candidate_L)
+    cusum = monitoring.cusum_chart(in_control, reference_a['mu'],
+                                   reference_a['sigma'],
+                                   k=CUSUM_K, h=CUSUM_H)
+    joint = monitoring.joint_alarm(ewma['alarm'], cusum['alarm'],
+                                   window=JOINT_WINDOW)
+    arl = monitoring.average_run_length(joint, freq=MODEL_FREQ_A)
+    budget.append({'L': candidate_L, **arl})
+
+budget = pd.DataFrame(budget)
+display(budget)
+
+# No candidate meeting the budget means the residual is not in control over the
+# reference window. That is a statement about the expectation, not a reason to
+# widen the limit until the alarms stop, so it fails loudly here rather than
+# carrying a missing limit into every number below.
+meeting = budget.loc[budget['arl_days'] >= TARGET_ARL_DAYS, 'L']
+if meeting.empty:
+    raise RuntimeError(
+        f'No limit width between {budget["L"].min()} and {budget["L"].max()} '
+        f'reaches {TARGET_ARL_DAYS:.0f} days per false alarm; the best is '
+        f'{budget["arl_days"].max():.1f} days. The reference residual is not '
+        f'in control - revisit the expectation rather than the limit.')
+EWMA_L = float(meeting.min())
+chosen = budget.loc[budget['L'] == EWMA_L].iloc[0]
+print(f'Chosen L = {EWMA_L}, delivering {chosen["arl_days"]:.1f} days per '
+      f'false alarm against a {TARGET_ARL_DAYS:.0f}-day budget, on '
+      f'{int(chosen["n_episodes"])} episodes over '
+      f'{chosen["hours"] / 24.0:.0f} watched days.')
+# The run length rests on that episode count, and at a wide limit it is a
+# handful of excursions rather than a rate, so it is quoted as an order of
+# magnitude and never as a precise figure.
+if chosen['n_episodes'] < 5:
+    print(f'  Caution: {int(chosen["n_episodes"])} episodes is too few for the '
+          f'run length to be a precise estimate. It bounds the false-alarm '
+          f'rate rather than measuring it.')
+
+# %%
+ewma_a = monitoring.ewma_chart(residual_grid, reference_a['mu'],
+                               reference_a['sigma'],
+                               lam=EWMA_LAMBDA, L=EWMA_L)
+cusum_a = monitoring.cusum_chart(residual_grid, reference_a['mu'],
+                                 reference_a['sigma'], k=CUSUM_K, h=CUSUM_H)
+alarm_a = monitoring.joint_alarm(ewma_a['alarm'], cusum_a['alarm'],
+                                 window=JOINT_WINDOW)
+episodes_a = monitoring.alarm_episodes(alarm_a, ewma_a['z'])
+display(episodes_a)
+print(f'{len(episodes_a)} alarming episodes over the whole monitored record, '
+      f'{float(episodes_a["duration_h"].sum()) / 24.0:.1f} days in alarm of '
+      f'{len(residual_grid) * 20 / 60 / 24:.0f} watched')
+
+episodes_a.to_csv(OUTPUT_DIR / 'NP_09_alarm_episodes.csv', index=False)
+figures.plot_control_chart(
+    ewma_a, statistic='ewma', episodes=episodes_a, freq=MODEL_FREQ_A,
+    title='Residual control chart, with alarming episodes shaded',
+    save_path=str(OUTPUT_DIR), filename='NP_F08_control_chart')
+plt.show()
+
+# %% [markdown]
+# ### 7b · Which damage signatures would be found, and how late
+#
+# One large event cannot state a detector's sensitivity. Departures of known
+# size, length and *shape* are injected into the residual instead, the charts
+# are re-run with the reference statistics estimated on the uncontaminated
+# record, and an alarm counts only where the uncontaminated run is silent. What
+# comes out is the study's headline operational number: which movements this
+# system finds, and how long each has to persist before it does.
+#
+# The three shapes are not arbitrary. A three-leaf stone wall — two masonry
+# leaves either side of a weaker rubble-and-mortar core — fails in ways that
+# leave distinguishable marks on a thermally driven inclination record:
+#
+# * **Amplitude growth.** The leaves stop acting together: delamination at the
+#   core interface, or loss of through-stones. The section bends further under
+#   the same daily heating, so the diurnal swing grows while its timing and its
+#   mean stay put.
+# * **Phase change.** The thermal path changes rather than the stiffness — water
+#   entering the core raises its heat capacity, or a crack re-routes conduction.
+#   The wall answers the same forcing later or earlier, which appears in the
+#   residual as a harmonic in quadrature with the daily cycle. It is quoted as
+#   the timing shift in hours, converted through the daily amplitude this
+#   decomposition already measured.
+# * **Drift.** Creep of the lime mortar under sustained load, thermal ratcheting
+#   of the outer leaf, or foundation settlement: slow, monotone, invisible in any
+#   single day, and quoted in millidegrees per year.
+#
+# The summer-2026 stretch Study 01 flagged is kept out of the reference window,
+# but no claim is made about whether this detector finds it. Its size makes it
+# uninformative about sensitivity, which is what this sweep exists to measure.
+
+# %%
+# The daily amplitude this decomposition fitted, which converts a timing shift
+# into the residual amplitude it implies.
+daily_amplitude = float(
+    shares.set_index('component').loc['season_daily', 'peak_to_peak'] / 2.0)
+phase_magnitudes = tuple(
+    monitoring.phase_shift_amplitude(daily_amplitude, hours)
+    for hours in DETECT_PHASE_SHIFTS_H)
+print(f'Daily amplitude {daily_amplitude:.2f} mdeg; a timing shift of '
+      f'{DETECT_PHASE_SHIFTS_H[0]} h to {DETECT_PHASE_SHIFTS_H[-1]} h implies '
+      f'{phase_magnitudes[0]:.2f} to {phase_magnitudes[-1]:.2f} mdeg')
+
+sweeps = {
+    'amplitude': DETECT_MAGNITUDES,
+    'phase': phase_magnitudes,
+    'drift': DETECT_DRIFT_RATES,
+}
+
+curves = []
+for kind in DETECT_KINDS:
+    curve = monitoring.detectability_curve(
+        in_control, reference_a['mu'], reference_a['sigma'],
+        magnitudes=sweeps[kind], durations=DETECT_DURATIONS, kind=kind,
+        freq=MODEL_FREQ_A, lam=EWMA_LAMBDA, L=EWMA_L, k=CUSUM_K, h=CUSUM_H,
+        response_window=DETECT_RESPONSE_WINDOW)
+    curves.append(curve.assign(kind=kind))
+
+detectability = pd.concat(curves, ignore_index=True)
+display(detectability)
+detectability.to_csv(OUTPUT_DIR / 'NP_10_detectability.csv', index=False)
+
+# %%
+for kind in DETECT_KINDS:
+    figures.plot_detectability(
+        detectability[detectability['kind'] == kind],
+        title=f'Detectability of a {kind} departure',
+        save_path=str(OUTPUT_DIR), filename=f'NP_F09_detectability_{kind}')
+    plt.show()
+
+smallest = (detectability[detectability['detected']]
+            .groupby(['kind', 'duration_h'])['magnitude'].min())
+print('Smallest departure found, by mechanism and persistence:')
+print(smallest.to_string() if len(smallest)
+      else 'nothing detected anywhere in the swept range')
