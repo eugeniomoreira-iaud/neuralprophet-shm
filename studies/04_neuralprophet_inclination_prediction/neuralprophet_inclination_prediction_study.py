@@ -368,6 +368,62 @@ DETECT_DRIFT_RATES = (1.0, 2.0, 5.0, 10.0, 20.0)
 # How long after a departure ends an alarm still counts as having found it.
 DETECT_RESPONSE_WINDOW = '24h'
 
+# ---------------------------------------------------------------------------
+# Model B - forecast
+# ---------------------------------------------------------------------------
+# Hourly, because the twenty-minute first difference is noise-dominated:
+# measured on this record its lag-one autocorrelation is -0.058, the signature
+# of additive noise on the level, while the hourly difference retains +0.349.
+# Step 3 exports the comparison as NP_04.
+MODEL_B_TARGET = 'change'
+
+# Autoregressive window, chosen from NP_03 rather than by habit: it is the
+# longest window that leaves enough training windows on this record's
+# contiguity. Read the table before changing it.
+MODEL_B_LAGS = 24
+
+# Forecast length and the horizons kept from it.
+MODEL_B_FORECASTS = 48
+MODEL_B_HORIZONS = (1, 3, 6, 12, 24, 48)
+
+# Predictor history. Past values only: a forecast that consumed a future
+# observed air temperature would be answering a different question.
+MODEL_B_REGRESSOR_LAGS = 12
+
+# The ablation ladder. Each rung adds one thing, so the increment it buys is
+# attributable. The battery control is not a silent channel - study 03 measured
+# r = -0.673 for it in the diurnal band - so it marks a conservative floor
+# rather than a zero, and a driver is credited only when it clears that floor.
+MODEL_B_SPECIFICATIONS = {
+    'AR only': (),
+    'AR + tair': ('tair',),
+    'AR + tair + rh': ('tair', 'rh'),
+    'AR + batt (control)': ('batt',),
+}
+
+MODEL_B_EPOCHS = 30
+MODEL_B_QUANTILES = (0.05, 0.95)
+MODEL_B_SEED = 0
+MODEL_B_INITIAL_SEGMENTS = 20
+MODEL_B_FOLDS = 5
+MODEL_B_MIN_SEGMENT = 96
+MODEL_B_REFIT_EACH_FOLD = False
+
+# Block bootstrap for the paired skill comparison. Residuals are autocorrelated,
+# so an unpaired comparison would overstate significance; the block length is
+# adapted to the horizon inside paired_mae_skill.
+BOOTSTRAP_BLOCK_HOURS = 24
+BOOTSTRAP_REPETITIONS = 2000
+
+# ---------------------------------------------------------------------------
+# Gap closure
+# ---------------------------------------------------------------------------
+# The reconstruction is accepted only if the median absolute closure error
+# across bracketed gaps stays below this many millidegrees. It is set against
+# the minimum detectable step measured in step 7b: a reconstruction whose error
+# exceeds what the monitor can detect would manufacture alarms.
+GAP_CLOSURE_TOLERANCE_MDEG = 1.0
+
 # %% [markdown]
 # ## 1 · The window and the on-structure record
 #
@@ -1151,3 +1207,426 @@ smallest = (detectability[detectability['detected']]
 print('Smallest departure found, by mechanism and persistence:')
 print(smallest.to_string() if len(smallest)
       else 'nothing detected anywhere in the swept range')
+
+# %% [markdown]
+# ## 8 · How far ahead is prediction worth anything?
+#
+# The target changes here, and so does the grid. The response is the gap-safe
+# one-hour change: formed only between adjacent accepted observations inside one
+# instrument era, so it never bridges a gap or the 2025 changeover. The level is
+# not forecast, because its lag-one autocorrelation of 0.998 makes any error
+# metric computed against it a measurement of the sampling interval.
+#
+# An absolute error at a given horizon answers nothing on its own, so every
+# model is scored against three baselines a monitoring system could run for
+# free: predicting no change at all, persisting the last change, and repeating
+# the change from the same hour yesterday. Skill is the fractional reduction in
+# mean absolute error against each, computed **paired** and with a block
+# bootstrap, because residuals are autocorrelated and an unpaired comparison
+# would report significance that is not there. A horizon counts as skilful only
+# where the bootstrap interval excludes zero.
+#
+# The ladder exists because a model carrying both autoregressive memory and air
+# temperature cannot say which of the two earned its skill. Each rung adds one
+# thing; the increment is what that thing bought.
+#
+# ### Parameter Tuning Guidance
+#
+# **`MODEL_B_LAGS`** — autoregressive window in hours; default `24`, read off
+# `NP_03`. Raising it costs training windows disproportionately on a fragmented
+# record, because a segment shorter than `lags + forecasts` contributes nothing.
+#
+# **`MODEL_B_HORIZONS`** — horizons kept from the model output; default
+# `(1, 3, 6, 12, 24, 48)`. Each must not exceed `MODEL_B_FORECASTS`.
+#
+# **`MODEL_B_REGRESSOR_LAGS`** — hours of predictor history; default `12`,
+# inside study 03's admissible range for an external forcing. Study 03 found no
+# level-band time constant that was not an artefact of the scan boundary, so no
+# longer memory is justified.
+#
+# **`MODEL_B_SPECIFICATIONS`** — the ladder. Keep `'AR only'` first: without it
+# nothing in this study is attributable.
+#
+# **`BOOTSTRAP_REPETITIONS`** — bootstrap draws; default `2000`. Lower it only
+# for a smoke run; the reported intervals need the full count.
+
+# %%
+# The hourly grid. No era column is carried or consulted: instrument eras are
+# out of scope for this study (D9), Study 01 having already compensated and
+# anchored the record once across both, so hourly_change is called with
+# era=None and never asked to break a difference at the changeover.
+hourly = window.resample(MODEL_FREQ_B).mean(numeric_only=True)
+
+frame_b = pd.DataFrame({
+    'y': prediction.hourly_change(
+        hourly[TARGET_COLUMN], era=None, freq=MODEL_FREQ_B),
+    'tair': hourly['tair_str'],
+    'rh': hourly['rh_str'],
+    'batt': hourly['batt_str'],
+})
+
+segmented_b = prediction.contiguous_segments(
+    frame_b, required=['y', 'tair', 'rh'],
+    min_length=MODEL_B_MIN_SEGMENT, freq=MODEL_FREQ_B)
+folds_b = prediction.expanding_segment_folds(
+    segmented_b['segment_id'], MODEL_B_INITIAL_SEGMENTS, MODEL_B_FOLDS)
+execution_b = prediction.execution_folds(
+    folds_b, refit_each_fold=MODEL_B_REFIT_EACH_FOLD)
+
+print(f'Model B: {len(segmented_b):,} rows in '
+      f'{segmented_b["segment_id"].nunique()} segments, '
+      f'{len(folds_b)} folds')
+
+# %%
+# backtest_specifications takes one dictionary per rung, carrying the rung's
+# name and its regressors together with every setting the runner needs. The
+# ladder itself stays a plain name-to-regressors mapping in the parameter cell,
+# where a reader can see what each rung adds; it is expanded into the library's
+# shape here. The Model B parameters are passed explicitly rather than left to
+# the runner's defaults, which are Model A's and would silently cap the forecast
+# at 24 hours.
+specifications_b = [
+    {'name': name, 'regressors': regressors, 'task': 'forecast',
+     'n_lags': MODEL_B_LAGS, 'n_forecasts': MODEL_B_FORECASTS,
+     'regressor_lags': MODEL_B_REGRESSOR_LAGS,
+     'horizons': MODEL_B_HORIZONS, 'freq': MODEL_FREQ_B}
+    for name, regressors in MODEL_B_SPECIFICATIONS.items()
+]
+
+predictions_b = prediction.backtest_specifications(
+    segmented_b, execution_b, specifications_b,
+    epochs=MODEL_B_EPOCHS, quantiles=MODEL_B_QUANTILES, seed=MODEL_B_SEED)
+baselines_b = prediction.baseline_predictions(
+    segmented_b, execution_b, MODEL_B_HORIZONS, task='forecast')
+all_b = pd.concat([predictions_b, baselines_b], ignore_index=True)
+
+naive_scale_b = float(segmented_b['y'].abs().mean())
+metrics_b = prediction.score_predictions(
+    all_b, ['model', 'horizon_h'], naive_scale=naive_scale_b,
+    alpha=NOWCAST_INTERVAL_ALPHA)
+display(metrics_b)
+
+metrics_b.to_csv(OUTPUT_DIR / 'NP_11_forecast_metrics.csv', index=False)
+figures.plot_metric_vs_horizon(
+    metrics_b, metric='mae', by='model',
+    title='Forecast error against horizon, by model and baseline',
+    save_path=str(OUTPUT_DIR), filename='NP_F10_skill_vs_horizon')
+plt.show()
+
+# %%
+# paired_mae_skill compares two absolute-error series indexed by prediction
+# timestamp, and aligns them on the timestamps they share. The long prediction
+# frames are therefore reduced to one such series per model and horizon here,
+# once, rather than inside the loops below.
+errors_b = {
+    key: (block['y'] - block['yhat']).abs()
+         .set_axis(pd.DatetimeIndex(block['ds'])).dropna()
+    for key, block in all_b.groupby(['model', 'horizon_h'])
+}
+
+skill_rows = []
+for baseline in ('zero', 'persistence', 'seasonal_naive'):
+    for model in MODEL_B_SPECIFICATIONS:
+        for horizon in MODEL_B_HORIZONS:
+            parent = errors_b.get((baseline, horizon))
+            child = errors_b.get((model, horizon))
+            if parent is None or child is None:
+                continue
+            result = prediction.paired_mae_skill(
+                parent, child, block_hours=BOOTSTRAP_BLOCK_HOURS,
+                repetitions=BOOTSTRAP_REPETITIONS, seed=MODEL_B_SEED,
+                horizon_hours=horizon)
+            skill_rows.append({'baseline': baseline, 'model': model,
+                               'horizon_h': horizon, **result})
+
+skill = pd.DataFrame(skill_rows)
+display(skill)
+skill.to_csv(OUTPUT_DIR / 'NP_12_skill_vs_baseline.csv', index=False)
+
+# The study's answer to its third question: the largest horizon at which the
+# bootstrap interval for skill still excludes zero. Read against the hardest
+# baseline the ladder's best rung was scored on.
+print(f'Paired rows per comparison: {int(skill["n"].min()):,} to '
+      f'{int(skill["n"].max()):,}')
+if int(skill['n'].max()) == 0:
+    raise RuntimeError(
+        'No model and baseline share a single prediction timestamp, so every '
+        'skill figure is missing rather than zero. An empty comparison is not '
+        'a finding about the forecast and must not be reported as one.')
+
+skilful = skill[(skill['skill_q05'] > 0.0) & (skill['model'] != 'AR only')]
+for baseline, block in skilful.groupby('baseline'):
+    best = block.loc[block['horizon_h'].idxmax()]
+    print(f'vs {baseline}: skill excludes zero out to {best["horizon_h"]:.0f} h '
+          f'({best["model"]}, skill {best["skill"]:.3f}, '
+          f'90% interval {best["skill_q05"]:.3f} to {best["skill_q95"]:.3f})')
+if skilful.empty:
+    print('No model beats any baseline with an interval excluding zero at any '
+          'horizon: on this record the forecast buys nothing a free baseline '
+          'does not already deliver.')
+
+# %%
+# What each rung of the ladder bought, as the increment over the rung below it.
+ladder = list(MODEL_B_SPECIFICATIONS)
+ablation_rows = []
+for lower, upper in zip(ladder[:-1], ladder[1:]):
+    if upper.endswith('(control)'):
+        continue
+    for horizon in MODEL_B_HORIZONS:
+        parent = errors_b.get((lower, horizon))
+        child = errors_b.get((upper, horizon))
+        if parent is None or child is None:
+            continue
+        result = prediction.paired_mae_skill(
+            parent, child, block_hours=BOOTSTRAP_BLOCK_HOURS,
+            repetitions=BOOTSTRAP_REPETITIONS, seed=MODEL_B_SEED,
+            horizon_hours=horizon)
+        ablation_rows.append({'added_over': lower, 'model': upper,
+                              'horizon_h': horizon, **result})
+
+ablation = pd.DataFrame(ablation_rows)
+display(ablation)
+ablation.to_csv(OUTPUT_DIR / 'NP_13_ablation.csv', index=False)
+
+figures.plot_metric_vs_horizon(
+    ablation.rename(columns={'model': 'rung'}), metric='skill', by='rung',
+    title='Skill increment bought by each predictor, over the rung below it',
+    save_path=str(OUTPUT_DIR), filename='NP_F11_ablation')
+plt.show()
+
+# %% [markdown]
+# ## 9 · Can the model fill the gaps it was trained around?
+#
+# The operational temptation, once a model predicts a change, is to accumulate
+# its predictions across a gap and call the result a reconstructed level. That
+# is a stronger claim than anything measured so far: a per-step error that is
+# small and unbiased still accumulates, and a reconstruction that arrives at the
+# wrong level on the far side of a gap is worse than an admitted absence,
+# because it looks like a measurement.
+#
+# The check is arithmetical rather than statistical. Where a gap is bracketed by
+# accepted observations on both sides, the true change across it is known; the
+# predicted changes are summed and compared. A reconstruction is safe only if it
+# closes. Terminal gaps, and gaps crossing the instrument changeover, are
+# reported with their status rather than scored.
+#
+# ### Parameter Tuning Guidance
+#
+# **`GAP_CLOSURE_TOLERANCE_MDEG`** — the median absolute closure error a
+# reconstruction must stay below to be accepted. It is set against the smallest
+# departure step 7b showed the monitor can detect: a reconstruction whose error
+# exceeds what the monitor can see would manufacture alarms out of its own
+# arithmetic.
+
+# %%
+prior_only = predictions_b[
+    (predictions_b['model'] == 'AR + tair')
+    & (predictions_b['horizon_h'] == 1)]
+
+closure = prediction.gap_closure_summary(
+    hourly[TARGET_COLUMN], prior_only.set_index('ds')['yhat'],
+    era=None, freq=MODEL_FREQ_B)
+display(closure)
+closure.to_csv(OUTPUT_DIR / 'NP_14_gap_closure.csv', index=False)
+
+# 'available' is the status gap_closure_summary gives a gap that is bracketed by
+# accepted observations on both sides and has an estimate for every missing
+# slot - the only kind whose closure can be scored at all. The rest carry
+# 'unbracketed', 'cross_era' or 'incomplete_estimates' and are reported with
+# their status rather than counted.
+scorable = closure[closure['status'] == 'available']
+unscorable = closure.loc[closure['status'] != 'available',
+                         'status'].value_counts()
+if len(unscorable):
+    print(f'{len(scorable)} of {len(closure)} gaps are scorable; the rest are '
+          + ', '.join(f'{count} {name}'
+                      for name, count in unscorable.items()))
+else:
+    print(f'all {len(closure)} gaps are scorable')
+
+if scorable.empty:
+    verdict = 'undecidable - no gap is bracketed with complete estimates'
+else:
+    median_error = float(scorable['closure_error'].abs().median())
+    verdict = ('safe to accumulate'
+               if median_error < GAP_CLOSURE_TOLERANCE_MDEG
+               else 'NOT safe to accumulate')
+    print(f'Median absolute closure error {median_error:.2f} mdeg over '
+          f'{len(scorable)} bracketed gaps, against a tolerance of '
+          f'{GAP_CLOSURE_TOLERANCE_MDEG:.2f} mdeg')
+print(f'Gap-closure verdict: reconstruction is {verdict}')
+
+# %%
+# One bracketed gap drawn whole: the observed level either side, and the level
+# the accumulated predictions arrive at across it. Whether the reconstruction
+# closes is visible rather than only tabulated.
+if not scorable.empty:
+    worst = scorable.loc[
+        scorable['closure_error'].abs().sort_values(ascending=False).index]
+    example = worst.iloc[0]
+    span = slice(example['start'] - pd.Timedelta('48h'),
+                 example['end'] + pd.Timedelta('48h'))
+    observed_level = hourly[TARGET_COLUMN].loc[span]
+    reconstructed = (observed_level.ffill().iloc[0]
+                     + prior_only.set_index('ds')['yhat'].reindex(
+                         observed_level.index).fillna(0.0).cumsum())
+
+    print(f'Worst-closing bracketed gap {example["gap_id"]}: '
+          f'{example["start"]} to {example["end"]}, observed recovery '
+          f'{example["observed_recovery"]:+.2f} mdeg against predicted '
+          f'{example["predicted_recovery"]:+.2f}, error '
+          f'{example["closure_error"]:+.2f}')
+    figures.plot_prediction_band(
+        observed_level, reconstructed, reconstructed, reconstructed,
+        freq=MODEL_FREQ_B,
+        title='Accumulated prediction across the worst-closing bracketed gap',
+        highlight=[(example['start'], example['end'])],
+        save_path=str(OUTPUT_DIR), filename='NP_F12_gap_closure')
+    plt.show()
+else:
+    print('No bracketed gap with complete estimates: NP_F12 is not drawn, and '
+          'the closure question cannot be answered on this record.')
+
+# %% [markdown]
+# ## 10 · Run metadata and the report's table bodies
+#
+# Two exports that carry nothing new and exist so that nothing has to be
+# retyped. The first records every parameter that governed this run, including
+# the library versions, so a number in the report can be traced to the settings
+# that produced it. The second writes one LaTeX body per table the report
+# quotes; the report reads them with `\input`, so re-running this notebook
+# updates the report's numbers and no figure in the prose can drift away from
+# the artefact behind it.
+
+# %%
+import neuralprophet
+
+metadata = pd.DataFrame([
+    {'parameter': 'segment_start', 'value': SEGMENT_START},
+    {'parameter': 'native_freq', 'value': NATIVE_FREQ},
+    {'parameter': 'model_a_freq', 'value': MODEL_FREQ_A},
+    {'parameter': 'model_b_freq', 'value': MODEL_FREQ_B},
+    {'parameter': 'target_column', 'value': TARGET_COLUMN},
+    {'parameter': 'predictors', 'value': ', '.join(PREDICTOR_COLUMNS)},
+    {'parameter': 'model_a_lags', 'value': MODEL_A_LAGS},
+    {'parameter': 'model_a_growth', 'value': MODEL_A_GROWTH},
+    {'parameter': 'model_a_monitor_growth', 'value': MODEL_A_MONITOR_GROWTH},
+    {'parameter': 'model_a_changepoints', 'value': MODEL_A_CHANGEPOINTS},
+    {'parameter': 'model_a_yearly', 'value': MODEL_A_YEARLY},
+    {'parameter': 'model_a_train_end', 'value': MODEL_A_TRAIN_END},
+    {'parameter': 'model_a_epochs', 'value': MODEL_A_EPOCHS},
+    {'parameter': 'rolling_refit_every', 'value': ROLLING_REFIT_EVERY},
+    {'parameter': 'rolling_min_train', 'value': ROLLING_MIN_TRAIN},
+    {'parameter': 'conformal_calibration_end',
+     'value': CONFORMAL_CALIBRATION_END},
+    {'parameter': 'model_b_lags', 'value': MODEL_B_LAGS},
+    {'parameter': 'model_b_forecasts', 'value': MODEL_B_FORECASTS},
+    {'parameter': 'model_b_regressor_lags', 'value': MODEL_B_REGRESSOR_LAGS},
+    {'parameter': 'model_b_folds', 'value': MODEL_B_FOLDS},
+    {'parameter': 'model_b_refit_each_fold', 'value': MODEL_B_REFIT_EACH_FOLD},
+    {'parameter': 'model_b_epochs', 'value': MODEL_B_EPOCHS},
+    {'parameter': 'seed', 'value': MODEL_A_SEED},
+    {'parameter': 'quantiles', 'value': str(MODEL_A_QUANTILES)},
+    {'parameter': 'reference_window',
+     'value': f'{REFERENCE_START} to {REFERENCE_END}'},
+    {'parameter': 'ewma_lambda', 'value': EWMA_LAMBDA},
+    {'parameter': 'ewma_L', 'value': EWMA_L},
+    {'parameter': 'cusum_k', 'value': CUSUM_K},
+    {'parameter': 'cusum_h', 'value': CUSUM_H},
+    {'parameter': 'joint_window', 'value': JOINT_WINDOW},
+    {'parameter': 'target_arl_days', 'value': TARGET_ARL_DAYS},
+    {'parameter': 'achieved_arl_days', 'value': round(float(chosen['arl_days']), 1)},
+    {'parameter': 'gap_closure_tolerance_mdeg',
+     'value': GAP_CLOSURE_TOLERANCE_MDEG},
+    {'parameter': 'neuralprophet_version', 'value': neuralprophet.__version__},
+    {'parameter': 'pandas_version', 'value': pd.__version__},
+    {'parameter': 'numpy_version', 'value': np.__version__},
+])
+metadata.to_csv(OUTPUT_DIR / 'NP_15_run_metadata.csv', index=False)
+display(metadata)
+
+# %%
+# LaTeX bodies for the tables the report quotes. Each column is given as a
+# (source, format) pair, which is the specification tables.to_rows takes: the
+# source is a column name or a callable on the row, and the format is a format
+# string, a callable, or None for plain str.
+tables.write_table(
+    coverage.reset_index(), str(OUTPUT_DIR / 'NP_01_body.tex'),
+    [('channel', tables.texttt), ('accepted', ',.0f'), ('coverage', '.1%')])
+
+tables.write_table(
+    gaps.groupby('gap_class', as_index=False)
+        .agg(gaps=('n_slots', 'size'), hours=('duration_h', 'sum'))
+        .sort_values('hours', ascending=False),
+    str(OUTPUT_DIR / 'NP_02_body.tex'),
+    [('gap_class', None), ('gaps', ',.0f'), ('hours', ',.1f')])
+
+tables.write_table(
+    survival, str(OUTPUT_DIR / 'NP_03_body.tex'),
+    [('lag_hours', '.0f'), ('forecast_hours', '.0f'), ('n_segments', ',.0f'),
+     ('n_surviving', ',.0f'), ('n_windows', ',.0f')])
+
+tables.write_table(
+    cadence, str(OUTPUT_DIR / 'NP_04_body.tex'),
+    [('cadence', None), ('level_autocorr1', '.4f'), ('change_autocorr1', '.4f'),
+     ('change_std', '.3f'), ('corr_change', '.4f'), ('drift_per_year', '.2f')])
+
+tables.write_table(
+    shares, str(OUTPUT_DIR / 'NP_05_body.tex'),
+    [('component', tables.texttt), ('variance', ',.1f'), ('share', '.1%'),
+     ('peak_to_peak', ',.1f')])
+
+tables.write_table(
+    gains, str(OUTPUT_DIR / 'NP_06_body.tex'),
+    [('source', None), ('gain_mdeg_per_degC', '.2f'), ('method', None)])
+
+tables.write_table(
+    stability, str(OUTPUT_DIR / 'NP_16_body.tex'),
+    [('block', None), ('tair_gain_mdeg_per_degC', '.2f'),
+     ('trend_mdeg_per_year', '+.1f')])
+
+tables.write_table(
+    nowcast_scores, str(OUTPUT_DIR / 'NP_07_body.tex'),
+    [('fit', None), ('n', ',.0f'), ('mae', '.2f'), ('rmse', '.2f'),
+     ('bias', '+.2f'), ('mase', '.2f'), ('coverage_q05_q95', '.1%'),
+     ('width_q05_q95', '.2f')])
+
+tables.write_table(
+    episodes_a, str(OUTPUT_DIR / 'NP_09_body.tex'),
+    [(tables.date_cell('start', fmt='%Y-%m-%d %H:%M'), None),
+     (tables.date_cell('end', fmt='%Y-%m-%d %H:%M'), None),
+     ('duration_h', ',.1f'), ('mean_z', '+.2f'), ('peak_abs_z', '.2f')])
+
+tables.write_table(
+    detectability, str(OUTPUT_DIR / 'NP_10_body.tex'),
+    [('kind', None), ('magnitude', '.2f'), ('duration_h', '.0f'),
+     ('detected', tables.yes_no), ('delay_h', '.1f')])
+
+tables.write_table(
+    metrics_b, str(OUTPUT_DIR / 'NP_11_body.tex'),
+    [('model', None), ('horizon_h', '.0f'), ('n', ',.0f'), ('mae', '.3f'),
+     ('rmse', '.3f'), ('mase', '.3f'), ('coverage_q05_q95', '.1%')])
+
+tables.write_table(
+    skill, str(OUTPUT_DIR / 'NP_12_body.tex'),
+    [('baseline', None), ('model', None), ('horizon_h', '.0f'),
+     ('skill', '+.3f'), ('skill_q05', '+.3f'), ('skill_q95', '+.3f')])
+
+tables.write_table(
+    ablation, str(OUTPUT_DIR / 'NP_13_body.tex'),
+    [('added_over', None), ('model', None), ('horizon_h', '.0f'),
+     ('skill', '+.3f'), ('skill_q05', '+.3f'), ('skill_q95', '+.3f')])
+
+tables.write_table(
+    closure, str(OUTPUT_DIR / 'NP_14_body.tex'),
+    [('gap_id', tables.texttt), (tables.date_cell('start'), None),
+     ('n_missing', ',.0f'), ('status', None),
+     ('observed_recovery', '+.2f'), ('predicted_recovery', '+.2f'),
+     ('closure_error', '+.2f')])
+
+tables.write_table(
+    metadata, str(OUTPUT_DIR / 'NP_15_body.tex'),
+    [('parameter', tables.texttt), ('value', None)])
+
+print('Table bodies written:',
+      ', '.join(sorted(p.name for p in OUTPUT_DIR.glob('*_body.tex'))))
