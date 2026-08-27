@@ -682,6 +682,22 @@ class TestTables(unittest.TestCase):
         rows = tables.to_rows(self.frame, [(lambda r: r.name, None)])
         self.assertEqual(rows, ['a', 'b'])
 
+    def test_percent_escapes_the_sign(self):
+        # A bare % opens a LaTeX comment and swallows the row terminator, so
+        # the row below merges into this one and the table fails to compile.
+        self.assertEqual(tables.percent(0.755429), '75.5\\%')
+        self.assertEqual(tables.percent(0.755429, decimals=2), '75.54\\%')
+        self.assertNotIn('%', tables.percent(1.0).replace('\\%', ''))
+
+    def test_percent_renders_a_missing_value_as_the_marker(self):
+        self.assertEqual(tables.percent(np.nan), tables.MISSING)
+        self.assertEqual(tables.percent(None, missing='n/a'), 'n/a')
+
+    def test_percent_survives_a_round_trip_through_a_table_body(self):
+        frame = pd.DataFrame({'share': [0.755429, np.nan]})
+        rows = tables.to_rows(frame, [('share', tables.percent)])
+        self.assertEqual(rows, ['75.5\\%', tables.MISSING])
+
     def test_a_composed_cell_is_not_escaped(self):
         """Unit strings are markup, not data, and must reach LaTeX intact."""
         rows = tables.to_rows(

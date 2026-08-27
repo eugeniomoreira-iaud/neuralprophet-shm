@@ -1552,14 +1552,14 @@ display(metadata)
 # string, a callable, or None for plain str.
 tables.write_table(
     coverage.reset_index(), str(OUTPUT_DIR / 'NP_01_body.tex'),
-    [('channel', tables.texttt), ('accepted', ',.0f'), ('coverage', '.1%')])
+    [('channel', tables.texttt), ('accepted', ',.0f'), ('coverage', tables.percent)])
 
 tables.write_table(
     gaps.groupby('gap_class', as_index=False)
         .agg(gaps=('n_slots', 'size'), hours=('duration_h', 'sum'))
         .sort_values('hours', ascending=False),
     str(OUTPUT_DIR / 'NP_02_body.tex'),
-    [('gap_class', None), ('gaps', ',.0f'), ('hours', ',.1f')])
+    [('gap_class', tables.latex_escape), ('gaps', ',.0f'), ('hours', ',.1f')])
 
 tables.write_table(
     survival, str(OUTPUT_DIR / 'NP_03_body.tex'),
@@ -1568,27 +1568,27 @@ tables.write_table(
 
 tables.write_table(
     cadence, str(OUTPUT_DIR / 'NP_04_body.tex'),
-    [('cadence', None), ('level_autocorr1', '.4f'), ('change_autocorr1', '.4f'),
+    [('cadence', tables.latex_escape), ('level_autocorr1', '.4f'), ('change_autocorr1', '.4f'),
      ('change_std', '.3f'), ('corr_change', '.4f'), ('drift_per_year', '.2f')])
 
 tables.write_table(
     shares, str(OUTPUT_DIR / 'NP_05_body.tex'),
-    [('component', tables.texttt), ('variance', ',.1f'), ('share', '.1%'),
+    [('component', tables.texttt), ('variance', ',.1f'), ('share', tables.percent),
      ('peak_to_peak', ',.1f')])
 
 tables.write_table(
     gains, str(OUTPUT_DIR / 'NP_06_body.tex'),
-    [('source', None), ('gain_mdeg_per_degC', '.2f'), ('method', None)])
+    [('source', tables.latex_escape), ('gain_mdeg_per_degC', '.2f'), ('method', tables.latex_escape)])
 
 tables.write_table(
     stability, str(OUTPUT_DIR / 'NP_16_body.tex'),
-    [('block', None), ('tair_gain_mdeg_per_degC', '.2f'),
+    [('block', tables.latex_escape), ('tair_gain_mdeg_per_degC', '.2f'),
      ('trend_mdeg_per_year', '+.1f')])
 
 tables.write_table(
     nowcast_scores, str(OUTPUT_DIR / 'NP_07_body.tex'),
-    [('fit', None), ('n', ',.0f'), ('mae', '.2f'), ('rmse', '.2f'),
-     ('bias', '+.2f'), ('mase', '.2f'), ('coverage_q05_q95', '.1%'),
+    [('fit', tables.latex_escape), ('n', ',.0f'), ('mae', '.2f'), ('rmse', '.2f'),
+     ('bias', '+.2f'), ('mase', '.2f'), ('coverage_q05_q95', tables.percent),
      ('width_q05_q95', '.2f')])
 
 tables.write_table(
@@ -1599,34 +1599,42 @@ tables.write_table(
 
 tables.write_table(
     detectability, str(OUTPUT_DIR / 'NP_10_body.tex'),
-    [('kind', None), ('magnitude', '.2f'), ('duration_h', '.0f'),
+    [('kind', tables.latex_escape), ('magnitude', '.2f'), ('duration_h', '.0f'),
      ('detected', tables.yes_no), ('delay_h', '.1f')])
 
 tables.write_table(
     metrics_b, str(OUTPUT_DIR / 'NP_11_body.tex'),
-    [('model', None), ('horizon_h', '.0f'), ('n', ',.0f'), ('mae', '.3f'),
-     ('rmse', '.3f'), ('mase', '.3f'), ('coverage_q05_q95', '.1%')])
+    [('model', tables.latex_escape), ('horizon_h', '.0f'), ('n', ',.0f'), ('mae', '.3f'),
+     ('rmse', '.3f'), ('mase', '.3f'), ('coverage_q05_q95', tables.percent)])
 
 tables.write_table(
     skill, str(OUTPUT_DIR / 'NP_12_body.tex'),
-    [('baseline', None), ('model', None), ('horizon_h', '.0f'),
+    [('baseline', tables.latex_escape), ('model', tables.latex_escape), ('horizon_h', '.0f'),
      ('skill', '+.3f'), ('skill_q05', '+.3f'), ('skill_q95', '+.3f')])
 
 tables.write_table(
     ablation, str(OUTPUT_DIR / 'NP_13_body.tex'),
-    [('added_over', None), ('model', None), ('horizon_h', '.0f'),
+    [('added_over', tables.latex_escape), ('model', tables.latex_escape), ('horizon_h', '.0f'),
      ('skill', '+.3f'), ('skill_q05', '+.3f'), ('skill_q95', '+.3f')])
 
+# NP_14 is summarised by status rather than listed gap by gap: the per-gap
+# table runs to 391 rows, and with none of them scorable the only thing it has
+# to say is how many gaps fell into each status and how much missing time they
+# carry between them. The full table stays in the CSV.
+closure_summary = (closure.groupby('status', as_index=False)
+                   .agg(gaps=('gap_id', 'size'),
+                        missing_slots=('n_missing', 'sum'),
+                        median_error=('closure_error', 'median'))
+                   .sort_values('gaps', ascending=False))
+display(closure_summary)
 tables.write_table(
-    closure, str(OUTPUT_DIR / 'NP_14_body.tex'),
-    [('gap_id', tables.texttt), (tables.date_cell('start'), None),
-     ('n_missing', ',.0f'), ('status', None),
-     ('observed_recovery', '+.2f'), ('predicted_recovery', '+.2f'),
-     ('closure_error', '+.2f')])
+    closure_summary, str(OUTPUT_DIR / 'NP_14_body.tex'),
+    [('status', tables.latex_escape), ('gaps', ',.0f'),
+     ('missing_slots', ',.0f'), ('median_error', '+.2f')])
 
 tables.write_table(
     metadata, str(OUTPUT_DIR / 'NP_15_body.tex'),
-    [('parameter', tables.texttt), ('value', None)])
+    [('parameter', tables.texttt), ('value', tables.latex_escape)])
 
 print('Table bodies written:',
       ', '.join(sorted(p.name for p in OUTPUT_DIR.glob('*_body.tex'))))

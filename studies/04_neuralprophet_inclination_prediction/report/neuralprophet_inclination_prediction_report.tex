@@ -98,4 +98,840 @@ not drawn here.}
 \label{fig:on-structure-record}
 \end{figure}
 
+% ===========================================================================
+\section{The record this study works on}
+\label{sec:record}
+
+The window runs from 21~June 2023 to 20~August 2026 and spans 83,305 slots on
+the twenty-minute grid at which the acquisition system writes. That grid, rather
+than an hourly aggregate, is the one every result below is stated on, because it
+is the rate at which a deployed system receives a new reading and therefore the
+rate at which it must decide whether that reading is the expected one.
+
+Table~\ref{tab:coverage} gives what each channel returns over the window.
+The inclinometer delivers an accepted value in 75.5\% of the slots, air
+temperature and relative humidity in 77.8\% of them. Wall temperature and solar
+radiation reach 17.6\% and 18.8\%: the instruments that record them were
+installed on 21~February 2025 and so do not exist for the first three fifths of
+the window at all. That is the whole of the reason those two channels are
+excluded from every model in this study. Requiring them would not cost a
+percentage point of coverage but three fifths of the record, and every result
+would then have to be reported twice, on two windows that cannot be compared.
+They remain in Figure~\ref{fig:on-structure-record} because what the package
+records is part of what this study has to describe, and a reader is owed the
+sight of the channels it set aside.
+
+\begin{table}[H]
+\centering
+\caption{Accepted values and coverage per channel over the window, on the
+twenty-minute grid. Read from \texttt{NP\_01\_window\_coverage.csv}.}
+\label{tab:coverage}
+\begin{tabular}{lrr}
+\toprule
+Channel & Accepted slots & Coverage \\
+\midrule
+\input{../outputs/NP_01_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Air temperature and relative humidity cost this study nothing. Their
+missingness is nested inside the inclinometer's: every slot in which the
+inclination is accepted is a slot in which both are accepted too. Requiring all
+three therefore leaves exactly the same rows, in exactly the same contiguous
+runs, as requiring the inclination alone. That is a property of this record and
+not a general one, and it is the reason the predictor set could be chosen on
+physical grounds rather than by trading coverage against information.
+
+% ===========================================================================
+\section{The anatomy of what is missing}
+\label{sec:gaps}
+
+A coverage percentage says how much time is missing. It does not say how that
+time is shaped, and the shape is what decides whether filling it is
+interpolation or reconstruction. Over the window the inclination record is
+interrupted 1,647 times, for a total of 6,791 hours.
+
+Those interruptions are distributed with extreme asymmetry, and in two
+directions at once. Four gaps longer than seven days --- 40~days from 5~May
+2024, 42~days from 28~August 2024, 17~days from 26~September 2025 and 103~days
+from 7~March 2026 --- carry 72.8\% of all the missing time between them, while
+being 0.2\% of the gaps. At the other end, 1,280 gaps of an hour or less carry
+only 8.6\% of the missing time while being 77.7\% of the gaps.
+Table~\ref{tab:gapclasses} gives the full classification.
+
+\begin{table}[H]
+\centering
+\caption{The missing time by gap duration: how many gaps of each class, and how
+many hours they carry between them. Read from
+\texttt{NP\_02\_gap\_inventory.csv}.}
+\label{tab:gapclasses}
+\begin{tabular}{lrr}
+\toprule
+Gap class & Gaps & Hours \\
+\midrule
+\input{../outputs/NP_02_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The second number matters more than the first, and it is the one a coverage
+figure hides. The four long outages are conspicuous, and no honest method would
+try to reconstruct 103~days of a structure's behaviour from its neighbours. It
+is the short dropouts that determine what can be modelled, because they are what
+breaks \emph{contiguity}, and contiguity is the currency an autoregressive
+window spends. A model asked for 24~hours of history before each prediction
+cannot use a run of data shorter than that, however complete the run is.
+
+Table~\ref{tab:survival} prices that directly. The record divides into 1,647
+contiguous runs whose median length is 1.7~hours. Requiring 24~hours of history
+and forecasting 24~hours ahead leaves 101 of those runs usable and 15,000
+prediction windows; requiring 48~hours of history for the same forecast leaves
+58 runs and 9,092 windows. The autoregressive window used in
+Section~\ref{sec:forecast} is chosen from this table rather than from habit.
+
+\begin{table}[H]
+\centering
+\caption{What each autoregressive window costs in usable data. A contiguous run
+survives only if it is longer than the lag plus the forecast it must support.
+Read from \texttt{NP\_03\_segment\_survival.csv}.}
+\label{tab:survival}
+\begin{tabular}{rrrrr}
+\toprule
+Lag (h) & Forecast (h) & Runs & Surviving & Windows \\
+\midrule
+\input{../outputs/NP_03_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NP_F02_gap_anatomy.png}
+\caption{The anatomy of the missing time. The gaps are counted by duration class
+and weighted by the time each class carries, which is what separates the many
+short dropouts from the few long outages.}
+\label{fig:gap-anatomy}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NP_F03_segment_survival.png}
+\caption{Contiguous runs surviving each autoregressive window, and the
+prediction windows they yield. The cost of a longer memory on a fragmented
+record is not linear: it falls on the number of runs that qualify at all.}
+\label{fig:segment-survival}
+\end{figure}
+
+% ===========================================================================
+\section{Method}
+\label{sec:method}
+
+Each subsection below states one decision, the evidence that forced it, and what
+would have gone wrong under the alternative. They are given before any result
+that depends on them.
+
+\subsection{Why the level is decomposed but never scored}
+
+The inclination level has a lag-one autocorrelation of 0.9977 at twenty minutes.
+Any error metric computed against it is therefore a measurement of the sampling
+interval rather than of a model: predicting that the next value equals the
+current one is almost exactly right, and a model that beats that baseline by a
+few per cent has demonstrated nothing about the structure. The level is
+decomposed, because a decomposition of the level is what says what the record is
+\emph{made of}; it is never scored as a forecast.
+
+\subsection{Why forecasting is done on the hourly change}
+
+Differencing removes the autocorrelation but introduces a different problem, and
+the cadence decides which of the two dominates. Table~\ref{tab:cadence} gives
+both. At twenty minutes the first difference has a lag-one autocorrelation of
+$-0.058$, which is the signature of additive measurement noise on the level
+rather than of structural memory, and it correlates with the change in air
+temperature at $-0.778$. At one hour the same difference retains $+0.349$ of
+memory and couples to air temperature at $-0.892$. The hourly change is
+therefore the cadence at which the increment carries signal rather than noise,
+and it is the target of the forecasting model.
+
+\begin{table}[H]
+\centering
+\caption{The evidence for the two cadences. Read from
+\texttt{NP\_04\_cadence\_evidence.csv}.}
+\label{tab:cadence}
+\begin{tabular}{lrrrrr}
+\toprule
+Cadence & Level $r_1$ & Change $r_1$ & Change s.d. & $\rho(\Delta$inc$,\Delta$tair$)$ & Drift (mdeg/yr) \\
+\midrule
+\input{../outputs/NP_04_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NP_F04_cadence_evidence.png}
+\caption{Why the forecasting target is the hourly change rather than the level
+or the twenty-minute change.}
+\label{fig:cadence}
+\end{figure}
+
+\subsection{Why the anomaly test is not differenced, and why contemporaneous
+regressors are not leakage}
+
+The two questions this study puts to the record are different questions, and
+they are entitled to different rules. Asking \emph{how far ahead can this be
+forecast} requires that the model see only the past, and the forecasting model of
+Section~\ref{sec:forecast} is held to that: it consumes lagged predictor values
+only. Asking \emph{is this reading the expected one} does not. A monitoring
+system judging a newly arrived inclination has, in the same acquisition record,
+the air temperature and relative humidity measured at the same instant --- they
+arrive together, twenty minutes at a time. Consuming them is not leakage but a
+description of what the system actually holds when it must decide. The two
+models are never scored on the same table, and no number from one is quoted
+against the other.
+
+\subsection{Why two models, and why the decomposition carries no autoregression}
+
+With autoregressive lags enabled, the autoregressive component absorbs most of
+the diurnal structure and the seasonal component becomes whatever periodicity is
+left over after it, rather than the wall's thermal cycle. A decomposition meant
+to be read as physics must therefore carry no autoregressive term, which is
+exactly the term a forecast needs. One model cannot do both jobs, so there are
+two.
+
+\subsection{How gaps are honoured}
+
+No value is imputed anywhere in this study. Every contiguous run of accepted
+observations carries its own segment identifier, and the models are told about
+those identifiers, so that no fitted window and no prediction window spans a
+gap. This matters because NeuralProphet's own defaults do not honour it: left to
+itself the library fills gaps of at least thirty hours, and a decomposition
+fitted over fabricated data attributes to the structure a shape the structure
+never produced.
+
+\subsection{Changepoints on covered time, and no era offset}
+
+The trend's changepoints are placed at quantiles of the \emph{observed}
+timestamps rather than uniformly along the axis. A changepoint inside a 103-day
+outage is constrained by no data and is free to take any value the extrapolation
+on either side of it requires. Instrument eras are not modelled at all: Study~01
+compensated and anchored the record once across the changeover of
+21~February 2025, and this study takes that product as delivered. No era offset
+is estimated and none is subtracted.
+
+\subsection{The metrics, and what each is for}
+
+Point accuracy is reported as mean absolute error and root mean square error in
+millidegrees, and as MASE against a naive scale computed on training rows only,
+so that the scale-free figure is not self-referential. An interval is reported
+on three counts rather than one, because coverage alone can always be bought by
+widening: how often it contains the observation, how wide it had to be to manage
+that, and the Winkler interval score which penalises both together.
+
+% ===========================================================================
+\section{What the record is made of}
+\label{sec:decomposition}
+
+Table~\ref{tab:shares} gives the variance each fitted component carries and the
+peak-to-peak range it spans. The result is dominated by two things: a trend
+carrying 48.9\% of the variance and spanning 213~mdeg, and a residual carrying
+30.4\%. Air temperature accounts for 12.2\% and the annual cycle 8.4\%. The
+daily seasonality carries almost nothing --- 0.03\% --- and that is a
+consequence of the model's construction rather than a finding about the wall:
+air temperature enters as a contemporaneous regressor, so it absorbs the diurnal
+variation, and what the daily seasonal term is left to explain is the small
+residue the temperature does not.
+
+\begin{table}[H]
+\centering
+\caption{Variance share and peak-to-peak range of each fitted component, over
+the training window. Read from \texttt{NP\_05\_component\_shares.csv}.}
+\label{tab:shares}
+\begin{tabular}{lrrr}
+\toprule
+Component & Variance & Share & Peak-to-peak (mdeg) \\
+\midrule
+\input{../outputs/NP_05_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NP_F05_decomposition_stack.png}
+\caption{The decomposition of the compensated, cleaned inclination level into
+trend, annual and daily cycles, the response to the measured environment, and
+the remainder. Lines break across dropped outages rather than interpolating
+through them.}
+\label{fig:decomposition}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NP_F06_daily_cycle_and_response.png}
+\caption{The two interpretable components on their own axes over a fortnight:
+the daily cycle the model fitted, and the response it attributes to air
+temperature and relative humidity.}
+\label{fig:daily-cycle}
+\end{figure}
+
+\subsection{Confrontation with Study 03}
+
+The thermal gain this decomposition learns is an internal quantity of a fitted
+model, and it is worth only as much as its agreement with an independent
+measurement. Study~03 measured the diurnal-band gain of the same channel against
+the same air temperature by a lag-and-gain scan, a method sharing no machinery
+with this one, and obtained $-2.79$~\mdegC. This decomposition returns
+$-2.56$~\mdegC. Table~\ref{tab:gains} places them side by side, together with the
+two weaker external proxies Study~03 also scanned.
+
+\begin{table}[H]
+\centering
+\caption{The learned thermal gain against Study~03's independent measurements.
+Read from \texttt{NP\_06\_learned\_gains.csv}.}
+\label{tab:gains}
+\begin{tabular}{llr}
+\toprule
+Source & Gain (\mdegC) & Method \\
+\midrule
+\input{../outputs/NP_06_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The two agree to within 8\%, by methods with nothing in common, and both carry
+the negative sign the embankment geometry predicts. That is the strongest
+external check this study has, and it is the reason the decomposition's thermal
+term can be read as a description of the wall rather than as a fitting artefact.
+It is a statement about the \emph{compensated} channel: what the wall does after
+Study~01's correction, which is the only quantity a monitoring system ever sees.
+Whether that correction is itself correct is Study~01's question and is not
+reopened here.
+
+\subsection{Which components survive re-estimation}
+
+A component estimated once is an assertion. Table~\ref{tab:stability} re-fits the
+model on each chronological third of the training period and compares the two
+interpretable quantities across them. The thermal gain is stable: $-2.47$,
+$-2.33$ and $-2.39$~\mdegC, keeping its sign and its magnitude across three
+disjoint stretches. The trend is not: $+38.6$, $+4.8$ and $+45.5$~mdeg/yr, each
+third disagreeing with the whole-window estimate of $-2.77$~mdeg/yr in sign as
+well as size.
+
+\begin{table}[H]
+\centering
+\caption{The two interpretable quantities re-estimated on disjoint thirds of the
+training period. Read from \texttt{NP\_16\_component\_stability.csv}.}
+\label{tab:stability}
+\begin{tabular}{lrr}
+\toprule
+Block & Thermal gain (\mdegC) & Trend (mdeg/yr) \\
+\midrule
+\input{../outputs/NP_16_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The contrast is the finding. The thermal gain behaves like a physical constant of
+the structure; the trend behaves like an estimate that has not converged. The
+drift is therefore quoted once, in-sample, at $-2.77$~mdeg/yr over 21~June 2023
+to 1~September 2025, and no extrapolation of it is used anywhere in this study.
+The monitoring model of Section~\ref{sec:expectation} carries no trend at all for
+the same reason.
+
+% ===========================================================================
+\section{Is this reading the one that was expected?}
+\label{sec:expectation}
+
+Three expectations were built and scored against each other, and
+Table~\ref{tab:nowcast} reports all three rather than the best. Two are frozen:
+a model fitted once at the training origin and applied thereafter, in the
+attribution configuration that carries a trend and in the monitoring
+configuration that does not. The third is refitted every thirty days on all
+history available at each origin.
+
+\begin{table}[H]
+\centering
+\caption{The expectation scored three ways. Coverage and width refer to the
+nominal 90\% interval. Read from \texttt{NP\_07\_nowcast\_metrics.csv}.}
+\label{tab:nowcast}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Fit & $n$ & MAE & RMSE & Bias & MASE & Coverage & Width \\
+\midrule
+\input{../outputs/NP_07_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The refitted expectation wins on every count, and by margins that are not
+marginal: mean absolute error 18.2~mdeg against 30.6 for the frozen monitoring
+fit and 58.8 for the frozen attribution fit, bias $-10.1$~mdeg against $-28.8$
+and $+57.5$, interval score 164 against 511 and 1197. The reason is visible in
+the bias column. A fit frozen at the training origin sits nearly 29~mdeg away
+from the record over the following year, and 82\% of its mean square error is in
+that single offset rather than in scatter --- it is not noisy, it is stale.
+Refitting every thirty days holds the expectation to the drift a month can
+accumulate, about 0.23~mdeg at the measured rate, and it is also what a deployed
+system would actually do.
+
+The interval is empirical rather than the model's own. NeuralProphet's quantile
+regression fits the residual's core, and this residual has a tight core with fat
+tails; its nominal 90\% interval covers 68.7\% even in-sample. Conformal
+quantiles, calibrated on residuals from before 1~June 2025 and never on rows the
+interval is scored against, replace it.
+
+They do not repair it. The reported coverage is \textbf{67.7\%} against a
+nominal 90\%, at a median width of 77.9~mdeg. This is stated as measured and is
+not adjusted. Two things account for it, and both are consequences of decisions
+taken for other reasons. The calibration stretch ends at a fixed date while the
+minimum training history was raised to a full annual cycle, which shortened that
+stretch from roughly seventeen months to eleven. And the monitoring model
+carries no trend by design, so the wall's own slow movement remains in the
+residual and continues after the calibration stretch ends --- the interval is
+calibrated on a quieter record than the one it is then asked to cover. An
+interval that undercovers by this much is a statement about this expectation,
+and Section~\ref{sec:limitations} records it as one.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NP_F07_observed_vs_expected.png}
+\caption{One month of the observed inclination against what the measured
+environment predicted, with the conformal interval around the expectation.}
+\label{fig:observed-expected}
+\end{figure}
+
+% ===========================================================================
+\section{Judging a departure}
+\label{sec:monitoring}
+
+\subsection{The reference window, and what had to be excluded from it}
+
+Every control limit below is a multiple of a centre and a scale estimated on a
+reference window, so a window containing a departure would calibrate the detector
+against the very thing it is meant to find. Two stretches are therefore excluded,
+for two different reasons.
+
+The window ends on 1~June 2025, before the stretch Study~01 flagged in summer
+2026. That is a precaution about calibration and explicitly not a test: this
+study makes no claim, anywhere, about whether this detector finds that stretch.
+
+The window also begins later than the monitored record could allow, on
+1~October 2024, and this exclusion was forced by measurement rather than
+anticipated. The residual's thirty-day rolling mean runs $-60.5$, $-61.0$,
+$-34.2$ and $-35.5$~mdeg over June to September 2024 and then settles to
+$+3.4$~mdeg and stays within roughly $\pm20$~mdeg for the remainder of the
+record. The cause is identifiable: those early refits train on barely one
+calendar annual cycle, and one calendar year of this record contains outages of
+40, 42 and 17~days, so their annual term is fitted to substantially less than one
+cycle and is not identifiable. Those months are excluded from the monitored
+record as well as from the reference window. An expectation wrong by 60~mdeg for
+a reason internal to the model is not a structural departure, and reporting it as
+one would be a false claim.
+
+\subsection{The limit width, and why it is far above the textbook range}
+
+The limit is not taken from convention. A false-alarm budget is fixed first ---
+ninety days of watched time per false alarm --- and the limit width is then swept
+until one meets it, so that every detection figure in this study is quoted at a
+stated budget rather than at whatever rate a conventional setting happens to
+give.
+
+The width that meets it is 14.75 standard deviations, which is far outside
+anything a control-chart text would offer, and the reason is a property of this
+residual that must be stated plainly. EWMA and CUSUM limits are derived for
+independent observations. This residual has a lag-one autocorrelation of
+\textbf{0.995 at twenty minutes} and still \textbf{0.974 at twenty-four hours}.
+Against a series that correlated, a textbook width between two and five standard
+deviations does not buy months between false alarms but days: the best any width
+in that range achieves here is 15.7~days against the ninety asked for. Widening
+the swept range is not the same as widening the limit until the alarms stop ---
+the budget was fixed before the sweep, and the width is whatever meets it --- but
+the resulting number should be read as a property of the residual rather than as
+a conventional control limit.
+
+At 14.75 the achieved run length is 122~days per false alarm. It rests on two
+episodes over 244 watched days, and with a count that small it bounds the
+false-alarm rate rather than measuring it. It is quoted here to one significant
+figure of confidence and no more.
+
+\subsection{What the detector then reported}
+
+Over the monitored record the joint chart raises 14 alarming episodes covering
+350 of 678 watched days. Table~\ref{tab:episodes} gives them. One episode
+dominates: 288 consecutive days from 24~September 2025, at a mean standardised
+departure of $+5.2$.
+
+\begin{table}[H]
+\centering
+\caption{Alarming episodes over the monitored record, where the EWMA and CUSUM
+charts agree within six hours. Read from
+\texttt{NP\_09\_alarm\_episodes.csv}.}
+\label{tab:episodes}
+\begin{tabular}{llrrr}
+\toprule
+Start & End & Duration (h) & Mean $z$ & Peak $|z|$ \\
+\midrule
+\input{../outputs/NP_09_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A detector that spends half its watched time in alarm is reporting something
+about the model as much as about the wall. The monitoring fit carries no trend
+by deliberate choice, so the wall's slow movement is left in the residual where a
+monitor can see it; the consequence is that when the wall does move slowly and
+persistently, the chart alarms and keeps alarming. That is the intended
+behaviour, and it is also why the episode table cannot be read as a list of
+distinct structural events.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NP_F08_control_chart.png}
+\caption{The residual control chart over the monitored record, with alarming
+episodes shaded. The line breaks across outages rather than interpolating
+through them.}
+\label{fig:control-chart}
+\end{figure}
+
+\subsection{What this detector can and cannot see}
+
+One large event cannot establish a detector's sensitivity, and the summer-2026
+stretch is not used to try. Departures of known size, duration and \emph{shape}
+are injected into the uncontaminated residual instead, the charts are re-run, and
+an alarm counts only where the uncontaminated run is silent within a
+twenty-four-hour response window.
+
+The three shapes correspond to mechanisms a three-leaf stone wall --- two masonry
+leaves either side of a weaker rubble-and-mortar core --- can actually produce.
+\textbf{Amplitude growth}: the leaves stop acting together, through delamination
+at the core interface or loss of through-stones, and the section bends further
+under the same daily heating while its timing and mean hold. \textbf{Phase
+change}: the thermal path changes rather than the stiffness, as when water
+entering the core raises its heat capacity, and the wall answers the same forcing
+earlier or later. \textbf{Drift}: creep of the lime mortar under sustained load,
+thermal ratcheting of the outer leaf, or foundation settlement --- slow, monotone
+and invisible in any single day.
+
+The result is stark, and it is the most operationally important number in this
+study. Of the three mechanisms, only amplitude growth is ever detected, and only
+at 16~mdeg. A timing shift of up to two hours, which the fitted daily amplitude
+of 2.1~mdeg converts to a residual amplitude of 1.07~mdeg, is not detected at any
+duration. A drift of up to 20~mdeg per year is not detected at any duration.
+
+\begin{table}[H]
+\centering
+\caption{Detectability by mechanism, magnitude and persistence, at the stated
+false-alarm budget. Read from \texttt{NP\_10\_detectability.csv}.}
+\label{tab:detectability}
+\begin{tabular}{lrrlr}
+\toprule
+Mechanism & Magnitude & Duration (h) & Detected & Delay (h) \\
+\midrule
+\input{../outputs/NP_10_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two caveats belong with that table. The amplitude field is not monotone: 16~mdeg
+is detected at 6, 24, 72 and 336~hours but not at 168, which is an artefact of
+injecting at a single fixed point in the record rather than a property of the
+mechanism, and it is reported rather than smoothed. And the whole field is quoted
+at a 122-day false-alarm budget; a system willing to tolerate more false alarms
+would see smaller departures, and the trade is the operator's to make.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{NP_F09_detectability_amplitude.png}
+\caption{Detectability of a growth in the daily swing, the signature of lost
+composite action between the leaves.}
+\label{fig:detect-amplitude}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{NP_F09_detectability_phase.png}
+\caption{Detectability of a timing shift, the signature of a changed thermal
+path such as water in the core. Nothing in the swept range is found.}
+\label{fig:detect-phase}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{NP_F09_detectability_drift.png}
+\caption{Detectability of a slow monotone drift, the signature of mortar creep or
+settlement. Nothing in the swept range is found.}
+\label{fig:detect-drift}
+\end{figure}
+
+% ===========================================================================
+\section{How far ahead is prediction worth anything?}
+\label{sec:forecast}
+
+The target here is the gap-safe one-hour change, formed only between adjacent
+accepted observations inside one contiguous run, so that no difference bridges a
+gap. After segmentation at a minimum run length of 96~hours, 14,930 hourly rows
+in 59 runs remain, evaluated over five expanding whole-segment folds.
+
+Table~\ref{tab:forecast} gives the error of each model and each baseline against
+horizon. Every model reaches a mean absolute error between 1.77 and
+1.84~mdeg at every horizon from one hour to 48; the zero-change baseline sits at
+2.17~mdeg, seasonal-naive at 2.24, and persistence between 2.53 and 3.62.
+
+\begin{table}[H]
+\centering
+\caption{Forecast error by model and horizon, against three baselines a
+monitoring system could run for free. Read from
+\texttt{NP\_11\_forecast\_metrics.csv}.}
+\label{tab:forecast}
+\begin{tabular}{lrrrrrr}
+\toprule
+Model & Horizon (h) & $n$ & MAE & RMSE & MASE & Coverage \\
+\midrule
+\input{../outputs/NP_11_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NP_F10_skill_vs_horizon.png}
+\caption{Forecast error against horizon, by model and baseline.}
+\label{fig:skill-horizon}
+\end{figure}
+
+An error is not a result until it is compared, and a comparison is not evidence
+until it is paired. Table~\ref{tab:skill} gives the fractional reduction in mean
+absolute error against each baseline, computed on the timestamps the two share
+and with a block bootstrap whose block length is adapted to the horizon, because
+these residuals are autocorrelated and an unpaired comparison would report a
+significance that is not there.
+
+\begin{table}[H]
+\centering
+\caption{Paired block-bootstrap skill against each baseline, with 5th and 95th
+percentiles of the bootstrap distribution. Read from
+\texttt{NP\_12\_skill\_vs\_baseline.csv}.}
+\label{tab:skill}
+\begin{tabular}{llrrrr}
+\toprule
+Baseline & Model & Horizon (h) & Skill & $q_{05}$ & $q_{95}$ \\
+\midrule
+\input{../outputs/NP_12_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The answer to the third question is therefore that \emph{the horizon at which
+forecasting stops beating a trivial baseline was not reached within the range
+tested}. Skill against persistence runs from 0.277 at one hour to 0.204 at
+48~hours, and against the zero-change baseline from 0.164 to 0.161; every
+bootstrap interval excludes zero, including at the longest horizon. The decay
+with horizon is mild because the quantity being forecast is a one-hour
+increment, not a level: the baselines degrade as fast as the model does.
+
+\subsection{What each predictor actually bought}
+
+A model carrying both autoregressive memory and air temperature cannot say which
+of the two earned its skill, which is why the ladder exists. Its result is the
+most useful negative finding in this study.
+
+\begin{table}[H]
+\centering
+\caption{The skill increment each predictor bought over the rung below it. Read
+from \texttt{NP\_13\_ablation.csv}.}
+\label{tab:ablation}
+\begin{tabular}{llrrrr}
+\toprule
+Over & Model & Horizon (h) & Skill & $q_{05}$ & $q_{95}$ \\
+\midrule
+\input{../outputs/NP_13_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{NP_F11_ablation.png}
+\caption{The skill increment each predictor bought over the rung below it. Note
+the vertical scale: both increments are small fractions of a per cent to a few
+per cent, against the 16 to 28\% the models take from the baselines.}
+\label{fig:ablation}
+\end{figure}
+
+Air temperature, added to autoregression alone, buys 0.0038 of skill at one hour
+and less than 0.0013 at every horizon beyond six; at 12 and 48~hours its
+bootstrap interval includes zero. Relative humidity, added on top of air
+temperature, buys rather more --- 0.023 at one hour, with an interval excluding
+zero at every horizon --- though the magnitudes remain small.
+
+The negative control settles the interpretation. Battery voltage added to
+autoregression scores 0.273 against persistence at one hour, where autoregression
+alone scores 0.274. Adding a channel to this model buys nothing by itself, so the
+0.0038 that air temperature buys is a real increment and not an artefact of an
+extra input; it is simply a very small one.
+
+This does not contradict Section~\ref{sec:decomposition}. The thermal coupling is
+real, was measured here at $-2.56$~\mdegC\ and independently by Study~03 at
+$-2.79$, and it explains 12.2\% of the level's variance. It is nonetheless
+almost useless for \emph{forecasting the change}, because the response's own
+recent history already carries the information the temperature would supply. A
+coupling that is real is not obliged to be predictively useful, and the
+distinction between the two matters for anyone deciding which sensors a
+deployment needs: this record argues for keeping the inclinometer well sampled
+rather than for adding environmental channels.
+
+% ===========================================================================
+\section{Can the model fill the gaps it was trained around?}
+\label{sec:closure}
+
+The operational temptation, once a model predicts a change, is to accumulate its
+predictions across a gap and call the result a reconstructed level. That is a
+stronger claim than anything measured above: a per-step error that is small and
+unbiased still accumulates, and a reconstruction arriving at the wrong level on
+the far side of a gap is worse than an admitted absence, because it looks like a
+measurement.
+
+The check was to be arithmetical. Where a gap is bracketed by accepted
+observations on both sides the true change across it is known, so the predicted
+changes can be summed and compared, and a reconstruction is safe only if it
+closes.
+
+\textbf{The question is undecidable on this pipeline, and the reason is
+structural rather than numerical.} Of the 391 hourly gaps, 390 return
+\texttt{incomplete\_estimates} and one \texttt{unbracketed}; none is scorable.
+The forecasting model produces predictions only at timestamps that survive
+segmentation, and those are by construction the timestamps at which an
+observation exists. It therefore never predicts \emph{inside} a gap at all, and
+there is nothing to accumulate. Answering the question properly requires rolling
+the model forward recursively through each gap, feeding each prediction back as
+the next step's history, which this pipeline does not do.
+
+\begin{table}[H]
+\centering
+\caption{Gap closure summarised by status, which is what decides whether a gap
+can be scored at all. None of the 391 gaps is scorable. The full per-gap table
+is in \texttt{NP\_14\_gap\_closure.csv}.}
+\label{tab:closure}
+\begin{tabular}{lrrr}
+\toprule
+Status & Gaps & Missing slots & Median error \\
+\midrule
+\input{../outputs/NP_14_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The honest verdict is therefore that this study does not license gap filling by
+accumulation, on the ground that it has not tested it --- which is a weaker
+statement than "unsafe" and a much weaker one than "safe". Section~\ref{sec:limitations}
+records it as the study's largest piece of unfinished business.
+
+% ===========================================================================
+\section{Verdict}
+\label{sec:verdict}
+
+\textbf{What is the record made of?} A trend carrying 48.9\% of the variance and
+spanning 213~mdeg, a residual carrying 30.4\%, the response to air temperature
+12.2\% and the annual cycle 8.4\%. The thermal gain is $-2.56$~\mdegC, which
+agrees within 8\% with Study~03's independently measured $-2.79$ and carries the
+sign the embankment geometry predicts. That gain survives re-estimation on three
+disjoint stretches; the trend does not, disagreeing with itself in sign as well
+as magnitude, so the drift is quoted once in-sample at $-2.77$~mdeg/yr and never
+extrapolated.
+
+\textbf{Is this reading the expected one?} Yes, to within an expectation whose
+mean absolute error is 18.2~mdeg, provided the model is refitted on a schedule.
+A frozen fit is not noisy but stale --- 82\% of its error is a single offset ---
+and refitting every thirty days removes that. The interval around that
+expectation is the weak point: its conformal 90\% band covers 67.7\%, because
+the drift the monitoring model deliberately leaves in the residual keeps moving
+after the calibration stretch ends. A reading outside that band is evidence; a
+reading inside it is weaker evidence than the nominal figure would suggest.
+
+\textbf{How far ahead is prediction worth anything?} Further than this study
+tested. Every model beats every baseline out to 48~hours with bootstrap
+intervals excluding zero, at a skill of 0.20 against persistence and 0.16
+against zero-change. But almost all of that skill is the response's own memory:
+air temperature adds 0.4\% at one hour and nothing distinguishable from zero
+beyond six, and a battery-voltage control scores the same as autoregression
+alone. The environmental channels earn their place in the \emph{decomposition},
+not in the \emph{forecast}.
+
+\textbf{And what can the monitor see?} At a measured false-alarm budget of
+122~days, only a growth of 16~mdeg in the daily swing. A timing shift of up to
+two hours and a drift of up to 20~mdeg per year pass undetected across the whole
+range swept. This is the number an operator would need first, and it is
+sobering: the configuration tested here detects gross change and not the early,
+slow signatures that make monitoring worthwhile.
+
+% ===========================================================================
+\section{Limitations}
+\label{sec:limitations}
+
+\textbf{The compensation is not independent of the thermal term being fitted.}
+The channel modelled here has already been temperature-compensated by Study~01,
+and this study fits a thermal response to it. The agreement with Study~03 is
+reassuring because that measurement was made on the same compensated channel by
+a different method, but neither study can rule out that the compensation and the
+fitted term are partly describing the same correction.
+
+\textbf{Two channels were excluded and cover 17\% of the window.} Wall
+temperature and solar radiation are the two variables most likely to explain the
+residual this study cannot account for, and they were set aside because the
+instruments recording them did not exist for three fifths of the window.
+
+\textbf{The battery control is not a silent channel.} Study~03 measured
+$r = -0.673$ for supply voltage in the diurnal band, so it marks a conservative
+floor rather than a zero. A predictor is credited here only when it clears that
+floor, which makes the ablation's negative result stronger, not weaker.
+
+\textbf{Three annual cycles with a 103-day hole cannot identify a yearly term.}
+The window spans 3.2 annual cycles, the last of them interrupted for 103~days.
+The annual component is retained because leaving a known cause unmodelled would
+push it into the residual where a detector would read it as structure, but it is
+not well identified, and the burn-in excluded from the reference window in
+Section~\ref{sec:monitoring} is a direct symptom of that.
+
+\textbf{The control limit is far outside its textbook range, and rests on two
+episodes.} A limit of 14.75 standard deviations is not a conventional control
+limit, and it is wide because the residual has a lag-one autocorrelation of
+0.995 --- a condition under which EWMA and CUSUM theory does not hold. The
+achieved run length of 122~days rests on two excursions and bounds the
+false-alarm rate rather than measuring it. Two alternative designs were not
+tested and would each be a better answer than a wider limit: charting prewhitened
+innovations, and charting a coarser aggregate.
+
+\textbf{Gap filling was not tested at all}, for the structural reason given in
+Section~\ref{sec:closure}. Nothing here licenses reconstruction by accumulation.
+
+\textbf{One sensor, one station, one site.} Every number above describes the
+inclinometer at station~02 on the wall at Porta di Sant'Ubaldo. The method is
+intended to transfer; none of these values is.
+
+\textbf{The summer-2026 stretch is not evidence of detection.} It was excluded
+from the reference window as a calibration precaution, and no claim is made
+anywhere in this report about whether the detector finds it. A single large event
+cannot establish a detection rate, and finding it would show only that the
+detector is not broken.
+
+% ===========================================================================
+\section{Run metadata}
+\label{sec:metadata}
+
+Every parameter and library version behind the artefacts quoted above.
+
+\begin{table}[H]
+\centering
+\caption{Run metadata. Read from \texttt{NP\_15\_run\_metadata.csv}.}
+\label{tab:metadata}
+\begin{tabular}{ll}
+\toprule
+Parameter & Value \\
+\midrule
+\input{../outputs/NP_15_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \end{document}

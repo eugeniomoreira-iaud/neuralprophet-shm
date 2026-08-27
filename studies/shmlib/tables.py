@@ -273,6 +273,35 @@ def yes_no(value, missing='---'):
     return 'yes' if bool(value) else 'no'
 
 
+def percent(value, decimals=1, missing=MISSING):
+    """
+    Render a fraction as a percentage with the sign LaTeX needs.
+
+    Python's ``'.1%'`` format produces a bare ``%``, which in LaTeX opens a
+    comment and swallows the rest of the line -- including the ``\\\\`` that
+    ends the table row, so the row after it merges into this one and the table
+    fails to compile with an alignment error that names the wrong line. This
+    escapes the sign, which is the only difference from the plain format.
+
+    Parameters
+    ----------
+    value : float
+        A fraction, where ``0.755`` renders as ``75.5\\%``.
+    decimals : int, optional
+        Digits after the decimal point. Default ``1``.
+    missing : str, optional
+        What to print where the value is missing. Default :data:`MISSING`.
+
+    Returns
+    -------
+    str
+        The formatted percentage, or the missing marker.
+    """
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return missing
+    return format(float(value), f'.{int(decimals)}%').replace('%', r'\%')
+
+
 def basename(output_dir, artefact):
     """
     Path of an artefact inside a study's output directory.
