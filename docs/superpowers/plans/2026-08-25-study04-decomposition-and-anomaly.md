@@ -131,13 +131,13 @@ the purposes of resuming — its steps are ordered so that re-running from Step 
 | 12 | The remaining figures | 3 | subagent | [x] |
 | 12A | Perturbations with a physical mechanism | 3 | subagent | [x] |
 | 13 | Fit Model A, confront Study 03 | 4 | orchestrator | [x] |
-| 14 | The expectation and its calibration | 4 | orchestrator | [ ] in progress |
-| 15 | Charts tuned to a false-alarm budget | 5 | orchestrator | [ ] |
-| 16 | Detectability and the known event | 5 | orchestrator | [ ] |
-| 17 | The ablation ladder | 6 | subagent | [ ] |
-| 18 | The gap-closure verdict | 7 | subagent | [ ] |
-| 19 | Run metadata and table bodies | 8 | orchestrator | [ ] |
-| 20 | Write the report | 8 | **orchestrator only** | [ ] |
+| 14 | The expectation and its calibration | 4 | orchestrator | [x] |
+| 15 | Charts tuned to a false-alarm budget | 5 | orchestrator | [x] |
+| 16 | Detectability and the known event | 5 | orchestrator | [x] |
+| 17 | The ablation ladder | 6 | orchestrator | [x] |
+| 18 | The gap-closure verdict | 7 | orchestrator | [x] |
+| 19 | Run metadata and table bodies | 8 | orchestrator | [x] |
+| 20 | Write the report | 8 | **orchestrator only** | [x] |
 
 Task 12A carries no checkpoint of its own: it is library work inside Phase 3, whose Checkpoint 3 has
 already been shown, and its acceptance gate is its own test suite plus the standing suites it must
