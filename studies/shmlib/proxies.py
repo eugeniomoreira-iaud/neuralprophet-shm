@@ -782,6 +782,49 @@ def to_native_grid(frame, freq='20min', accumulations=('sr',)):
     return out
 
 
+def fill_short_gaps(frame, columns, max_gap='2h', flag=True):
+    """
+    Fill short regressor dropouts by linear interpolation, and say where.
+
+    A regressor is a measured, smooth driver rather than the quantity being
+    judged, so a dropout of a few slots may be bridged from its neighbours
+    without inventing structure. The target is never filled by this or any
+    other function. Runs whose bracketing observations are more than
+    ``max_gap`` apart are left missing.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        Datetime-indexed frame on a regular grid.
+    columns : sequence of str
+        Columns to fill.
+    max_gap : str or pd.Timedelta, optional
+        Longest bracket (last observation before to first after) that may be
+        bridged. Default ``'2h'``.
+    flag : bool, optional
+        Add ``<column>_filled`` booleans marking filled slots. Default ``True``.
+
+    Returns
+    -------
+    pd.DataFrame
+        A copy of ``frame`` with the fills applied.
+    """
+    limit = pd.Timedelta(max_gap)
+    out = frame.copy()
+    for column in columns:
+        series = pd.to_numeric(out[column], errors='coerce')
+        observed = series.dropna()
+        stamps = pd.Series(observed.index, index=observed.index)
+        previous = stamps.reindex(series.index).ffill()
+        following = stamps.reindex(series.index).bfill()
+        short = series.isna() & ((following - previous) <= limit)
+        filled = series.interpolate(method='time', limit_area='inside')
+        out[column] = series.where(~short, filled)
+        if flag:
+            out[column + '_filled'] = short.fillna(False).astype(bool)
+    return out
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Characterisation, one source at a time
 # ──────────────────────────────────────────────────────────────────────

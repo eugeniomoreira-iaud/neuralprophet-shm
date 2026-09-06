@@ -42,5 +42,32 @@ class TestToNativeGrid(unittest.TestCase):
         self.assertAlmostEqual(out.loc['2024-06-01 00:40', 'sr_era5'], 100.0 + 100.0 / 6.0, places=6)
 
 
+class TestFillShortGaps(unittest.TestCase):
+
+    def _frame(self):
+        index = pd.date_range('2024-01-01', periods=12, freq='20min', tz='UTC')
+        values = np.arange(12, dtype=float)
+        values[2] = np.nan            # one slot: 20 min gap
+        values[5:10] = np.nan         # five slots: 2h between the bracketing observations
+        return pd.DataFrame({'tair_gs': values}, index=index)
+
+    def test_gaps_within_the_limit_are_filled_and_flagged(self):
+        out = proxies.fill_short_gaps(self._frame(), ['tair_gs'], max_gap='2h')
+        self.assertAlmostEqual(out['tair_gs'].iloc[2], 2.0)
+        self.assertAlmostEqual(out['tair_gs'].iloc[7], 7.0)
+        self.assertTrue(out['tair_gs_filled'].iloc[2])
+        self.assertFalse(out['tair_gs_filled'].iloc[3])
+
+    def test_a_gap_beyond_the_limit_stays_missing(self):
+        out = proxies.fill_short_gaps(self._frame(), ['tair_gs'], max_gap='1h')
+        self.assertAlmostEqual(out['tair_gs'].iloc[2], 2.0)
+        self.assertTrue(out['tair_gs'].iloc[5:10].isna().all())
+        self.assertFalse(out['tair_gs_filled'].iloc[5:10].any())
+
+    def test_no_flag_column_when_flag_is_false(self):
+        out = proxies.fill_short_gaps(self._frame(), ['tair_gs'], flag=False)
+        self.assertNotIn('tair_gs_filled', out.columns)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
