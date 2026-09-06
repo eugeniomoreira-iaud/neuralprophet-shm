@@ -12,15 +12,15 @@
 
 ## Progress
 
-Updated 2026-09-06 · 19:11 UTC. This block is the summary a reader needs to follow the
+Updated 2026-09-06 · 21:59 UTC. This block is the summary a reader needs to follow the
 implementation; the checkboxes under each task below are ticked as the work lands, and the
 detailed execution ledger (rulings, fix rounds, commits) lives in
 `.superpowers/sdd/2026-09-05-study05-greybox-monitoring/progress.md`, which is gitignored.
 
 | Measure | Progress |
 |---|---|
-| Tasks complete (of 41, Tasks 0.1 to 7.3) | `[█████████████░░░░░░░]` **27 of 41** (65 %) |
-| Report sections written (of 14) | `[███████████░░░░░░░░░]` **8 of 14** (57 %) |
+| Tasks complete (of 41, Tasks 0.1 to 7.3) | `[███████████████░░░░░]` **30 of 41** (73 %) |
+| Report sections written (of 14) | `[█████████████░░░░░░░]` **9 of 14** (64 %) |
 
 | Phase | Tasks | State | Result and commits |
 |---|---|---|---|
@@ -30,12 +30,12 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 | 2 · Model A attribution on three sets | 2.1–2.6, 2.4b, 2.4c | ✅ complete | a4652cf…2853c8a, 16f3cb1, 442f5d6. `GM_04d`, `GM_05`–`GM_08b`, `GM_F03`–`GM_F06b`; `TREND_REG = 0.0`; conditional daily term rejected. **Checkpoint 2 passed:** on-structure air-temperature gain −2.64 mdeg/°C against Study 03's −2.79, inside its interval. Report §4, §5.2, §6. |
 | 2b · Current-era ladder | 2b.1–2b.2 | ✅ complete | ef0a67a, 6882563, 74cf7dc; 0d63e51, e5e07ba. `GM_16`, `GM_F14` on one matched window. Neither the pyranometer nor the probe buys anything for the expectation on the current era. Report §9 written. |
 | 3 · Expectation and interval | 3.1–3.3 | ✅ complete | 9f4719f, 4f0278f, ed7f326. `GM_09`, `GM_F08`: pooled coverage 88.4 % (on-structure) against Study 04's 67.7 %; coverage 96 → 82 % and MAE 5.3 → 10.9 mdeg across the refit month. Two runs of about an hour each (the first died on the native conformal plot). |
-| 4 · Model B impulse response | 4.1–4.3 | 🔄 in progress | 4.1 + 4.2 implementer running (library, Movement 4, one full run). Then report §7. |
+| 4 · Model B impulse response | 4.1–4.3 | 🔄 committed, reviews running | 9ecf31c, 68cadab, 97a427d, e51f176 (weights rescaled to millidegrees per unit of the driver after a first run in normalised units); §7 committed. `GM_10`, `GM_F07`. **Checkpoint 4:** air temperature agrees with Study 03 (gain −2.67 vs −2.79, response one slot deep, no time constant); radiation has no resolvable response, its summed weight positive against Study 03's negative gain, stated as a finding; Model A not re-tuned. Code review (4.1/4.2) and prose review (4.3) in progress. |
 | 5 · The monitor | 5.1–5.5 | ⬜ pending | `GM_11`–`GM_13`, `GM_F09`–`GM_F11`, `GM_F13`; report §10. |
 | 6 · Outage bridges | 6.1–6.3 | ⬜ pending | `GM_14`, `GM_F12`; report §11. |
 | 7 · Closure and the revision pass | 7.1–7.3 | ⬜ pending | `GM_15`; report §12–§14; then Task 7.3, the revision pass from `report05_check.md`. |
 
-Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend ✅ · 5 Seasonality ✅ · 6 Regressors ✅ · 7 Impulse response ⬜ · 8 Uncertainty ✅ · 9 Ladder ✅ · 10 Monitor ⬜ · 11 Outages ⬜ · 12 Verdict ⬜ · 13 Limitations ⬜ · 14 Run metadata ⬜.
+Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend ✅ · 5 Seasonality ✅ · 6 Regressors ✅ · 7 Impulse response ✅ · 8 Uncertainty ✅ · 9 Ladder ✅ · 10 Monitor ⬜ · 11 Outages ⬜ · 12 Verdict ⬜ · 13 Limitations ⬜ · 14 Run metadata ⬜.
 
 ## Global Constraints
 
@@ -2675,7 +2675,7 @@ Check `score_predictions`'s column names for the interval (`coverage_q05_q95`, `
 - `prediction.impulse_response_summary(weights, dt_hours) -> pd.DataFrame` with `regressor`, `gain` (Σ weight), `delay_h` (Σ w·lag·dt / Σ w), `tau_h` (one-pole time constant fitted to the cumulative response by grid search over 0.1–48 h), `r2_onepole`.
 - `figures.plot_impulse_response(weights, summary, reference=None, dt_hours=1/3, title='', save_path=None, filename=None)`: one panel per regressor, weights against lag in hours, with Study 03's operator (a `reference` dict `{name: {'delay_h': d, 'tau_h': t}}`) drawn as the equivalent normalised one-pole response through `coupling.thermal_operator` on a unit impulse.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """
@@ -2729,9 +2729,9 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2: Run; expected AttributeError.**
+- [x] **Step 2: Run; expected AttributeError.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def lagged_regressor_weights(model):
@@ -2829,11 +2829,11 @@ def plot_impulse_response(weights, summary, reference=None, dt_hours=1.0 / 3.0,
     return fig
 ```
 
-- [ ] **Step 4: Run; PASS. Commit** `feat(shmlib): read and summarise the impulse response a lagged-regressor model learned`.
+- [x] **Step 4: Run; PASS. Commit** `feat(shmlib): read and summarise the impulse response a lagged-regressor model learned`.
 
 ### Task 4.2 (S runs, O interprets): Movement 4 — Model B, `GM_10`, `GM_F07`
 
-- [ ] **Step 1: Append the cells**
+- [x] **Step 1: Append the cells**
 
 ```python
 # %% [markdown]
@@ -2879,11 +2879,11 @@ model_b.plot_parameters(components=['lagged_regressors'])
 
 If Task 0.1's lagged-regressor test failed, resample `block_b` to `MODEL_B_FALLBACK_FREQ` with `.resample(MODEL_B_FALLBACK_FREQ).mean()` and use `lagged_n_lags=MODEL_B_FALLBACK_LAGS`, `dt_hours=1.0`, and say so in the printed summary.
 
-- [ ] **Step 2: Sync, execute, copy back, commit** `feat(study05): learn the impulse response of air temperature and radiation at twenty minutes`.
+- [x] **Step 2: Sync, execute, copy back, commit** `feat(study05): learn the impulse response of air temperature and radiation at twenty minutes`.
 
 ### Task 4.3 (O): Report §7 Impulse response
 
-- [ ] From `GM_10_body.tex` and `GM_F07_impulse_response.png`: the learned delay and time constant per driver against Study 03's cell; agreement validates the operator imposed in Model A, disagreement is stated as a finding. Build, honesty test, README status, commit `docs(study05): write the impulse response section`.
+- [x] From `GM_10_body.tex` and `GM_F07_impulse_response.png`: the learned delay and time constant per driver against Study 03's cell; agreement validates the operator imposed in Model A, disagreement is stated as a finding. Build, honesty test, README status, commit `docs(study05): write the impulse response section`.
 
 > **Checkpoint 4 (O):** `GM_10` beside Study 03's operator, agreement or finding stated. Approval opens Phase 5.
 

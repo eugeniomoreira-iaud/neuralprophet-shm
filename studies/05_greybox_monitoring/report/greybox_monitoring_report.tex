@@ -982,7 +982,110 @@ Set & Lag [slots] & Ljung--Box $p$ & Std [mdeg] & MAD [mdeg] \\
 % ===========================================================================
 \section{Impulse response}
 \label{sec:impulse}
-\pending{Phase 4}
+
+Model~A takes the coupling's timing from Study~03 and imposes it: air
+temperature enters instantaneously, radiation delayed by one hour, neither with
+a time constant. Model~B is the same on-structure fit with that choice removed.
+Air temperature and radiation enter as lagged regressors over thirty-six slots
+of the native twenty-minute grid, twelve hours of history per driver, while
+relative humidity stays contemporaneous and the trend, the yearly and daily
+terms, the changepoints and the learning rate are those of the attribution fit.
+The weight the fit learns at each lag is the driver's impulse response in
+millidegrees per unit of the driver, and three numbers are read from it: the
+gain, which is the sum of the weights; the delay, which is the weight-weighted
+mean lag, the discrete counterpart of the transport delay Study~03's operator
+applies as a whole-sample shift; and the time constant $\tau$ of the one-pole
+step response fitted to the response's cumulative sum, with the coefficient of
+determination of that fit. Table~\ref{tab:impulse} sets the three beside
+Study~03's cell for each driver, and Figure~\ref{fig:impulse} draws the
+weights with Study~03's operator overlaid as a gain-matched response.
+
+\begin{table}[H]
+\centering
+\caption{The impulse response Model~B learned on the on-structure set,
+reduced to a gain, a delay and a time constant per driver, beside the delay and
+time constant Study~03 measured and Model~A imposes. The gain is the summed
+weight in millidegrees per degree Celsius for air temperature and per
+W\,m$^{-2}$ for radiation; the delay is the weight-weighted mean lag; $\tau$
+and $R^2$ are the one-pole step response fitted to the cumulative weight and
+how much of the cumulative weight's variance it explains, negative when it
+explains less than the mean does. Read from
+\texttt{GM\_10\_impulse\_response.csv}.}
+\label{tab:impulse}
+{\small\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{lrrrrrr}
+\toprule
+Driver & Gain & Delay [h] & $\tau$ [h] & $R^2$ one-pole & Study~03 delay [h] & Study~03 $\tau$ [h] \\
+\midrule
+\input{../outputs/GM_10_body.tex}\\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+For air temperature the learned response agrees with the imposed one, and the
+table's delay column has to be read with the weights in view to see it. The
+gain is $-2.668$\,mdeg per degree, within 4.4\,\% of Study~03's $-2.79$ and
+within 1.1\,\% of the $-2.639$ Model~A learned with the driver entering
+instantaneously (Table~\ref{tab:gains}). Of that gain, $-1.856$\,mdeg per
+degree, 69.6\,\%, sits in the first lag, the twenty minutes before the
+observation, and $-2.283$, 85.6\,\%, in the first hour; the remaining
+thirty-three weights sum to $-0.384$, alternate in sign and none exceeds
+0.276 in magnitude. The 1.44\,h in the delay column is the first moment of
+that whole sequence, and 1.08\,h of it comes from the small alternating
+weights between one and twelve hours, against 0.36\,h from the first hour
+that holds six sevenths of the gain. The one-pole fit says the same thing in
+its own way: the cumulative weight reaches $-1.856$ at the first slot and then
+stays between $-1.84$ and $-2.77$ over the remaining lags, a step and not an
+exponential rise; the best one-pole time constant is 0.5\,h, and even that
+shape explains the cumulative weight worse than its own mean does, hence the
+negative $R^2$ of $-0.466$. At twenty minutes the wall's air-temperature response has no
+resolvable delay and no time constant, which is Study~03's cell of zero and
+zero, and the operator Model~A imposes is the one Model~B finds.
+
+For radiation the learned response has no shape at all. The gain is
+$+0.023$\,mdeg per W\,m$^{-2}$, positive as Model~A's $+0.006$ on this set
+was and opposite in sign to the $-0.035$ Study~03 measured on the diurnal
+band; the correction of the weights into physical units cannot have produced
+the sign, since it multiplies every weight by a ratio of two positive scales.
+No lag stands out. The largest weight, $0.0064$, is at the second lag, forty
+minutes before the observation; the next two, $0.0049$ and $0.0038$, are at
+the last lag and at six hours forty; twenty-four of the thirty-six weights
+are positive and twelve negative; the weight at one hour, the lag at which
+Study~03 places the response, is $-0.0026$. The first hour holds 9.4\,\% of
+the gain and the weights beyond six hours as much as the weights within them,
+$0.0111$ against $0.0118$, so the first moment falls at 6.5\,h, the middle of
+the window, where the first moment of any sequence without a preferred lag
+falls. The one-pole fit reports $\tau = 8.0$\,h with $R^2 = 0.929$, and this
+is the one number in the table that has to be disbelieved: the cumulative sum
+of thirty-six small weights of the same average sign climbs almost linearly
+from $0.002$ at one hour to $0.023$ at twelve, and a line across a
+twelve-hour window is what a one-pole response with a time constant of the
+window's order draws. The fit certifies the drift of the weights, not a
+response of the wall. Model~B therefore neither confirms nor refutes the
+one-hour radiation delay Study~03 measured. It repeats the finding of
+Section~\ref{sec:regressors}: once air temperature has taken its share of
+the level, the marginal weight of the radiation that heats with it is
+indistinguishable from noise at every lag the grid resolves, and the sign of
+its sum is a finding stated, not a coupling recovered.
+
+Checkpoint~4 is therefore passed for air temperature by agreement and left
+open for radiation by the absence of any response to compare. Model~A is not
+re-tuned on either count. The one-hour radiation delay stays imposed, as D9
+provides, since the evidence for it is Study~03's diurnal-band scan and the
+evidence against it is none; and the instantaneous air-temperature coupling
+is now validated at the resolution Study~03's hourly scan could not reach.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F07_impulse_response.png}
+\caption{The impulse response Model~B learned on the on-structure set, one
+panel per driver: the weight at each of the thirty-six lags of the
+twenty-minute grid, in millidegrees per unit of the driver, with Study~03's
+operator overlaid as a response of the same gain. The air-temperature response
+is one slot deep; the radiation response has no lag that stands above its
+neighbours.}
+\label{fig:impulse}
+\end{figure}
 
 % ===========================================================================
 \section{Uncertainty and validation}
@@ -998,10 +1101,12 @@ claims, as a function of how stale the last refit is.
 
 Figure~\ref{fig:fit-metrics} draws the library's own training curve for the
 on-structure attribution fit, the mean absolute error on the training rows
-and on the held-out last fifth at every epoch. The training error falls
-through the thirty epochs and settles; the held-out error reaches its minimum
-early and then rises towards the 17.7\,mdeg that Table~\ref{tab:trend-reg}
-reports for the same fit. That divergence is not a defect of the optimiser: the
+and on the held-out last fifth at every epoch; the values behind it are in
+\texttt{GM\_05e\_fit\_metrics.csv}. The training error falls through the
+thirty epochs and settles at 6.1\,mdeg; the held-out error reaches its
+minimum of 11.5\,mdeg after six epochs and then rises to the 17.7\,mdeg at
+the thirtieth that Table~\ref{tab:trend-reg} reports for the same fit. That
+divergence is not a defect of the optimiser: the
 held-out rows are the last fifth of a level record, from March 2025 onward, and
 a model fitted once on the years before them extrapolates its last trend
 segment across them. The same thing, measured across five folds, is what
