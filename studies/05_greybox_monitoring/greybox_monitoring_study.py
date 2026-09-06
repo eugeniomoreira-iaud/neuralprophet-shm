@@ -677,8 +677,10 @@ clock = quality.clock_check(hourly, 'sr')
 display(clock)
 clock.to_csv(OUTPUT_DIR / 'GM_03_clock_check.csv', index=False)
 tables.write_table(clock, str(OUTPUT_DIR / 'GM_03_body.tex'),
-                   [(c, tables.texttt if clock[c].dtype == object else '.2f')
-                    for c in clock.columns])
+                   [('source', tables.texttt), ('channel', tables.texttt),
+                    ('n_days_solar', ',d'), ('solar_offset_h', '.2f'),
+                    ('solar_offset_iqr_h', '.2f'), ('xcorr_lag_h', '.1f'),
+                    ('xcorr_r', '.3f'), ('tests_agree', tables.yes_no)])
 
 # %% [markdown]
 # ### Onto the native grid, and the regressor sets

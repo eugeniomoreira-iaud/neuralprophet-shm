@@ -755,7 +755,8 @@ def to_native_grid(frame, freq='20min', accumulations=('sr',)):
     -------
     pd.DataFrame
         On ``pd.date_range(start.ceil(freq), end.floor(freq), freq=freq)``,
-        index named ``'datetime'``.
+        index named ``'datetime'``. Carries ``frame.attrs`` forward onto the
+        output, so a source's provenance survives the move onto this grid.
     """
     grid = pd.date_range(frame.index.min().ceil(freq),
                          frame.index.max().floor(freq), freq=freq,
