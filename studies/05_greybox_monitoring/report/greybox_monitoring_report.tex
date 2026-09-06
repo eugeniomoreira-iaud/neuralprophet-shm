@@ -432,7 +432,155 @@ design depends on it.
 % ===========================================================================
 \section{Seasonality}
 \label{sec:seasonality}
-\pending{Phase 1b, completed after Phase 2}
+
+\subsection{The harmonic diagnostic}
+\label{sec:harmonic-diagnostic}
+
+The Fourier orders of the seasonal terms and the weight curve of the
+conditional daily term were fixed before any model was fitted (D6). Two series
+were examined: the target itself, and the residual of an ordinary
+least-squares regression of the target on the three drivers of the
+on-structure set, which is what the seasonal terms will actually have to
+explain once the regressors have taken their share. That plain fit is a
+diagnostic device, not a model of the wall; on the levels it attributes
+the bulk of the daily and annual swing to air temperature; its coefficients are not
+reported here, and its residual carries whatever the drivers, entering
+instantaneously, do not.
+
+Each series was scanned with a Lomb--Scargle periodogram, which takes the
+gaps as they are, on two bands ranked separately: from 0.4 to 3 days for the
+daily cycle and its harmonics, and from 30 to 900 days for the annual cycle
+and its harmonics (Table~\ref{tab:certified-periods}). The bands are kept apart
+because the sub-daily peaks carry a small share of the variance, about
+1.1\,\% for the target's daily cycle and 0.1\,\% for the residual's, and a
+single ranking fills every rank with the long-period continuum before it
+reaches them. On the target the long band certifies the annual cycle at 364.2
+days with a normalised power of 0.42, and the semi-annual cycle at 181.7 days
+with 0.035, inside its 11-day resolution of half a year; the remaining
+long-band entries at 311, 437 and 600 days are the leakage of the multi-year
+drift and of the record's gaps rather than cycles. On the residual the annual
+cycle survives at 352.7 days, within its 44-day resolution of a year, at a
+power of 0.061, and no semi-annual peak does: the drivers, entering
+instantaneously, take that component with them. The 900-day entry at the top
+of the residual's long band is the grid's edge, a third of the record, and is
+not a period. In the short band both series certify the daily cycle at 1.000
+days and its 12-hour companion at 0.500 days; the entries at 0.9996, 1.0005
+and 1.0013 days are the daily peak's sidelobes, spaced by the record's
+resolution and listed because they fall just outside the width within which
+the scan suppresses a peak's neighbours.
+
+\begin{table}[H]
+\centering
+\caption{Periods certified by the Lomb--Scargle scan on the target and on the
+regression residual, each band ranked against its own continuum. The
+resolution is the width around a period that this record cannot tell from the
+period itself. Read from \texttt{GM\_04\_harmonic\_diagnostics.csv}.}
+\label{tab:certified-periods}
+\begin{tabular}{llrrr}
+\toprule
+Series & Band & Rank & Period [days] & Power \\
+\midrule
+\input{../outputs/GM_04_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For every day with at least 60 of its 72 slots, a 24-hour harmonic and its
+12-hour companion were fitted to the diurnal band of each series, giving the
+daily cycle's amplitude and the hour of its maximum over eight years
+(Figure~\ref{fig:harmonic-diagnostics}). Each of those two daily series was
+then fitted against day of year with an annual Fourier series, the order
+chosen on held-out years and a higher order accepted only where it lowered
+the held-out error by at least one per cent
+(Table~\ref{tab:annual-modulation}). On the target the daily amplitude rises
+from about 3.5\,mdeg in midwinter to about 17\,mdeg in late July; on the
+residual it moves between about 2.3 and 3.5\,mdeg with the same timing. Both
+fits take order two, and the residual's fit, the one the conditional daily
+term consumes, has coefficients $(2.620, -0.292, -0.135, 0.265, 0.268)$ for
+the constant, the first cosine and sine and the second cosine and sine over a
+period of 365.25 days; normalised to the unit interval it peaks on day 206.
+That the residual's daily cycle modulates weakly once air temperature has
+been removed is itself a finding: most of the annual modulation of the daily
+swing rides on the driver, and the conditional term of D7 has less to carry
+than the target's picture suggests. Whether the two weighted shapes still
+earn their place is decided by the held-out comparison reported in the second
+half of this section.
+
+\begin{table}[H]
+\centering
+\caption{Annual modulation of the daily cycle's amplitude and hour of maximum,
+per series: the leave-one-year-out error of each candidate Fourier order and
+the order chosen. Read from \texttt{GM\_04\_harmonic\_diagnostics.csv}.}
+\label{tab:annual-modulation}
+\begin{tabular}{llrrl}
+\toprule
+Series & Statistic & Order & Held-out MSE & Chosen \\
+\midrule
+\input{../outputs/GM_04b_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The hour of the daily maximum is a circular quantity, and it was recentred on
+each series' circular mean before fitting, so that the two labels of midnight
+did not pull the fit apart. On the target the maximum sits near midnight
+throughout the year and its annual fit takes order one, with a held-out error
+that order two does not improve: the inclination's daily cycle keeps its
+timing, the wall tipping farthest towards the mountain in the afternoon and
+recovering overnight. On the residual the maximum sits near 17\,h in winter
+and moves to about 23\,h in July, an excursion of about six hours that order
+two fits better than order one by three per cent held out. What the drivers
+leave behind therefore changes its shape as well as its size through the year,
+which is the case for two weighted daily shapes rather than one scaled shape.
+
+The diurnal band of the residual, binned by week of the year and slot of the
+day, is a surface whose singular values say how many weighted daily shapes it
+takes to reproduce it (Table~\ref{tab:surface-rank}). The first component
+carries 69\,\% of its variance and the second 23\,\%, 92.7\,\% together; a
+third adds 5\,\%. Two blended shapes therefore reproduce the surface to within
+a few per cent, which licenses the two conditions of D7 and does not call for
+a third.
+
+\begin{table}[H]
+\centering
+\caption{Singular-value decomposition of the residual's daily-by-annual
+surface: share of variance per component and cumulative share. Read from
+\texttt{GM\_04\_harmonic\_diagnostics.csv}.}
+\label{tab:surface-rank}
+\begin{tabular}{rrr}
+\toprule
+Component & Share & Cumulative \\
+\midrule
+\input{../outputs/GM_04c_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F02_harmonic_diagnostics.png}
+\caption{The harmonic diagnostic. Top left: the periods the scan certifies on
+the target (solid) and on the regression residual (dashed), on a logarithmic
+period axis, with the half-day, day, half-year and year marked. Top right:
+the daily amplitude by day of year with its annual fit. Bottom left: the hour
+of the daily maximum, recentred on its circular mean, with its annual fit.
+Bottom right: the share of variance of the leading components of the
+daily-by-annual surface.}
+\label{fig:harmonic-diagnostics}
+\end{figure}
+
+Three parameters follow from the diagnostic and are declared in the notebook's
+parameter cell with a pointer to \texttt{GM\_04}. The yearly term takes Fourier
+order one, because the residual certifies the annual cycle and no semi-annual
+one. The daily term takes order two, because both series certify the 12-hour
+companion of the daily cycle, the signature of a daily response that heats
+faster than it cools. The weight curve of the conditional daily term is the
+residual's order-two annual fit of the daily amplitude, normalised to the unit
+interval and peaking on day 206, and the two weighted shapes go forward to
+Phase~2's held-out test, since the first two components of the surface carry
+92.7\,\% of its variance.
+
+\pending{Phase 2 — the fitted yearly and daily terms}
 
 % ===========================================================================
 \section{Regressors and gains}

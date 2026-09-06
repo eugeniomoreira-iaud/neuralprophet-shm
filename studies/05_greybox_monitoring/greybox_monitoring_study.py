@@ -329,12 +329,15 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 # `None`, swept in Phase 2 (D7, NeuralProphet tutorial 02 and the sub-daily
 # guide).
 #
-# **`YEARLY_ORDER`** — Fourier order of the annual term; default `None`,
-# fixed from `GM_04`'s certified spectral peaks once Phase 1b has run (D6).
-# Never raised beyond what the scan supports.
+# **`YEARLY_ORDER`** — Fourier order of the annual term; default `1`, fixed
+# from `GM_04` (D6): the regression residual certifies the annual cycle in its
+# long band and no semi-annual one, so a second harmonic would have nothing to
+# fit. Never raised beyond what the scan supports.
 #
-# **`DAILY_ORDER`** — Fourier order of the daily term(s); default `None`,
-# likewise fixed from `GM_04` (D6).
+# **`DAILY_ORDER`** — Fourier order of the daily term(s); default `2`, fixed
+# from `GM_04` (D6): both series certify the 12-hour companion of the daily
+# cycle in the short band, the signature of a response that heats faster than
+# it cools.
 #
 # **`WEEKLY_SEASONALITY`** — whether a weekly term is fitted; default
 # `False`. Nature does not follow the week (D7).
@@ -369,10 +372,14 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 # comparison is reported either way.
 #
 # **`WEIGHT_CURVE`** — the annual weight curve `w(doy)` blending the two
-# conditional daily shapes; default `None`, fixed from `GM_04`'s annual fit
-# of the measured daily amplitude, normalised to 0..1 (D6, D7). The
-# documented fallback, used only if the measured curve is no better on
-# held-out folds, is the mid-July cosine `½(1 − cos(2π(doy − 15)/365))`.
+# conditional daily shapes; default the order-two annual Fourier fit of the
+# regression residual's daily amplitude measured in `GM_04` (D6, D7): the
+# coefficients are the constant, the first cosine and sine and the second
+# cosine and sine over a period of 365.25 days, fitted on 1,752 days, and
+# `prediction.seasonal_weights` normalises the curve to 0..1, where it peaks
+# on day 206. The documented fallback, used only if the measured curve is no
+# better on held-out folds, is the mid-July cosine
+# `½(1 − cos(2π(doy − 15)/365))`, selected by setting this to `None`.
 #
 # **`CONDITIONAL_KEEP_MIN_SHARE`** — minimum variance share the conditional
 # daily term must carry to be kept over the plain daily term when held-out
@@ -382,8 +389,8 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 N_CHANGEPOINTS = 12
 CHANGEPOINTS_RANGE = 0.95
 TREND_REG = None              # swept in Phase 2
-YEARLY_ORDER = None           # fixed from GM_04
-DAILY_ORDER = None            # fixed from GM_04
+YEARLY_ORDER = 1              # GM_04: annual peak certified on the residual, no semi-annual one
+DAILY_ORDER = 2               # GM_04: the 12-hour companion of the daily cycle is certified
 WEEKLY_SEASONALITY = False
 MODEL_A_LAGS = 0
 QUANTILES = (0.05, 0.95)
@@ -393,7 +400,13 @@ SEED = 0
 MIN_TRAIN = '730d'
 REFIT_EVERY = '30d'
 CONDITIONAL_DAILY = True
-WEIGHT_CURVE = None            # coefficients from GM_04; mid-July cosine is the documented fallback
+WEIGHT_CURVE = {               # GM_04: order-two annual fit of the residual's daily amplitude
+    'order': 2,
+    'coef': [2.620081844364288, -0.29217943337223173, -0.13479289899282565,
+             0.2654898659335142, 0.26800490757467477],
+    'period_days': 365.25,
+    'n': 1752,
+}                              # None selects the mid-July cosine fallback
 CONDITIONAL_KEEP_MIN_SHARE = 0.01
 
 # %% [markdown]
@@ -800,7 +813,7 @@ harmonic.to_csv(OUTPUT_DIR / 'GM_04_harmonic_diagnostics.csv', index=False)
 tables.write_table(
     scan_table, str(OUTPUT_DIR / 'GM_04_body.tex'),
     [('series', tables.texttt), ('band', tables.texttt), ('rank', 'd'),
-     ('period_days', ',.2f'), ('power', '.3f')])
+     ('period_days', ',.4f'), ('power', '.4f')])
 tables.write_table(
     modulation_table, str(OUTPUT_DIR / 'GM_04b_body.tex'),
     [('series', tables.texttt), ('statistic', tables.texttt), ('order', 'd'),
