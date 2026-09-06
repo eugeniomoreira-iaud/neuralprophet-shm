@@ -127,6 +127,12 @@ class TestExtractors(unittest.TestCase):
         daily = curves[curves['component'] == 'daily']
         self.assertEqual(daily['date'].nunique(), 2)
         self.assertEqual(daily.groupby('date').size().iloc[0], 24)
+        # 'date' must be one comparable dtype across daily and yearly rows:
+        # tz-naive on every row, so a caller can sort or compare the whole
+        # column without NeuralProphet's tz-aware yearly grid leaking through.
+        self.assertIsNone(pd.DatetimeIndex(curves['date']).tz)
+        sorted_curves = curves.sort_values('date')
+        self.assertEqual(len(sorted_curves), len(curves))
 
 
 if __name__ == '__main__':

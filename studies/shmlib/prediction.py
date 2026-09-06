@@ -2282,7 +2282,13 @@ def seasonal_parameters(model, dates, freq='20min', conditions=None,
     Returns
     -------
     pd.DataFrame
-        Long: ``date``, ``hour``, ``component``, ``value``.
+        Long: ``date``, ``hour``, ``component``, ``value``. ``date`` is a
+        tz-naive calendar date on every row — the daily rows already carry
+        it that way, and the yearly rows' timestamps (built tz-aware, on the
+        internal ``'2001-01-01'`` synthetic year) are stripped of their
+        ``tz`` before being written, so the whole column stays one
+        comparable, sortable dtype rather than raising ``TypeError`` on a
+        tz-naive/tz-aware mix.
     """
     conditions = dict(conditions or {})
     rows = []
@@ -2318,6 +2324,6 @@ def seasonal_parameters(model, dates, freq='20min', conditions=None,
         _model_frame(frame, tuple(regressors) + tuple(conditions.values())))
     if 'yearly' in out.columns:
         for stamp, value in zip(year, out['yearly'].to_numpy()):
-            rows.append({'date': stamp, 'hour': 0.0, 'component': 'yearly',
-                         'value': float(value)})
+            rows.append({'date': stamp.tz_localize(None), 'hour': 0.0,
+                         'component': 'yearly', 'value': float(value)})
     return pd.DataFrame(rows, columns=['date', 'hour', 'component', 'value'])
