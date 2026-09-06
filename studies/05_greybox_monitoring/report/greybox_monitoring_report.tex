@@ -1,0 +1,101 @@
+% ---------------------------------------------------------------------------
+% Study report · Grey-box expectation and monitoring of the station 02 inclination
+%
+% Build: pdflatex greybox_monitoring_report.tex (twice, for the ToC)
+% Figures and table bodies are read from ../outputs/ and are produced by the
+% paired notebook, which must be run first. Sections are written phase by
+% phase; a section still to be written carries a \pending{} note.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{Grey-box expectation and monitoring at Gubbio}
+
+\input{../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\newcommand{\pending}[1]{\begin{center}\textcolor{rulegrey}{\itshape
+This section is written after #1. Nothing here is a result yet.}\end{center}}
+
+\title{\vspace{-1.2cm}\textbf{Is this reading the one the wall was expected to show?}\\[2mm]
+\large A grey-box NeuralProphet decomposition, rolling expectation and
+three-scale monitor of the station 02 inclination, 2018 to 2026}
+\author{Study report · \texttt{studies/05\_greybox\_monitoring/}}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\tableofcontents
+
+% ===========================================================================
+\section{Introduction}
+\label{sec:intro}
+\pending{Phase 1}
+
+% ===========================================================================
+\section{The record and the three regressor sets}
+\label{sec:record}
+\pending{Phase 1}
+
+% ===========================================================================
+\section{Method}
+\label{sec:method}
+\pending{Phase 1}
+
+% ===========================================================================
+\section{Trend}
+\label{sec:trend}
+\pending{Phase 2}
+
+% ===========================================================================
+\section{Seasonality}
+\label{sec:seasonality}
+\pending{Phase 1b, completed after Phase 2}
+
+% ===========================================================================
+\section{Regressors and gains}
+\label{sec:regressors}
+\pending{Phase 2}
+
+% ===========================================================================
+\section{Impulse response}
+\label{sec:impulse}
+\pending{Phase 4}
+
+% ===========================================================================
+\section{Uncertainty and validation}
+\label{sec:uncertainty}
+\pending{Phase 3}
+
+% ===========================================================================
+\section{What the wall temperature and the pyranometer buy}
+\label{sec:ladder}
+\pending{Phase 2b}
+
+% ===========================================================================
+\section{The monitor}
+\label{sec:monitor}
+\pending{Phase 5}
+
+% ===========================================================================
+\section{Outages as hypotheses}
+\label{sec:outages}
+\pending{Phase 6}
+
+% ===========================================================================
+\section{Verdict}
+\label{sec:verdict}
+\pending{Phase 7}
+
+% ===========================================================================
+\section{Limitations}
+\label{sec:limitations}
+\pending{Phase 7}
+
+% ===========================================================================
+\section{Run metadata}
+\label{sec:metadata}
+\pending{Phase 7}
+
+\end{document}
