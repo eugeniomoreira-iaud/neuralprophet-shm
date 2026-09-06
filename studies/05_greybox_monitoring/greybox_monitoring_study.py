@@ -546,6 +546,26 @@ MODEL_B_FALLBACK_LAGS = 12
 # block length and repetition count for the paired block-bootstrap MAE
 # increment each rung reports; default `24` and `2000`, Study 04's values,
 # since the residual this ladder scores is autocorrelated in the same way.
+#
+# **`LADDER_N_CHANGEPOINTS`** — trend changepoints allotted to each of the
+# ladder's own fits; default `max(2, N_CHANGEPOINTS // 3)`. The ladder's
+# window is a fifth of the main line's, so it is given a third of the main
+# line's `N_CHANGEPOINTS`, and never fewer than two regardless of how small
+# that leaves the count.
+#
+# **`LADDER_RUNGS`** — the four `(label, columns, gate)` triples
+# `prediction.channel_ladder` fits in order, `gate` naming the column whose
+# presence defines that rung's matched window: (1) the on-structure set
+# alone, its radiation still borrowed from the ground station; (2) the same
+# set with its own pyranometer in place of the borrowed radiation, so this
+# rung differs from rung 1 in radiation source alone; (3) that set with the
+# wall probe added through its measured thermal time constant
+# (`TWALL_TAU_H`); and (4), a diagnostic only, the wall probe at its
+# measured lead over the deformation (`TWALL_LEAD_H`) rather than its
+# filtered value — a rung nobody can deploy, since it consumes the probe's
+# own future readings, kept only to bound what the probe could buy under a
+# lead that will never be available at prediction time. Default as given in
+# D4's table.
 
 # %%
 CURRENT_ERA_START = '2025-02-21'
@@ -553,6 +573,14 @@ TWALL_TAU_H = 4
 TWALL_LEAD_H = -2
 LADDER_BOOTSTRAP_BLOCK_HOURS = 24
 LADDER_BOOTSTRAP_REPETITIONS = 2000
+LADDER_N_CHANGEPOINTS = max(2, N_CHANGEPOINTS // 3)
+LADDER_RUNGS = [
+    ('1 on-structure set', ['tair_str', 'rh_str', 'sr_gs'], None),
+    ('2 on-structure radiation', ['tair_str', 'rh_str', 'sr_wall'], 'sr_wall'),
+    ('3 + twall, tau 4 h', ['tair_str', 'rh_str', 'sr_wall', 'twall_tau'], 'twall_tau'),
+    ('4 twall at its lead (diagnostic)',
+     ['tair_str', 'rh_str', 'sr_wall', 'twall_lead'], 'twall_lead'),
+]
 
 # %% [markdown]
 # ## Parameters · Monitor
@@ -1121,3 +1149,56 @@ figures.plot_decomposition_stack(components_a['str'], freq=NATIVE_FREQ,
                                  save_path=str(OUTPUT_DIR), filename='GM_F06_decomposition')
 figures.plot_regressor_gains(gains, title='Learned gains against Study 03',
                              save_path=str(OUTPUT_DIR), filename='GM_F06b_gains')
+
+# %% [markdown]
+# ## Movement 2b · What the wall temperature and the pyranometer buy
+#
+# The current era only (D4). The same specification, refitted rung by rung
+# on a matched window; each rung reports its held-out error and the paired
+# block-bootstrap increment over the rung below. The movement writes the
+# table `GM_16` and the figure `GM_F14`.
+
+# %% [markdown]
+# ### The ladder's window and its four rungs
+#
+# `prediction.ladder_frame` cuts the record to the current era and adds the
+# wall probe, the delayed on-structure pyranometer, the probe's
+# thermal-inertia and lead variants, and the conditional-seasonality
+# weights. `prediction.channel_ladder` then fits `LADDER_RUNGS` in order on
+# a matched held-out split, one specification per rung, and pairs each
+# rung's held-out error against the rung immediately below it with the same
+# block bootstrap Study 04 uses for its own route comparisons.
+
+# %%
+current = prediction.ladder_frame(
+    frame, sensor, CURRENT_ERA_START, twall_tau_h=TWALL_TAU_H,
+    twall_lead_h=TWALL_LEAD_H, radiation_delay_h=RADIATION_DELAY_H,
+    freq=NATIVE_FREQ, weight_curve=WEIGHT_CURVE)
+ladder, ladder_errors = prediction.channel_ladder(
+    current, LADDER_RUNGS, VALID_P, LADDER_N_CHANGEPOINTS,
+    block_hours=LADDER_BOOTSTRAP_BLOCK_HOURS,
+    repetitions=LADDER_BOOTSTRAP_REPETITIONS, seed=SEED, epochs=EPOCHS,
+    freq=NATIVE_FREQ, growth='linear', changepoints_range=CHANGEPOINTS_RANGE,
+    trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
+    conditional_seasonality=CONDITIONS, quantiles=QUANTILES,
+    learning_rate=LEARNING_RATE)
+display(ladder)
+
+# %% [markdown]
+# ### The ladder table and figure
+#
+# `GM_16` records, per rung, the matched block's size, the held-out mean
+# absolute error, interval coverage, the newest regressor's learned gain
+# and the fit's residual lag-1 autocorrelation, alongside the paired skill
+# over the rung below and its bootstrap interval. `GM_F14` draws the same
+# held-out MAE and paired skill, one bar or marker per rung.
+
+# %%
+ladder.to_csv(OUTPUT_DIR / 'GM_16_current_era_ladder.csv', index=False)
+tables.write_table(ladder, str(OUTPUT_DIR / 'GM_16_body.tex'),
+                   [('rung', tables.texttt), ('rows', ',d'), ('mae_val', '.2f'),
+                    ('skill', '.3f'), ('skill_q05', '.3f'), ('skill_q95', '.3f'),
+                    ('coverage', tables.percent), ('gain_last', '.3f'),
+                    ('residual_r1', '.3f')])
+figures.plot_ladder(ladder, title='What each on-structure channel buys',
+                    save_path=str(OUTPUT_DIR), filename='GM_F14_ladder')
