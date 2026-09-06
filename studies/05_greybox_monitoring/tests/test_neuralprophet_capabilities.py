@@ -59,7 +59,12 @@ class TestLaggedRegressorWithoutAutoregression(unittest.TestCase):
 
 
 class TestConformalPredict(unittest.TestCase):
-    """Spec D8: split conformal prediction with the cqr method."""
+    """Spec D8: split conformal prediction with the cqr method.
+
+    For method='cqr', NeuralProphet 0.8.0 adjusts the existing quantile
+    columns in place rather than adding new ones; the '± qhat1' column
+    names it produces exist only for method='naive'.
+    """
 
     def test_conformal_columns(self):
         df = _frame(extra=('x',))
@@ -69,8 +74,9 @@ class TestConformalPredict(unittest.TestCase):
         m.fit(train, freq='1h', progress='none', minimal=True)
         out = m.conformal_predict(test, calibration_df=cal, alpha=0.1,
                                   method='cqr')
-        self.assertIn('yhat1 - qhat1', out.columns)
-        self.assertIn('yhat1 + qhat1', out.columns)
+        self.assertIn('yhat1 5.0%', out.columns)
+        self.assertIn('yhat1 95.0%', out.columns)
+        self.assertEqual(len(out), len(test))
 
 
 class TestParameterExtractors(unittest.TestCase):
@@ -85,7 +91,14 @@ class TestParameterExtractors(unittest.TestCase):
         self.assertEqual(len(trend), len(df))
         self.assertIn('daily', seasonal.columns)
 
+    @unittest.expectedFailure
     def test_matplotlib_backend_returns_figure(self):
+        """NeuralProphet 0.8.0's matplotlib plot_parameters always returns
+        None, because plot_model_parameters_matplotlib.py assigns
+        fig = fig.tight_layout(), and Figure.tight_layout() returns None.
+        No study code calls the matplotlib backend: D14 redraws every
+        figure through shmlib.figures from the extractor methods instead.
+        """
         import matplotlib
         matplotlib.use('Agg')
         df = _frame()
@@ -96,7 +109,10 @@ class TestParameterExtractors(unittest.TestCase):
 
 
 class TestConditionalSeasonalityWithFloatWeights(unittest.TestCase):
-    """Spec D7: two daily series blended by float weights in 0..1."""
+    """Spec D7: two daily series blended by float weights in 0..1.
+    predict(decompose=True) prefixes every seasonal component with
+    'season_'.
+    """
 
     def test_float_conditions_are_accepted_and_decomposed(self):
         df = _frame(extra=('summer_w', 'winter_w'))
@@ -107,8 +123,8 @@ class TestConditionalSeasonalityWithFloatWeights(unittest.TestCase):
                           condition_name='winter_w')
         m.fit(df, freq='1h', progress='none', minimal=True)
         out = m.predict(df, decompose=True)
-        self.assertIn('daily_summer', out.columns)
-        self.assertIn('daily_winter', out.columns)
+        self.assertIn('season_daily_summer', out.columns)
+        self.assertIn('season_daily_winter', out.columns)
 
 
 if __name__ == '__main__':
