@@ -2163,3 +2163,161 @@ def has_certified_period(scan, period_days, tolerance_days=None):
     tolerance = (scan['resolution_days'].astype(float) if tolerance_days is None
                 else float(tolerance_days))
     return bool((diff < tolerance).any())
+
+
+def regressor_gains(components, frame, regressors):
+    """
+    The gain each future regressor learned, read from its component.
+
+    NeuralProphet's additive future regressor is linear in the regressor, so
+    the slope of the component against the regressor value is the learned
+    coefficient in the series' own units per unit of the driver.
+
+    Parameters
+    ----------
+    components : pd.DataFrame
+        Output of :func:`decompose_components`.
+    frame : pd.DataFrame
+        The frame the components were computed on, holding the regressors.
+    regressors : sequence of str
+
+    Returns
+    -------
+    pd.DataFrame
+        ``regressor``, ``gain``, ``r2``.
+    """
+    rows = []
+    for name in regressors:
+        paired = pd.concat([components[f'future_regressor_{name}'], frame[name]],
+                           axis=1).dropna()
+        paired.columns = ['contribution', 'driver']
+        slope, intercept = np.polyfit(paired['driver'], paired['contribution'], 1)
+        fitted = slope * paired['driver'] + intercept
+        total = float(((paired['contribution'] - paired['contribution'].mean()) ** 2).sum())
+        r2 = 1.0 - float(((paired['contribution'] - fitted) ** 2).sum()) / total if total else np.nan
+        rows.append({'regressor': name, 'gain': float(slope), 'r2': r2})
+    return pd.DataFrame(rows, columns=['regressor', 'gain', 'r2'])
+
+
+def trend_parameters(model, frame, changepoints, regressors=()):
+    """
+    The fitted trend on the record, and its rate on each segment.
+
+    Read through the public ``predict_trend``; the rate of each segment
+    between consecutive changepoints is the trend's change across that
+    segment per year, which is what a rate-change plot shows without
+    touching the model's internal deltas. The model frame is built through
+    :func:`_frame_columns`, so a model fitted with lagged regressors or
+    conditional seasonality (via ``neuralprophet_backtest``'s
+    ``lagged_regressors`` or ``conditional_seasonality``) gets those columns
+    back automatically, exactly as :func:`decompose_components` does.
+
+    Parameters
+    ----------
+    model : object
+        Fitted NeuralProphet model, exposing ``predict_trend``.
+    frame : pd.DataFrame
+        Datetime-indexed rows the trend is evaluated on.
+    changepoints : pd.DatetimeIndex
+        Changepoint locations the segments are cut at, normally the same
+        ones the model was fitted with.
+    regressors : sequence of str, optional
+        Regressor columns to pass through. Default empty.
+
+    Returns
+    -------
+    (pd.Series, pd.DataFrame)
+        ``trend`` indexed like ``frame``; ``rates`` with ``start``, ``end``,
+        ``rate_mdeg_per_year``.
+    """
+    df = _model_frame(frame, _frame_columns(model, frame, regressors))
+    predicted = model.predict_trend(df)
+    trend = pd.Series(predicted['trend'].to_numpy(dtype=float),
+                      index=pd.DatetimeIndex(frame.index[:len(predicted)]))
+    edges = pd.DatetimeIndex(sorted(set(pd.DatetimeIndex(changepoints))
+                                    | {trend.index.min(), trend.index.max()}))
+    rows = []
+    for start, end in zip(edges[:-1], edges[1:]):
+        segment = trend.loc[start:end].dropna()
+        if len(segment) < 2:
+            continue
+        days = (segment.index[-1] - segment.index[0]) / pd.Timedelta(days=1)
+        rows.append({'start': segment.index[0], 'end': segment.index[-1],
+                     'rate_mdeg_per_year': float(
+                         (segment.iloc[-1] - segment.iloc[0]) / days * 365.25)})
+    return trend, pd.DataFrame(rows, columns=['start', 'end', 'rate_mdeg_per_year'])
+
+
+def seasonal_parameters(model, dates, freq='20min', conditions=None,
+                        regressors=()):
+    """
+    The fitted seasonal curves, evaluated on synthetic days and one year.
+
+    For each date one day is built on the grid, with condition columns from
+    :func:`seasonal_weights` where the model was fitted with them, and every
+    regressor set to zero; ``predict_seasonal_components`` then gives each
+    seasonal term over that day. The yearly term is evaluated over one
+    synthetic year at daily resolution. The notebook sets
+    ``model.weight_curve_ = WEIGHT_CURVE`` after each fit so this function
+    can rebuild the condition columns with the same seasonal-weight
+    modulation the model was fitted under.
+
+    Parameters
+    ----------
+    model : object
+        Fitted NeuralProphet model, exposing ``predict_seasonal_components``.
+    dates : sequence
+        Calendar dates (parseable by ``pd.Timestamp``) to evaluate the daily
+        term on.
+    freq : str, optional
+        Sampling frequency of each synthetic day. Default ``'20min'``.
+    conditions : dict or None, optional
+        Maps a seasonality name to its condition column, as passed to
+        ``neuralprophet_backtest``'s ``conditional_seasonality``. ``None``
+        (default) evaluates no conditional term.
+    regressors : sequence of str, optional
+        Regressor columns the model expects; each is set to ``0.0`` on every
+        synthetic row. Default empty.
+
+    Returns
+    -------
+    pd.DataFrame
+        Long: ``date``, ``hour``, ``component``, ``value``.
+    """
+    conditions = dict(conditions or {})
+    rows = []
+
+    def _evaluate(index, date_label):
+        frame = pd.DataFrame({'y': 0.0}, index=index)
+        for name in regressors:
+            frame[name] = 0.0
+        if conditions:
+            weights = seasonal_weights(index, modulation=getattr(model, 'weight_curve_', None))
+            for column in conditions.values():
+                frame[column] = weights[column].to_numpy()
+        df = _model_frame(frame, tuple(regressors) + tuple(conditions.values()))
+        out = model.predict_seasonal_components(df)
+        for component in [c for c in out.columns if c not in ('ds', 'ID')]:
+            for stamp, value in zip(index, out[component].to_numpy()):
+                rows.append({'date': date_label, 'hour': stamp.hour + stamp.minute / 60.0,
+                             'component': component, 'value': float(value)})
+
+    for date in dates:
+        day = pd.Timestamp(date, tz='UTC')
+        _evaluate(pd.date_range(day, day + pd.Timedelta('1D'), freq=freq,
+                                inclusive='left'), pd.Timestamp(date))
+    year = pd.date_range('2001-01-01', periods=365, freq='D', tz='UTC')
+    frame = pd.DataFrame({'y': 0.0}, index=year)
+    for name in regressors:
+        frame[name] = 0.0
+    if conditions:
+        weights = seasonal_weights(year, modulation=getattr(model, 'weight_curve_', None))
+        for column in conditions.values():
+            frame[column] = weights[column].to_numpy()
+    out = model.predict_seasonal_components(
+        _model_frame(frame, tuple(regressors) + tuple(conditions.values())))
+    if 'yearly' in out.columns:
+        for stamp, value in zip(year, out['yearly'].to_numpy()):
+            rows.append({'date': stamp, 'hour': 0.0, 'component': 'yearly',
+                         'value': float(value)})
+    return pd.DataFrame(rows, columns=['date', 'hour', 'component', 'value'])

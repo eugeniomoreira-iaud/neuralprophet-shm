@@ -92,5 +92,42 @@ class TestBacktestAdditions(unittest.TestCase):
         self.assertTrue(pd.DatetimeIndex(out['ds']).equals(frame.index[200:]))
 
 
+class TestExtractors(unittest.TestCase):
+
+    def test_regressor_gain_is_the_slope_of_the_component(self):
+        index = pd.date_range('2024-01-01', periods=100, freq='1h', tz='UTC')
+        tair = pd.Series(np.linspace(0, 10, 100), index=index)
+        components = pd.DataFrame({'future_regressor_tair': -2.5 * tair + 3.0}, index=index)
+        frame = pd.DataFrame({'tair': tair}, index=index)
+        gains = prediction.regressor_gains(components, frame, ('tair',))
+        self.assertAlmostEqual(gains.loc[0, 'gain'], -2.5, places=6)
+        self.assertAlmostEqual(gains.loc[0, 'r2'], 1.0, places=6)
+
+    def test_trend_rates_recover_a_linear_drift(self):
+        frame = _frame(n=24 * 120)
+        changepoints = prediction.covered_changepoints(frame.index, 2)
+        model, _ = prediction.neuralprophet_backtest(
+            frame, frame, regressors=('tair',), task='nowcast', epochs=8,
+            freq='1h', growth='linear', changepoints=changepoints,
+            n_changepoints=2, quantiles=())
+        trend, rates = prediction.trend_parameters(model, frame, changepoints,
+                                                   regressors=('tair',))
+        self.assertEqual(len(trend), len(frame))
+        self.assertGreater(len(rates), 0)
+        # 0.01 per hour is 87.6 per year; NeuralProphet's fit is stochastic
+        self.assertAlmostEqual(rates['rate_mdeg_per_year'].mean(), 87.6, delta=30.0)
+
+    def test_seasonal_parameters_return_one_curve_per_date(self):
+        frame = _frame()
+        model, _ = prediction.neuralprophet_backtest(
+            frame, frame, regressors=('tair',), task='nowcast', epochs=3,
+            freq='1h', daily_order=3, quantiles=())
+        curves = prediction.seasonal_parameters(
+            model, ['2024-06-21', '2024-12-21'], freq='1h', regressors=('tair',))
+        daily = curves[curves['component'] == 'daily']
+        self.assertEqual(daily['date'].nunique(), 2)
+        self.assertEqual(daily.groupby('date').size().iloc[0], 24)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
