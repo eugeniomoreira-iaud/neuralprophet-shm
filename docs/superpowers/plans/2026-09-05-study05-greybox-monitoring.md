@@ -10,6 +10,33 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-05-study05-greybox-monitoring-design.md` (approved 2026-09-05). Read it before any task; every task below cites the decision it implements.
 
+## Progress
+
+Updated 2026-09-06 · 16:00 UTC. This block is the summary a reader needs to follow the
+implementation; the checkboxes under each task below are ticked as the work lands, and the
+detailed execution ledger (rulings, fix rounds, commits) lives in
+`.superpowers/sdd/2026-09-05-study05-greybox-monitoring/progress.md`, which is gitignored.
+
+| Measure | Progress |
+|---|---|
+| Tasks complete (of 41, Tasks 0.1 to 7.3) | `[██████████░░░░░░░░░░]` **21 of 41** (51 %) |
+| Report sections written (of 14) | `[█████████░░░░░░░░░░░]` **6 of 14** (42 %) |
+
+| Phase | Tasks | State | Result and commits |
+|---|---|---|---|
+| 0 · Smoke tests, housekeeping, report skeleton | 0.1–0.4 | ✅ complete | 8a5b32c…bea9ef1. All five NeuralProphet 0.8.0 capabilities confirmed (no design fallback needed). Checkpoint 0 approved. |
+| 1 · Data and regressor sets | 1.1–1.4 | ✅ complete | bc76907…5c73f6d (+02a9bf2, c8da472). `GM_01`–`GM_03`, `GM_F01`; report §1–§3. Checkpoint 1 approved. |
+| 1b · Harmonic diagnostics | 1b.1–1b.6 | ✅ complete | 12043f6…6176256. `GM_04`, `GM_F02`; `YEARLY_ORDER = 1`, `DAILY_ORDER = 2`, weight curve from the residual's order-two fit; report §5.1. Checkpoint 1b approved. |
+| 2 · Model A attribution on three sets | 2.1–2.6, 2.4b, 2.4c | ✅ complete · 2.6 in review | a4652cf…2853c8a, 16f3cb1. `GM_04d`, `GM_05`–`GM_08b`, `GM_F03`–`GM_F06b`; `TREND_REG = 0.0`; conditional daily term rejected. **Checkpoint 2 passed:** on-structure air-temperature gain −2.64 mdeg/°C against Study 03's −2.79, inside its interval. Report §4, §5.2, §6. |
+| 2b · Current-era ladder | 2b.1–2b.2 | 🔄 in progress | 2b.1 implementer running (library + Movement 2b + run). Then report §9. |
+| 3 · Expectation and interval | 3.1–3.3 | ⬜ pending | `GM_09`, `GM_F08`; report §8. |
+| 4 · Model B impulse response | 4.1–4.3 | ⬜ pending | `GM_10`, `GM_F07`; report §7. |
+| 5 · The monitor | 5.1–5.5 | ⬜ pending | `GM_11`–`GM_13`, `GM_F09`–`GM_F11`, `GM_F13`; report §10. |
+| 6 · Outage bridges | 6.1–6.3 | ⬜ pending | `GM_14`, `GM_F12`; report §11. |
+| 7 · Closure and the revision pass | 7.1–7.3 | ⬜ pending | `GM_15`; report §12–§14; then Task 7.3, the revision pass from `report05_check.md`. |
+
+Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend ✅ · 5 Seasonality ✅ · 6 Regressors ✅ · 7 Impulse response ⬜ · 8 Uncertainty ⬜ · 9 Ladder ⬜ · 10 Monitor ⬜ · 11 Outages ⬜ · 12 Verdict ⬜ · 13 Limitations ⬜ · 14 Run metadata ⬜.
+
 ## Global Constraints
 
 - **Caveman ultra, always.** Every subagent prompt starts with "respond in caveman ultra mode". Produced documents (report `.tex`, README, docstrings, comments, commit messages) are full prose. (Spec §0.)
@@ -86,7 +113,7 @@ tables.write_table(
 **Interfaces:**
 - Produces: a green test file that later tasks rely on as proof that lagged regressors work with `n_lags=0`, that `conformal_predict` returns `yhat1 - qhat1` / `yhat1 + qhat1`, that `predict_trend` and `predict_seasonal_components` exist, that float condition columns are accepted by `add_seasonality`, and that the matplotlib backend still returns a Figure.
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 ```python
 """
@@ -204,12 +231,12 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2: Run the tests**
+- [x] **Step 2: Run the tests**
 
 Run from `studies/`: `python 05_greybox_monitoring/tests/test_neuralprophet_capabilities.py`
 Expected: all five PASS. If `TestLaggedRegressorWithoutAutoregression` fails, record it in the task report: the spec's fallback (Model B hourly with `n_lags=12`) applies and Task 4.2 uses `MODEL_B_FALLBACK_FREQ`/`MODEL_B_FALLBACK_LAGS`. If `test_float_conditions…` fails, the fallback is four boolean seasons (spec D7).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add studies/05_greybox_monitoring/tests/test_neuralprophet_capabilities.py
@@ -220,15 +247,15 @@ git commit -m "test(study05): pin the NeuralProphet 0.8.0 capabilities the desig
 
 **Files:** none edited by hand; `studies/graphify-out/` regenerated.
 
-- [ ] **Step 1: Update the graph**
+- [x] **Step 1: Update the graph**
 
 Run from `studies/`: `graphify update .` (the `--update` flow: re-extracts only changed files). Expected: the summary reports new nodes for `shmlib/monitoring.py` and `05_greybox_monitoring/`.
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `graphify query "monitoring control charts detectability" --budget 800` from `studies/`. Expected: nodes from `shmlib/monitoring.py` appear (`ewma_chart`, `detectability_curve`).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add studies/graphify-out
@@ -240,7 +267,7 @@ git commit -m "chore(studies): refresh the knowledge graph to include study 04 a
 **Files:**
 - Modify: `studies/02_proxy_forcing_characterization/README.md` (the line beginning `**Status: skeleton.**`)
 
-- [ ] **Step 1: Edit the line**
+- [x] **Step 1: Edit the line**
 
 Replace the paragraph starting `**Status: skeleton.**` with:
 
@@ -250,11 +277,11 @@ Replace the paragraph starting `**Status: skeleton.**` with:
 comparison, compatibility and conclusion sections are still to be written from those artefacts.
 ```
 
-- [ ] **Step 2: Verify the index agrees**
+- [x] **Step 2: Verify the index agrees**
 
 Run: `grep -n "02_proxy_forcing" studies/README.md`. Expected: the row's status reads `In progress` (unchanged).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add studies/02_proxy_forcing_characterization/README.md
@@ -271,7 +298,7 @@ git commit -m "docs(study02): state the study's real status, in progress with ar
 **Interfaces:**
 - Produces: `\pending{<phase>}` macro; 14 `\section` headings with fixed `\label`s (`sec:intro`, `sec:record`, `sec:method`, `sec:trend`, `sec:seasonality`, `sec:regressors`, `sec:impulse`, `sec:uncertainty`, `sec:ladder`, `sec:monitor`, `sec:outages`, `sec:verdict`, `sec:limitations`, `sec:metadata`). Later report tasks replace the `\pending{}` line inside a section and nothing else.
 
-- [ ] **Step 1: Write the honesty test**
+- [x] **Step 1: Write the honesty test**
 
 ```python
 """
@@ -341,11 +368,11 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2: Run it; expected: the two guarded tests skip, the others pass** (the report does not exist yet, so `test_every_included_graphic_exists` will ERROR — that is the failing state before Step 3).
+- [x] **Step 2: Run it; expected: the two guarded tests skip, the others pass** (the report does not exist yet, so `test_every_included_graphic_exists` will ERROR — that is the failing state before Step 3).
 
 Run from `studies/`: `python 05_greybox_monitoring/tests/test_folder_honesty.py`
 
-- [ ] **Step 3: Write the report skeleton**
+- [x] **Step 3: Write the report skeleton**
 
 ```latex
 % ---------------------------------------------------------------------------
@@ -451,12 +478,12 @@ three-scale monitor of the station 02 inclination, 2018 to 2026}
 \end{document}
 ```
 
-- [ ] **Step 4: Build twice and run the honesty test**
+- [x] **Step 4: Build twice and run the honesty test**
 
 Run from `studies/05_greybox_monitoring/report/`: `pdflatex -interaction=nonstopmode greybox_monitoring_report.tex && pdflatex -interaction=nonstopmode greybox_monitoring_report.tex`. Expected: `greybox_monitoring_report.pdf` with 14 pending sections and a table of contents; no `!` error lines in the `.log`.
 Run from `studies/`: `python 05_greybox_monitoring/tests/test_folder_honesty.py`. Expected: 3 pass, 2 skipped.
 
-- [ ] **Step 5: Commit** (remove the two `.gitkeep` files first)
+- [x] **Step 5: Commit** (remove the two `.gitkeep` files first)
 
 ```bash
 git rm -q studies/05_greybox_monitoring/report/.gitkeep studies/05_greybox_monitoring/tests/.gitkeep
@@ -479,7 +506,7 @@ git commit -m "docs(study05): report skeleton with every section pending, and th
 **Interfaces:**
 - Produces: `proxies.to_native_grid(frame, freq='20min', accumulations=('sr',)) -> pd.DataFrame` on a regular `freq` grid spanning the input, UTC index named `'datetime'`. Each column is interpolated linearly in time between consecutive native observations that are at most one native step apart (median index spacing per column, tolerance ×1.5); nothing is bridged across a longer gap. A column whose quantity prefix (`column.split('_')[0]`) is in `accumulations` is first shifted back by half its native step, because an hourly accumulation reported at H describes (H−1, H].
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """
@@ -530,12 +557,12 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run from `studies/`: `python shmlib/tests/test_proxies_grid.py`
 Expected: `AttributeError: module 'shmlib.proxies' has no attribute 'to_native_grid'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def to_native_grid(frame, freq='20min', accumulations=('sr',)):
@@ -590,9 +617,9 @@ def to_native_grid(frame, freq='20min', accumulations=('sr',)):
     return out
 ```
 
-- [ ] **Step 4: Run the tests; expected: 3 PASS.** Then run the whole existing suite (Global Constraints) to confirm nothing else changed.
+- [x] **Step 4: Run the tests; expected: 3 PASS.** Then run the whole existing suite (Global Constraints) to confirm nothing else changed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studies/shmlib/proxies.py studies/shmlib/tests/test_proxies_grid.py
@@ -608,7 +635,7 @@ git commit -m "feat(shmlib): bring proxies onto the native grid without bridging
 **Interfaces:**
 - Produces: `proxies.fill_short_gaps(frame, columns, max_gap='2h', flag=True) -> pd.DataFrame`: copy of `frame` where, in each named column, a run of missing values whose bracketing observations are at most `max_gap` apart is filled by linear-in-time interpolation; with `flag=True` a boolean column `<column>_filled` marks the filled slots. Longer runs stay missing.
 
-- [ ] **Step 1: Write the failing tests** (append to `test_proxies_grid.py` before the `__main__` block)
+- [x] **Step 1: Write the failing tests** (append to `test_proxies_grid.py` before the `__main__` block)
 
 ```python
 class TestFillShortGaps(unittest.TestCase):
@@ -638,9 +665,9 @@ class TestFillShortGaps(unittest.TestCase):
         self.assertNotIn('tair_gs_filled', out.columns)
 ```
 
-- [ ] **Step 2: Run; expected AttributeError on `fill_short_gaps`.**
+- [x] **Step 2: Run; expected AttributeError on `fill_short_gaps`.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def fill_short_gaps(frame, columns, max_gap='2h', flag=True):
@@ -686,9 +713,9 @@ def fill_short_gaps(frame, columns, max_gap='2h', flag=True):
     return out
 ```
 
-- [ ] **Step 4: Run; expected 6 PASS in the file. Run the full existing suite.**
+- [x] **Step 4: Run; expected 6 PASS in the file. Run the full existing suite.**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studies/shmlib/proxies.py studies/shmlib/tests/test_proxies_grid.py
@@ -706,9 +733,9 @@ git commit -m "feat(shmlib): fill and flag regressor dropouts up to a stated len
 - Consumes: `proxies.load_response`, `load_sensor_forcings`, `join_eras`, `load_ground_station`, `load_era5`, `harmonise`, `to_native_grid`, `fill_short_gaps`; `quality.clock_check`; `coupling.thermal_operator`; `prediction.gap_inventory`; `tables.write_table`.
 - Produces: in the notebook namespace, `target` (Series, 20 min, UTC), `sets` (dict `set_name -> DataFrame` with columns `tair`, `rh`, `sr` on the 20-min grid, radiation already delayed), `frame` (DataFrame: `y` plus every set's columns suffixed `_<set>`); files `GM_01_window_coverage.csv/.tex`, `GM_02_gap_inventory.csv/.tex`, `GM_03_clock_check.csv/.tex`, `GM_F01_regressor_sets.png/.svg`.
 
-- [ ] **Step 1: Parameter-cell edits.** In the "Parameters · Regressor sets" group: copy `STR_MAP_CURRENT` and `STR_MAP_LEGACY` verbatim from `04_neuralprophet_inclination_prediction/neuralprophet_inclination_prediction_study.py` lines 253–268 (the block-to-quantity maps for the current and legacy eras) and add a guidance bullet for each. Change the `'str'` entry of `REGRESSOR_SETS` to `{'tair': 'tair_str', 'rh': 'rh_str', 'sr': 'sr_gs'}`, since `join_eras` returns `_str`-suffixed columns.
+- [x] **Step 1: Parameter-cell edits.** In the "Parameters · Regressor sets" group: copy `STR_MAP_CURRENT` and `STR_MAP_LEGACY` verbatim from `04_neuralprophet_inclination_prediction/neuralprophet_inclination_prediction_study.py` lines 253–268 (the block-to-quantity maps for the current and legacy eras) and add a guidance bullet for each. Change the `'str'` entry of `REGRESSOR_SETS` to `{'tair': 'tair_str', 'rh': 'rh_str', 'sr': 'sr_gs'}`, since `join_eras` returns `_str`-suffixed columns.
 
-- [ ] **Step 2: Add `figures.plot_regressor_sets`** (append to `shmlib/figures.py`)
+- [x] **Step 2: Add `figures.plot_regressor_sets`** (append to `shmlib/figures.py`)
 
 ```python
 def plot_regressor_sets(frame, target, sets, title='', tick_years=1,
@@ -786,7 +813,7 @@ Test to add to `shmlib/tests/test_shmlib.py` (in the `TestViz`-style class, or a
 
 Run `python shmlib/tests/test_shmlib.py`; expected PASS.
 
-- [ ] **Step 3: Append Movement 1 cells to the notebook** (after the "## Movements" cell)
+- [x] **Step 3: Append Movement 1 cells to the notebook** (after the "## Movements" cell)
 
 ```python
 # %% [markdown]
@@ -914,11 +941,11 @@ figures.plot_regressor_sets(
     save_path=str(OUTPUT_DIR), filename='GM_F01_regressor_sets')
 ```
 
-- [ ] **Step 4: Sync and execute**
+- [x] **Step 4: Sync and execute**
 
 From `studies/05_greybox_monitoring/`: `jupytext --to ipynb greybox_monitoring_study.py`, then `jupyter nbconvert --to notebook --execute greybox_monitoring_study.ipynb --output-dir /tmp/gm05 --ExecutePreprocessor.timeout=3600`. Read back the printed lines from `/tmp/gm05/greybox_monitoring_study.ipynb` (grep `"text"` cells for `target`, `Traceback`). Expected: no Traceback; `outputs/` holds `GM_01`–`GM_03` CSV and body files and `GM_F01` PNG/SVG. Copy the executed notebook back over `greybox_monitoring_study.ipynb`.
 
-- [ ] **Step 5: Honesty test and commit**
+- [x] **Step 5: Honesty test and commit**
 
 Run from `studies/`: `python 05_greybox_monitoring/tests/test_folder_honesty.py` (still 3 pass, 2 skip).
 
@@ -933,17 +960,17 @@ git commit -m "feat(study05): load the record, check the clocks and build the th
 - Modify: `studies/05_greybox_monitoring/report/greybox_monitoring_report.tex` — replace the `\pending{}` lines of `sec:intro`, `sec:record`, `sec:method`.
 - Modify: `studies/05_greybox_monitoring/README.md` — status line; `studies/README.md` — study 5 row status.
 
-- [ ] **Step 1: Write §1 Introduction** (full prose, from spec §1 and §2): the operational question; what is inherited from Studies 1–4 and not re-litigated; compensation as given; forecasting out of scope; the five questions.
+- [x] **Step 1: Write §1 Introduction** (full prose, from spec §1 and §2): the operational question; what is inherited from Studies 1–4 and not re-litigated; compensation as given; forecasting out of scope; the five questions.
 
-- [ ] **Step 2: Write §2 The record and the three regressor sets**: window and grid; Table with `\input{../outputs/GM_01_body.tex}` (columns set, role, accepted, filled, coverage); the gap anatomy with `\input{../outputs/GM_02_body.tex}`; the clock check with `\input{../outputs/GM_03_body.tex}`; `\includegraphics{GM_F01_regressor_sets.png}` with a caption stating that gaps are gaps and radiation in the on-structure set is borrowed from the station. Every number quoted comes from those three CSVs.
+- [x] **Step 2: Write §2 The record and the three regressor sets**: window and grid; Table with `\input{../outputs/GM_01_body.tex}` (columns set, role, accepted, filled, coverage); the gap anatomy with `\input{../outputs/GM_02_body.tex}`; the clock check with `\input{../outputs/GM_03_body.tex}`; `\includegraphics{GM_F01_regressor_sets.png}` with a caption stating that gaps are gaps and radiation in the on-structure set is borrowed from the station. Every number quoted comes from those three CSVs.
 
-- [ ] **Step 3: Write §3 Method**: one subsection per spec decision D1–D14, in the spec's order, each stating the decision, the evidence and the alternative rejected. Subsections for decisions whose results come later (D6 onward) state the decision only; their results are written in their own sections.
+- [x] **Step 3: Write §3 Method**: one subsection per spec decision D1–D14, in the spec's order, each stating the decision, the evidence and the alternative rejected. Subsections for decisions whose results come later (D6 onward) state the decision only; their results are written in their own sections.
 
-- [ ] **Step 4: Build twice, run the honesty test, update statuses**
+- [x] **Step 4: Build twice, run the honesty test, update statuses**
 
 README status line → `Status: **in progress — Phase 1 complete (record, clocks, regressor sets).**`; `studies/README.md` study 5 row status → `In progress`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studies/05_greybox_monitoring/report studies/05_greybox_monitoring/README.md studies/README.md
@@ -965,7 +992,7 @@ git commit -m "docs(study05): write the introduction, the record and the method 
 **Interfaces:**
 - Produces: `monitoring.daily_harmonic(series, min_slots=60, period_hours=24.0) -> pd.DataFrame` indexed by calendar day (UTC midnight), columns `amplitude`, `phase_h` (hour of the 24-h harmonic's maximum, in [0, 24)), `amplitude_12h`, `n`, `r2`. A day with fewer than `min_slots` finite samples is absent. Least-squares fit of `a0 + a1 cos ωt + b1 sin ωt + a2 cos 2ωt + b2 sin 2ωt`, ω = 2π/period, t in hours since midnight.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 """
@@ -1013,9 +1040,9 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2: Run; expected AttributeError on `daily_harmonic`.**
+- [x] **Step 2: Run; expected AttributeError on `daily_harmonic`.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def daily_harmonic(series, min_slots=60, period_hours=24.0):
@@ -1076,9 +1103,9 @@ def daily_harmonic(series, min_slots=60, period_hours=24.0):
     return out.set_index('day')
 ```
 
-- [ ] **Step 4: Run; expected 2 PASS. Run `python shmlib/tests/test_monitoring.py`; expected unchanged.**
+- [x] **Step 4: Run; expected 2 PASS. Run `python shmlib/tests/test_monitoring.py`; expected unchanged.**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studies/shmlib/monitoring.py studies/05_greybox_monitoring/tests/test_harmonics.py
@@ -1094,7 +1121,7 @@ git commit -m "feat(shmlib): fit the daily cycle's amplitude and phase day by da
 **Interfaces:**
 - Produces: `coupling.annual_modulation(daily_series, harmonics=(1, 2), holdout='year') -> (table, fit)`. `table`: DataFrame with columns `order`, `holdout_mse`, `chosen` (bool), one row per candidate order; `fit`: dict `{'order': K, 'coef': np.ndarray of length 1 + 2K, 'period_days': 365.25, 'n': int}` for the chosen order (lowest leave-one-year-out MSE). `coupling.evaluate_modulation(fit, index) -> pd.Series` evaluates the fitted annual Fourier series at each timestamp's day of year.
 
-- [ ] **Step 1: Write the failing test** (append class to `test_harmonics.py`)
+- [x] **Step 1: Write the failing test** (append class to `test_harmonics.py`)
 
 ```python
 class TestAnnualModulation(unittest.TestCase):
@@ -1116,9 +1143,9 @@ class TestAnnualModulation(unittest.TestCase):
         self.assertAlmostEqual(curve.max() - curve.min(), 16.0, delta=1.0)
 ```
 
-- [ ] **Step 2: Run; expected AttributeError.**
+- [x] **Step 2: Run; expected AttributeError.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def _annual_design(index, order, period_days=365.25):
@@ -1201,9 +1228,9 @@ def evaluate_modulation(fit, index):
     return pd.Series(design @ fit['coef'], index=pd.DatetimeIndex(index))
 ```
 
-- [ ] **Step 4: Run; expected PASS. Run `python 03_thermomechanical_response/tests/test_shmlib_study03.py`; unchanged.**
+- [x] **Step 4: Run; expected PASS. Run `python 03_thermomechanical_response/tests/test_shmlib_study03.py`; unchanged.**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studies/shmlib/coupling.py studies/05_greybox_monitoring/tests/test_harmonics.py
@@ -1219,7 +1246,7 @@ git commit -m "feat(shmlib): fit and evaluate the annual modulation of a daily s
 **Interfaces:**
 - Produces: `coupling.cycle_surface_rank(series, doy_bins=52, freq='20min') -> dict` with `'table'` (DataFrame: `component`, `singular_value`, `variance_share`, `cumulative_share`), `'daily_shapes'` (DataFrame, index = slot-of-day as hour float, one column per component), `'annual_weights'` (DataFrame, index = bin centre day of year, one column per component). Built from the mean of `series` in each (day-of-year bin, slot-of-day) cell; missing cells take the slot's mean before the SVD.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 class TestCycleSurfaceRank(unittest.TestCase):
@@ -1236,9 +1263,9 @@ class TestCycleSurfaceRank(unittest.TestCase):
         self.assertEqual(out['annual_weights'].shape[0], 52)
 ```
 
-- [ ] **Step 2: Run; expected AttributeError.**
+- [x] **Step 2: Run; expected AttributeError.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def cycle_surface_rank(series, doy_bins=52, freq='20min'):
@@ -1292,9 +1319,9 @@ def cycle_surface_rank(series, doy_bins=52, freq='20min'):
     return {'table': table, 'daily_shapes': shapes, 'annual_weights': weights}
 ```
 
-- [ ] **Step 4: Run; expected PASS.** (The synthetic test has no gaps, so the fill branch is exercised only by the notebook.)
+- [x] **Step 4: Run; expected PASS.** (The synthetic test has no gaps, so the fill branch is exercised only by the notebook.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studies/shmlib/coupling.py studies/05_greybox_monitoring/tests/test_harmonics.py
@@ -1310,7 +1337,7 @@ git commit -m "feat(shmlib): rank the daily-by-annual surface of a cycle by sing
 **Interfaces:**
 - Produces: `prediction.seasonal_weights(index, modulation=None, peak_doy=196) -> pd.DataFrame` with columns `summer_w`, `winter_w` in [0, 1] summing to one. With `modulation` (the `fit` dict from `coupling.annual_modulation`) the summer weight is the fitted curve min-max normalised over one calendar year of days of year; with `modulation=None` it is the cosine fallback `½(1 − cos(2π(doy − (peak_doy − 182))/365.25))`, i.e. maximum at `peak_doy` (196 = 15 July).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 class TestSeasonalWeights(unittest.TestCase):
@@ -1332,9 +1359,9 @@ class TestSeasonalWeights(unittest.TestCase):
         self.assertAlmostEqual(out['summer_w'].min(), 0.0, places=6)
 ```
 
-- [ ] **Step 2: Run; expected AttributeError.**
+- [x] **Step 2: Run; expected AttributeError.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def seasonal_weights(index, modulation=None, peak_doy=196):
@@ -1378,9 +1405,9 @@ def seasonal_weights(index, modulation=None, peak_doy=196):
                         index=index)
 ```
 
-- [ ] **Step 4: Run; expected PASS. Run Study 04's `test_prediction.py`, `test_gaps.py`, `test_decomposition.py`; unchanged.**
+- [x] **Step 4: Run; expected PASS. Run Study 04's `test_prediction.py`, `test_gaps.py`, `test_decomposition.py`; unchanged.**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studies/shmlib/prediction.py studies/05_greybox_monitoring/tests/test_harmonics.py
@@ -1397,7 +1424,7 @@ git commit -m "feat(shmlib): calendar weights for the smoothly conditioned daily
 - Consumes: `period_scan` tables (two: target and residual), `daily_harmonic` frames (two), `annual_modulation` fits (amplitude and phase), `cycle_surface_rank` output.
 - Produces: `figures.plot_harmonic_diagnostics(scans, dailies, fits, surface, title='', save_path=None, filename=None) -> Figure` with four panels: (1) certified periods per series as vertical markers on a log-period axis with their power; (2) daily amplitude by day of year (points, light) with the fitted annual curve for each series; (3) daily phase by day of year with its fit; (4) singular-value shares of the surface as bars. `scans`, `dailies`, `fits` are dicts keyed by series name (`'target'`, `'residual'`); `fits[name]` is `{'amplitude': fit, 'phase': fit}`.
 
-- [ ] **Step 1: Write the test** (append to `test_shmlib.py`)
+- [x] **Step 1: Write the test** (append to `test_shmlib.py`)
 
 ```python
     def test_plot_harmonic_diagnostics_draws_four_panels(self):
@@ -1420,7 +1447,7 @@ git commit -m "feat(shmlib): calendar weights for the smoothly conditioned daily
         plt.close(fig)
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```python
 def plot_harmonic_diagnostics(scans, dailies, fits, surface, title='',
@@ -1494,7 +1521,7 @@ def plot_harmonic_diagnostics(scans, dailies, fits, surface, title='',
     return fig
 ```
 
-- [ ] **Step 3: Run `python shmlib/tests/test_shmlib.py`; expected PASS. Commit**
+- [x] **Step 3: Run `python shmlib/tests/test_shmlib.py`; expected PASS. Commit**
 
 ```bash
 git add studies/shmlib/figures.py studies/shmlib/tests/test_shmlib.py
@@ -1507,7 +1534,7 @@ git commit -m "feat(shmlib): draw the harmonic diagnostic on one page"
 - Modify: notebook (append Movement 1b cells); parameter cell values `YEARLY_ORDER`, `DAILY_ORDER`, `WEIGHT_CURVE`.
 - Modify: report `sec:seasonality` (first half); README status.
 
-- [ ] **Step 1: Append Movement 1b cells**
+- [x] **Step 1: Append Movement 1b cells**
 
 ```python
 # %% [markdown]
@@ -1586,13 +1613,13 @@ weights_measured = prediction.seasonal_weights(frame.index, modulation=fits['res
 print('measured summer weight peaks on day', int(weights_measured['summer_w'].idxmax().dayofyear))
 ```
 
-- [ ] **Step 2: Sync, execute to the scratch path, read back the printed decisions, copy the executed notebook back.**
+- [x] **Step 2: Sync, execute to the scratch path, read back the printed decisions, copy the executed notebook back.**
 
-- [ ] **Step 3 (O): Fix the parameter cell from the measurement.** Set `YEARLY_ORDER = 2` if the semi-annual peak is certified else `1`; `DAILY_ORDER = 2` if the 12-hour peak is certified else `1`; `WEIGHT_CURVE = {'order': …, 'coef': […], 'period_days': 365.25}` copied from `fits['residual']['amplitude']` (print `fits['residual']['amplitude']` and paste the numbers), with a guidance bullet naming `GM_04`. If the first two surface components carry under 90 %, record it and keep `CONDITIONAL_DAILY = True` with a note that Phase 2's test decides.
+- [x] **Step 3 (O): Fix the parameter cell from the measurement.** Set `YEARLY_ORDER = 2` if the semi-annual peak is certified else `1`; `DAILY_ORDER = 2` if the 12-hour peak is certified else `1`; `WEIGHT_CURVE = {'order': …, 'coef': […], 'period_days': 365.25}` copied from `fits['residual']['amplitude']` (print `fits['residual']['amplitude']` and paste the numbers), with a guidance bullet naming `GM_04`. If the first two surface components carry under 90 %, record it and keep `CONDITIONAL_DAILY = True` with a note that Phase 2's test decides.
 
-- [ ] **Step 4 (O): Write §5 Seasonality, first half** — the diagnostic: what was scanned, which periods were certified on each series (from `GM_04_body.tex`), the annual modulation of amplitude and phase with the held-out order (`GM_04b_body.tex`), the surface rank (`GM_04c_body.tex`), `\includegraphics{GM_F02_harmonic_diagnostics.png}`, and the orders and weight curve that follow. Leave a line `\pending{Phase 2 — the fitted yearly and daily terms}` at the end of the section for the second half.
+- [x] **Step 4 (O): Write §5 Seasonality, first half** — the diagnostic: what was scanned, which periods were certified on each series (from `GM_04_body.tex`), the annual modulation of amplitude and phase with the held-out order (`GM_04b_body.tex`), the surface rank (`GM_04c_body.tex`), `\includegraphics{GM_F02_harmonic_diagnostics.png}`, and the orders and weight curve that follow. Leave a line `\pending{Phase 2 — the fitted yearly and daily terms}` at the end of the section for the second half.
 
-- [ ] **Step 5: Build twice, honesty test, README status "Phase 1b complete", commit**
+- [x] **Step 5: Build twice, honesty test, README status "Phase 1b complete", commit**
 
 ```bash
 git add studies/05_greybox_monitoring
@@ -1614,7 +1641,7 @@ git commit -m "feat(study05): measure the seasonal orders and the daily-cycle we
 **Interfaces:**
 - Produces: `neuralprophet_backtest(train, test, regressors=(), task='forecast', n_lags=24, n_forecasts=24, regressor_lags=12, horizons=None, epochs=30, yearly=False, quantiles=(0.05, 0.95), seed=0, growth='off', changepoints=None, n_changepoints=10, freq=None, decompose=False, trend_reg=0.0, changepoints_range=None, learning_rate=0.01, yearly_order=None, daily_order=None, conditional_seasonality=None, lagged_regressors=(), lagged_n_lags=None, lagged_regularization=None, validation=None)`. New behaviour, each only when the new argument is given: `trend_reg` and `learning_rate` reach the constructor; `changepoints_range` reaches it when not `None`; `yearly_order`/`daily_order` replace the boolean seasonality flags by integer Fourier orders; `conditional_seasonality={'daily_summer': 'summer_w', 'daily_winter': 'winter_w'}` turns `daily_seasonality` off and registers one `add_seasonality(name, period=1, fourier_order=daily_order or 6, condition_name=column)` per entry, passing the condition columns through to the model frames; `lagged_regressors` are registered with `add_lagged_regressor(name, n_lags=lagged_n_lags or regressor_lags, regularization=lagged_regularization)` in **either** task and their columns pass through; `validation` (a frame like `train`) makes the fit collect metrics (`collect_metrics=True`, `validation_df=`, `minimal=False`) and stores the returned metrics frame on the model as `model.fit_metrics_`. Every default reproduces today's behaviour exactly.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """
@@ -1695,9 +1722,9 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2: Run; expected `TypeError: unexpected keyword argument 'trend_reg'` on the second test and failures on the third and fourth.**
+- [x] **Step 2: Run; expected `TypeError: unexpected keyword argument 'trend_reg'` on the second test and failures on the third and fourth.**
 
-- [ ] **Step 3: Implement.** In `neuralprophet_backtest`: extend the signature with the nine new keyword arguments after `decompose=False`; extend the docstring's Parameters accordingly. Replace the constructor call and the regressor loop with:
+- [x] **Step 3: Implement.** In `neuralprophet_backtest`: extend the signature with the nine new keyword arguments after `decompose=False`; extend the docstring's Parameters accordingly. Replace the constructor call and the regressor loop with:
 
 ```python
     lagged_regressors = tuple(lagged_regressors or ())
@@ -1764,9 +1791,9 @@ if __name__ == '__main__':
 
 Keep the rest (`segmented_test`, `predict_df`, `wide`, `_long_predictions`) unchanged, except `max(int(n_lags), int(regressor_lags))` becomes `max(int(n_lags), int(regressor_lags), int(lagged_n_lags or 0))`. Check `_model_frame`'s signature first (grep `def _model_frame` in `prediction.py`); if its second argument is named differently or it filters columns by a `regressors` list only, pass `passthrough` there — the intent is that every named column survives into the `ds`/`y` frame.
 
-- [ ] **Step 4: Run the new tests (4 PASS) and every existing test file listed in Global Constraints (all unchanged).**
+- [x] **Step 4: Run the new tests (4 PASS) and every existing test file listed in Global Constraints (all unchanged).**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studies/shmlib/prediction.py studies/05_greybox_monitoring/tests/test_model_a.py
@@ -1784,7 +1811,7 @@ git commit -m "feat(shmlib): seasonal orders, trend regularisation, conditional 
 - `prediction.seasonal_parameters(model, dates, freq='20min', conditions=None, regressors=()) -> pd.DataFrame` long: `date`, `hour`, `component`, `value`, from `predict_seasonal_components` on one synthetic day per date (with `y=0.0`, condition columns from `seasonal_weights` when `conditions` maps names to columns, and any regressor columns set to 0.0) plus one synthetic year at daily resolution for the `yearly` component (`date` = the year's days, `hour` = 0).
 - `prediction.regressor_gains(components, frame, regressors) -> pd.DataFrame` with `regressor`, `gain`, `r2`: slope of `components['future_regressor_<name>']` on `frame[name]`.
 
-- [ ] **Step 1: Write the failing tests** (append)
+- [x] **Step 1: Write the failing tests** (append)
 
 ```python
 class TestExtractors(unittest.TestCase):
@@ -1824,9 +1851,9 @@ class TestExtractors(unittest.TestCase):
         self.assertEqual(daily.groupby('date').size().iloc[0], 24)
 ```
 
-- [ ] **Step 2: Run; expected AttributeError on the three functions.**
+- [x] **Step 2: Run; expected AttributeError on the three functions.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def regressor_gains(components, frame, regressors):
@@ -1953,9 +1980,9 @@ def seasonal_parameters(model, dates, freq='20min', conditions=None,
 
 The notebook sets `model.weight_curve_ = WEIGHT_CURVE` after each fit so that `seasonal_parameters` can rebuild the condition columns; document that in the docstring.
 
-- [ ] **Step 4: Run; expected PASS (the trend test may need `epochs=8` raised to 15 if the slope is out of tolerance; note the value used). Existing suites unchanged.**
+- [x] **Step 4: Run; expected PASS (the trend test may need `epochs=8` raised to 15 if the slope is out of tolerance; note the value used). Existing suites unchanged.**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studies/shmlib/prediction.py studies/05_greybox_monitoring/tests/test_model_a.py
@@ -1968,7 +1995,7 @@ git commit -m "feat(shmlib): read the trend rates, seasonal curves and regressor
 - Modify: `studies/shmlib/figures.py` (append four functions)
 - Modify: `studies/shmlib/tests/test_shmlib.py` (four axes-count tests)
 
-- [ ] **Step 1: Implement the four functions** (each on the template; signatures fixed here)
+- [x] **Step 1: Implement the four functions** (each on the template; signatures fixed here)
 
 ```python
 def plot_fit_metrics(metrics, title='', save_path=None, filename=None):
@@ -2060,9 +2087,9 @@ def plot_regressor_gains(gains, title='', save_path=None, filename=None):
     return fig
 ```
 
-- [ ] **Step 2: Tests** — one per function asserting `len(fig.axes)` (1, 2, 2, 1) on small synthetic frames built inline as in the earlier figure tests; run `python shmlib/tests/test_shmlib.py`; PASS.
+- [x] **Step 2: Tests** — one per function asserting `len(fig.axes)` (1, 2, 2, 1) on small synthetic frames built inline as in the earlier figure tests; run `python shmlib/tests/test_shmlib.py`; PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add studies/shmlib/figures.py studies/shmlib/tests/test_shmlib.py
@@ -2074,7 +2101,7 @@ git commit -m "feat(shmlib): redraw the NeuralProphet fit, trend, seasonality an
 **Files:**
 - Modify: notebook (append Movement 2); parameter cell value `TREND_REG` after the sweep.
 
-- [ ] **Step 1: Append the cells**
+- [x] **Step 1: Append the cells**
 
 ```python
 # %% [markdown]
@@ -2261,9 +2288,9 @@ figures.plot_regressor_gains(gains, title='Learned gains against Study 03',
 
 The fold-index reconstruction line is deliberately defensive about time zones: `crossvalidation_split_df` returns naive `ds`; if the check shows the model frame keeps UTC-aware stamps, simplify to `block.loc[fold_train_df['ds']]`.
 
-- [ ] **Step 2: Sync, execute (timeout 14400 s), read back, copy back. Fix `TREND_REG` in the parameter cell to the chosen value with a guidance bullet.**
+- [x] **Step 2: Sync, execute (timeout 14400 s), read back, copy back. Fix `TREND_REG` in the parameter cell to the chosen value with a guidance bullet.**
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add studies/05_greybox_monitoring
@@ -2277,9 +2304,9 @@ git commit -m "feat(study05): attribution fits on the three regressor sets, shar
 
 Implements the Global Constraint "Every image in the report comes from the paired notebook" (user rule, 2026-09-06).
 
-- [ ] **Step 1: Add a class `TestEveryGraphicComesFromTheNotebook`.** It reads `greybox_monitoring_study.py` once and collects two sets with regular expressions: every `filename='…'` literal (the stems the notebook's `figures.*` calls write) and every `'GM_\d\d[a-z]?_body.tex'` literal (the bodies its `tables.write_table` calls write). Three tests: (a) every `\includegraphics` stem in the report is in the notebook's filename set; (b) every `\input{../outputs/…}` body in the report is in the notebook's body set; (c) every `GM_F*.png` in `outputs/` is named by the notebook (no orphan image can be picked up by the report). Each assertion message names the offending stem and says that a figure is produced by the notebook or not at all.
-- [ ] **Step 2: Run the file; expected: the three new tests pass on the current tree (every included graphic so far is a notebook `filename` literal).** If one fails, the fix is in the notebook or the report, never in the test.
-- [ ] **Step 3: Commit** `test(study05): every figure and table body in the report must be written by the notebook`.
+- [x] **Step 1: Add a class `TestEveryGraphicComesFromTheNotebook`.** It reads `greybox_monitoring_study.py` once and collects two sets with regular expressions: every `filename='…'` literal (the stems the notebook's `figures.*` calls write) and every `'GM_\d\d[a-z]?_body.tex'` literal (the bodies its `tables.write_table` calls write). Three tests: (a) every `\includegraphics` stem in the report is in the notebook's filename set; (b) every `\input{../outputs/…}` body in the report is in the notebook's body set; (c) every `GM_F*.png` in `outputs/` is named by the notebook (no orphan image can be picked up by the report). Each assertion message names the offending stem and says that a figure is produced by the notebook or not at all.
+- [x] **Step 2: Run the file; expected: the three new tests pass on the current tree (every included graphic so far is a notebook `filename` literal).** If one fails, the fix is in the notebook or the report, never in the test.
+- [x] **Step 3: Commit** `test(study05): every figure and table body in the report must be written by the notebook`.
 
 ### Task 2.4c (S): The residual period scan, and three corrections to Movement 2's figures
 
@@ -2288,23 +2315,23 @@ Implements the Global Constraint "Every image in the report comes from the paire
 
 Rides on one notebook run. (The coverage chart that an earlier version of this task carried is deferred to Task 7.3, with every other item of `report/report05_check.md`, by the user's instruction of 2026-09-06: the check file is not acted on until the report's first complete implementation exists.)
 
-- [ ] **Step 1: `GM_08b`, the residual period scan the spec's §4.1 asks for.** In Movement 2, after the fold-stability step, one `prediction.period_scan` per set on `components_a[name]['residual']` over the two bands of `PERIOD_SCAN_BANDS` with `spacing='log'`, `n_periods=PERIOD_SCAN_N`, `top=5`, concatenated with `set` and `band` columns into `GM_08b_residual_periods.csv` and `GM_08b_body.tex` (`set`, `band`, `rank`, `period_days` at four decimals, `power` at four decimals), under its own `###` Markdown cell.
-- [ ] **Step 2: Three figure corrections** (controller findings on the executed Movement 2): `seasonal_parameters`' per-day evaluations keep only the non-yearly components and `plot_seasonal_parameters` sorts the yearly block by date; `SEASONAL_CURVE_DATES` joins the Model A parameter cell and the figure cell evaluates all four dates only when `CONDITIONS` is not `None`; `plot_trend_parameters` gains `freq=None` and breaks the trend line across gaps through `figures._reindex_regular` when given. Tests for each.
-- [ ] **Step 3: Table refinements.** `GM_05b`'s share at two decimals; `GM_06`'s body without the `r2` column (kept in the CSV; one by construction); `curves` saved as `GM_05d_seasonal_curves.csv`.
-- [ ] **Step 4: Sync, execute to the scratch directory, verify, copy back; commit** `feat(study05): the residual period scan, and the seasonal and trend figures corrected` (library changes committed first as `feat(shmlib): corrections to the seasonal and trend parameter figures`).
+- [x] **Step 1: `GM_08b`, the residual period scan the spec's §4.1 asks for.** In Movement 2, after the fold-stability step, one `prediction.period_scan` per set on `components_a[name]['residual']` over the two bands of `PERIOD_SCAN_BANDS` with `spacing='log'`, `n_periods=PERIOD_SCAN_N`, `top=5`, concatenated with `set` and `band` columns into `GM_08b_residual_periods.csv` and `GM_08b_body.tex` (`set`, `band`, `rank`, `period_days` at four decimals, `power` at four decimals), under its own `###` Markdown cell.
+- [x] **Step 2: Three figure corrections** (controller findings on the executed Movement 2): `seasonal_parameters`' per-day evaluations keep only the non-yearly components and `plot_seasonal_parameters` sorts the yearly block by date; `SEASONAL_CURVE_DATES` joins the Model A parameter cell and the figure cell evaluates all four dates only when `CONDITIONS` is not `None`; `plot_trend_parameters` gains `freq=None` and breaks the trend line across gaps through `figures._reindex_regular` when given. Tests for each.
+- [x] **Step 3: Table refinements.** `GM_05b`'s share at two decimals; `GM_06`'s body without the `r2` column (kept in the CSV; one by construction); `curves` saved as `GM_05d_seasonal_curves.csv`.
+- [x] **Step 4: Sync, execute to the scratch directory, verify, copy back; commit** `feat(study05): the residual period scan, and the seasonal and trend figures corrected` (library changes committed first as `feat(shmlib): corrections to the seasonal and trend parameter figures`).
 
 ### Task 2.5 (O): Checkpoint 2 gate
 
-- [ ] Read `GM_06`: the on-structure `tair` gain against −2.79 with Study 03's month-to-month range (−3.63 to −1.88) as the interval. Inside: proceed. Outside: **stop the study here**; the disagreement is the finding and becomes the report's §6 and Verdict (spec Phase 2 kill criterion).
-- [ ] Read `GM_08`: Ljung–Box at 1, 72, 216; name the missing component if structure remains.
-- [ ] Show the user `GM_05`–`GM_08` and the four figures.
+- [x] Read `GM_06`: the on-structure `tair` gain against −2.79 with Study 03's month-to-month range (−3.63 to −1.88) as the interval. Inside: proceed. Outside: **stop the study here**; the disagreement is the finding and becomes the report's §6 and Verdict (spec Phase 2 kill criterion).
+- [x] Read `GM_08`: Ljung–Box at 1, 72, 216; name the missing component if structure remains.
+- [x] Show the user `GM_05`–`GM_08` and the four figures.
 
 ### Task 2.6 (O): Report §4 Trend, §5 second half, §6 Regressors and gains
 
-- [ ] §4: the trend on covered time, `\includegraphics{GM_F04_trend.png}`, the rates per segment (from `GM_07`'s `trend_rate` spread and the rates table printed in the notebook; if a rates CSV is wanted, add `rates.to_csv(OUTPUT_DIR / 'GM_04d_trend_rates.csv')` to Movement 2 and cite it).
-- [ ] §5 second half: replace the remaining `\pending{}` with the fitted yearly and daily terms, `\includegraphics{GM_F05_seasonality.png}`, and the conditional-versus-plain comparison (write `conditional_test.to_csv(OUTPUT_DIR / 'GM_05b_conditional_test.csv')` and a body in Movement 2 first, so the number has an artefact).
-- [ ] §6: shares (`GM_05_body.tex`), gains confronted with Study 03 (`GM_06_body.tex`, `GM_F06b_gains.png`), the decomposition stack (`GM_F06_decomposition.png`), fold stability (`GM_07_body.tex`), residual diagnostics (`GM_08_body.tex`).
-- [ ] Build twice, honesty test, README status "Phase 2 complete", commit `docs(study05): write the trend, seasonality and regressor sections`.
+- [x] §4: the trend on covered time, `\includegraphics{GM_F04_trend.png}`, the rates per segment (from `GM_07`'s `trend_rate` spread and the rates table printed in the notebook; if a rates CSV is wanted, add `rates.to_csv(OUTPUT_DIR / 'GM_04d_trend_rates.csv')` to Movement 2 and cite it).
+- [x] §5 second half: replace the remaining `\pending{}` with the fitted yearly and daily terms, `\includegraphics{GM_F05_seasonality.png}`, and the conditional-versus-plain comparison (write `conditional_test.to_csv(OUTPUT_DIR / 'GM_05b_conditional_test.csv')` and a body in Movement 2 first, so the number has an artefact).
+- [x] §6: shares (`GM_05_body.tex`), gains confronted with Study 03 (`GM_06_body.tex`, `GM_F06b_gains.png`), the decomposition stack (`GM_F06_decomposition.png`), fold stability (`GM_07_body.tex`), residual diagnostics (`GM_08_body.tex`).
+- [x] Build twice, honesty test, README status "Phase 2 complete", commit `docs(study05): write the trend, seasonality and regressor sections`.
 
 > **Checkpoint 2 (O):** as Task 2.5, plus the PDF. Approval opens Phase 2b.
 
