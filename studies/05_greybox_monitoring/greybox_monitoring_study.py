@@ -517,27 +517,44 @@ CV_FOLD_OVERLAP_PCT = 0.0
 # ### Parameter Tuning Guidance
 #
 # **`LAGGED_REGRESSORS`** — drivers entering through
-# `add_lagged_regressor`; default `('tair', 'sr_gs')`, air temperature and
-# the station's radiation, at the resolution Study 03's operator scan could
-# not reach (D9). Humidity stays contemporaneous, outside this list.
+# `add_lagged_regressor`; default `('tair', 'sr')`, the on-structure set's
+# air temperature and its radiation role (`def_frames['str']`'s own `sr`
+# column, the station's radiation borrowed under D2, since the wall's own
+# pyranometer does not cover the study window), at the resolution Study
+# 03's operator scan could not reach (D9). Humidity stays contemporaneous,
+# outside this list.
 #
 # **`LAGGED_N_LAGS`** — history carried per lagged driver, in grid slots;
 # default `36`, twelve hours at the native 20-minute grid (D9).
 #
 # **`LAGGED_REG`** — regularization on the lagged-regressor weights;
-# default `None`, swept in Phase 4. Raising it smooths the learned impulse
-# response at the cost of resolving a genuinely fast driver.
+# default `None`, no sweep. Neither the spec (D9) nor the plan calls for
+# one: this movement reads the learned weights as the impulse response
+# itself, and a regulariser would smooth away the very shape the movement
+# exists to measure.
+#
+# **`STUDY03_OPERATOR`** — Study 03's own delay-and-time-constant operator
+# per driver, the reference the learned response is set beside in `GM_10`
+# and `GM_F07`; default `{'tair': {'delay_h': 0.0, 'tau_h': 0.0}, 'sr':
+# {'delay_h': 1.0, 'tau_h': 0.0}}` (spec §2.3): air temperature enters the
+# wall's response instantaneously, radiation delayed one hour, and neither
+# driver carries a fitted thermal time constant in Study 03's operator.
 #
 # **`MODEL_B_FALLBACK_FREQ`, `MODEL_B_FALLBACK_LAGS`** — the grid and lag
 # count Model B falls back to if Phase 0 finds NeuralProphet 0.8.0 cannot
 # carry lagged regressors at `n_lags=0`; default `'1h'` and `12`, one day
 # of hourly history, and the sub-hour claim is dropped when this fallback is
-# used (§9, risk row 1).
+# used (§9, risk row 1). Phase 0's
+# `test_neuralprophet_capabilities.TestLaggedRegressorWithoutAutoregression`
+# confirms lagged regressors do carry at `n_lags=0`, so this fallback is not
+# taken.
 
 # %%
-LAGGED_REGRESSORS = ('tair', 'sr_gs')
+LAGGED_REGRESSORS = ('tair', 'sr')
 LAGGED_N_LAGS = 36
-LAGGED_REG = None              # swept in Phase 4
+LAGGED_REG = None              # no sweep (D9): the weights are read as the response itself
+STUDY03_OPERATOR = {'tair': {'delay_h': 0.0, 'tau_h': 0.0},
+                    'sr': {'delay_h': 1.0, 'tau_h': 0.0}}
 MODEL_B_FALLBACK_FREQ = '1h'
 MODEL_B_FALLBACK_LAGS = 12
 
@@ -954,7 +971,8 @@ for name in fits:
 # figures are the same content redrawn (D14). The movement writes the tables
 # `GM_04d`, `GM_05`, `GM_05b`, `GM_05c`, `GM_06`, `GM_07`, `GM_08` and
 # `GM_08b`, the fitted seasonal curves themselves in `GM_05d`, and the
-# figures `GM_F03` to `GM_F06b`.
+# figures `GM_F03` to `GM_F06b`, and the on-structure fit's own per-epoch
+# training and validation MAE in `GM_05e`.
 
 # %% [markdown]
 # ### Regressor-set frames and the held-out split
@@ -1151,9 +1169,10 @@ tables.write_table(residual_scans, str(OUTPUT_DIR / 'GM_08b_body.tex'),
 #
 # The on-structure fit's own trend, segment rates and seasonal curves,
 # redrawn in the project's figure style rather than NeuralProphet's native
-# one: fit metrics (`GM_F03`), the trend and its per-segment rates
-# (`GM_04d`, `GM_F04`, broken across any gap longer than one native step),
-# the yearly and daily curves (`GM_F05`, backed by the fitted values
+# one: fit metrics (`GM_F03`, backed by the per-epoch training and
+# validation MAE themselves in `GM_05e`), the trend and its per-segment
+# rates (`GM_04d`, `GM_F04`, broken across any gap longer than one native
+# step), the yearly and daily curves (`GM_F05`, backed by the fitted values
 # themselves in `GM_05d`), the full decomposition stack (`GM_F06`), and the
 # learned gains beside Study 03's own measurements (`GM_F06b`).
 
@@ -1161,6 +1180,7 @@ tables.write_table(residual_scans, str(OUTPUT_DIR / 'GM_08b_body.tex'),
 model_str, train_str_fit, changepoints_str = models_a['str']
 figures.plot_fit_metrics(model_str.fit_metrics_, title='Model A · on-structure set',
                          save_path=str(OUTPUT_DIR), filename='GM_F03_fit_metrics')
+model_str.fit_metrics_.to_csv(OUTPUT_DIR / 'GM_05e_fit_metrics.csv', index=True)
 trend, rates = prediction.trend_parameters(model_str, train_str_fit, changepoints_str,
                                            regressors=('tair', 'rh', 'sr'))
 rates.to_csv(OUTPUT_DIR / 'GM_04d_trend_rates.csv', index=False)
@@ -1355,4 +1375,95 @@ if native_fig is not None:
     viz.show_static(native_fig)
 else:
     print('conformal_plot returned None under the plotly backend; '
+         'native diagnostic skipped rather than embedding SVG.')
+
+# %% [markdown]
+# ## Movement 4 · Does the wall answer with a delay the 20-minute grid can resolve?
+#
+# The same specification as Model A's on-structure fit, except that air
+# temperature and radiation (`LAGGED_REGRESSORS`) enter as lagged
+# regressors over `LAGGED_N_LAGS` slots of the native 20-minute grid rather
+# than as contemporaneous ones (D9). The weight the fit learns at every lag
+# is the impulse response itself; its first moment and its one-pole fit are
+# read back and set beside `STUDY03_OPERATOR`, the delay-and-time-constant
+# operator Study 03 measured by scanning rather than by learning. The
+# movement writes the weights and summary tables in `GM_10` and the figure
+# `GM_F07`. Phase 0's `test_neuralprophet_capabilities.
+# TestLaggedRegressorWithoutAutoregression` already confirmed that
+# NeuralProphet 0.8.0 carries lagged regressors at `n_lags=0`, so
+# `MODEL_B_FALLBACK_FREQ`'s hourly fallback is not taken and this movement
+# runs at the native grid throughout.
+
+# %% [markdown]
+# ### The lagged-regressor fit
+#
+# One nowcast fit on the on-structure set, sharing every specification
+# choice already fixed for Model A (`N_CHANGEPOINTS`, `CHANGEPOINTS_RANGE`,
+# `TREND_REG`, `YEARLY_ORDER`, `DAILY_ORDER`, `CONDITIONS`): the only
+# difference is that air temperature and radiation are registered through
+# `lagged_regressors` instead of `regressors`, carrying `LAGGED_N_LAGS`
+# slots of their own recent history into the fit, while relative humidity
+# stays a contemporaneous regressor exactly as in Model A.
+# `prediction.lagged_regressor_weights` reads the fitted weight at every
+# lag straight back from the model, and `prediction.
+# impulse_response_summary` reduces that table to one row per driver —
+# gain, delay and time constant — with Study 03's own operator attached
+# alongside for the comparison the movement exists to make.
+
+# %%
+block_b = def_frames['str']
+slots_per_hour = int(pd.Timedelta(hours=1) / pd.Timedelta(NATIVE_FREQ))
+model_b, _ = prediction.neuralprophet_backtest(
+    block_b, block_b, regressors=('rh',), task='nowcast', epochs=EPOCHS,
+    freq=NATIVE_FREQ, growth='linear',
+    changepoints=prediction.covered_changepoints(block_b.index, N_CHANGEPOINTS),
+    n_changepoints=N_CHANGEPOINTS, changepoints_range=CHANGEPOINTS_RANGE,
+    trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
+    conditional_seasonality=CONDITIONS, quantiles=(), seed=SEED,
+    learning_rate=LEARNING_RATE, lagged_regressors=LAGGED_REGRESSORS,
+    lagged_n_lags=LAGGED_N_LAGS, lagged_regularization=LAGGED_REG)
+weights_b = prediction.lagged_regressor_weights(model_b)
+summary_b = prediction.impulse_response_summary(weights_b, dt_hours=1.0 / slots_per_hour)
+summary_b['study03_delay_h'] = [STUDY03_OPERATOR[r]['delay_h'] for r in summary_b['regressor']]
+summary_b['study03_tau_h'] = [STUDY03_OPERATOR[r]['tau_h'] for r in summary_b['regressor']]
+
+# %% [markdown]
+# ### `GM_10` · the learned response beside Study 03's operator
+#
+# One row per driver: the learned gain, delay and time constant, and
+# Study 03's own delay and time constant for the same driver, so the
+# margin between what was imposed and what the model found is on record
+# rather than merely visible in the figure below.
+
+# %%
+display(summary_b)
+weights_b.to_csv(OUTPUT_DIR / 'GM_10_impulse_response_weights.csv', index=False)
+summary_b.to_csv(OUTPUT_DIR / 'GM_10_impulse_response.csv', index=False)
+tables.write_table(summary_b, str(OUTPUT_DIR / 'GM_10_body.tex'),
+                   [('regressor', tables.texttt), ('gain', '.3f'), ('delay_h', '.2f'),
+                    ('tau_h', '.2f'), ('r2_onepole', '.3f'),
+                    ('study03_delay_h', '.1f'), ('study03_tau_h', '.1f')])
+
+# %% [markdown]
+# ### `GM_F07` and the native diagnostic
+#
+# The learned weight per lag, one panel per driver, with Study 03's
+# operator overlaid as a gain-matched one-pole response. Beside it,
+# NeuralProphet's own lagged-regressor parameter plot runs once as a
+# diagnostic counterpart (D14), requested in the plain `'plotly'` backend
+# and rendered to PNG inline through `viz.show_static` rather than
+# embedded as SVG; if that backend returns no figure, the diagnostic is
+# skipped and said so in print rather than falling back to SVG.
+
+# %%
+figures.plot_impulse_response(weights_b, summary_b, reference=STUDY03_OPERATOR,
+                              dt_hours=1.0 / slots_per_hour,
+                              title='Learned impulse response, on-structure set',
+                              save_path=str(OUTPUT_DIR), filename='GM_F07_impulse_response')
+native_params = model_b.plot_parameters(components=['lagged_regressors'],
+                                        plotting_backend='plotly')
+if native_params is not None:
+    viz.show_static(native_params)
+else:
+    print('plot_parameters returned None under the plotly backend; '
          'native diagnostic skipped rather than embedding SVG.')
