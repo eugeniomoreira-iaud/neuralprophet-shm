@@ -2304,6 +2304,82 @@ def plot_detectability(curve, title='', save_path=None, filename=None):
     return fig
 
 
+def plot_harmonic_diagnostics(scans, dailies, fits, surface, title='',
+                              save_path=None, filename=None):
+    """
+    The harmonic diagnostic of spec D6, on one page.
+
+    Four panels: the periods the spectral scan certifies for each series;
+    the daily amplitude by day of year with its annual fit; the daily phase
+    likewise; and the singular-value shares of the daily-by-annual surface.
+
+    Parameters
+    ----------
+    scans, dailies : dict of pd.DataFrame
+        Keyed by series name; outputs of ``prediction.period_scan`` and
+        ``monitoring.daily_harmonic``.
+    fits : dict of dict
+        ``fits[name]['amplitude']`` and ``fits[name]['phase']`` from
+        ``coupling.annual_modulation``.
+    surface : dict
+        Output of ``coupling.cycle_surface_rank``.
+    title : str, optional
+    save_path, filename : str or None, optional
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, axes = plt.subplots(2, 2, figsize=viz.figsize(viz.FIGURE_WIDTH, 5.2))
+    styles = {'target': '-', 'residual': '--'}
+    colour = viz.INC_COLOUR
+    year = pd.date_range('2001-01-01', periods=365, freq='D')
+
+    ax = axes[0, 0]
+    for name, scan in scans.items():
+        ax.stem(scan['period_days'], scan['power'], linefmt=colour,
+                markerfmt=' ', basefmt=' ', label=name)
+    ax.set_xscale('log')
+    ax.set_xlabel('Period [days]')
+    ax.set_ylabel('Normalised power')
+    for period in (0.5, 1.0, 182.6, 365.25):
+        ax.axvline(period, color=viz.MARK_COLOUR, linewidth=0.6, alpha=0.6)
+
+    for ax, key, label in ((axes[0, 1], 'amplitude', 'Daily amplitude [mdeg]'),
+                           (axes[1, 0], 'phase_h', 'Hour of daily maximum')):
+        for name, daily in dailies.items():
+            doy = daily.index.dayofyear
+            ax.scatter(doy, daily[key], s=3, color=colour, alpha=0.15)
+            fit = fits[name]['amplitude' if key == 'amplitude' else 'phase']
+            curve = coupling.evaluate_modulation(fit, year)
+            ax.plot(year.dayofyear, curve, color=colour, linewidth=1.6,
+                    linestyle=styles.get(name, '-'), label=name)
+        ax.set_xlabel('Day of year')
+        ax.set_ylabel(label)
+
+    ax = axes[1, 1]
+    table = surface['table'].head(6)
+    ax.bar(table['component'], table['variance_share'], color=colour, width=0.7)
+    ax.set_xlabel('Component')
+    ax.set_ylabel('Share of variance')
+
+    for ax in axes.ravel():
+        viz.format_spines(ax)
+    # Per the project's graphical guidelines a multi-panel figure's legend
+    # belongs to the figure rather than to one panel, so it is built here
+    # from one neutral handle per series in `dailies` rather than taken from
+    # a single axes.
+    handles = [Line2D([], [], color='#000000', linestyle=styles.get(name, '-'),
+                      label=name)
+               for name in dailies]
+    fig.legend(handles=handles, labels=list(dailies), loc='upper center',
+              bbox_to_anchor=(0.5, -0.01), ncol=len(dailies), frameon=False)
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
 def plot_regressor_sets(frame, target, sets, target_channel='inc_comp', title='',
                         tick_years=1, save_path=None, filename=None):
     """

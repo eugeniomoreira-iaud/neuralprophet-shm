@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.abspath(
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', '..', '01_data_exploration')))
 
-from shmlib import adc, figures, site, solar, meteo, tables, viz  # noqa: E402
+from shmlib import adc, coupling, figures, site, solar, meteo, tables, viz  # noqa: E402
 import de_lib                                                   # noqa: E402
 
 
@@ -762,6 +762,28 @@ class TestFiguresStudy05(unittest.TestCase):
         titles = [ax.get_title(loc='left') for ax in fig.axes]
         self.assertEqual(len(fig.axes), 9)
         self.assertIn('sr · str and gs', titles)
+        plt.close(fig)
+
+    def test_plot_harmonic_diagnostics_draws_four_panels(self):
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        days = pd.date_range('2019-01-01', periods=730, freq='D', tz='UTC')
+        daily = pd.DataFrame({'amplitude': 10 + 5 * np.cos(2 * np.pi * days.dayofyear / 365.25),
+                              'phase_h': 14.0 + np.zeros(len(days))}, index=days)
+        scan = pd.DataFrame({'rank': [1, 2], 'period_days': [365.0, 1.0],
+                             'power': [1.0, 0.6]})
+        _, fit_a = coupling.annual_modulation(daily['amplitude'])
+        _, fit_p = coupling.annual_modulation(daily['phase_h'])
+        surface = {'table': pd.DataFrame({'component': [1, 2, 3],
+                                          'singular_value': [3.0, 1.0, 0.1],
+                                          'variance_share': [0.89, 0.10, 0.01],
+                                          'cumulative_share': [0.89, 0.99, 1.0]})}
+        fig = figures.plot_harmonic_diagnostics(
+            {'target': scan, 'residual': scan}, {'target': daily, 'residual': daily},
+            {'target': {'amplitude': fit_a, 'phase': fit_p},
+             'residual': {'amplitude': fit_a, 'phase': fit_p}}, surface)
+        self.assertEqual(len(fig.axes), 4)
         plt.close(fig)
 
 
