@@ -58,3 +58,9 @@ dependencies:
       # Pinned: neuralprophet drives the whole grey-box decomposition, and an
       # unpinned upgrade would change the numeric results reported in the paper.
       - neuralprophet==0.8.0
+      # kaleido renders plotly figures to static images; NeuralProphet's
+      # "plotly-static" plotting backend, which Study 05 uses for its native
+      # diagnostic plots, needs it. Pinned to the 0.2 line: kaleido 1.x
+      # requires plotly 6 and a separate Chrome installation, while the
+      # plotly 5.24 in this environment pairs with kaleido 0.2.1.
+      - kaleido==0.2.1
