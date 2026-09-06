@@ -893,13 +893,14 @@ per set: the air-temperature gain, the yearly term's peak-to-peak, the mean
 trend rate and the held-out mean absolute error of each fold. Read from
 \texttt{GM\_07\_component\_stability.csv}.}
 \label{tab:stability}
+{\small\setlength{\tabcolsep}{4.5pt}
 \begin{tabular}{lrrrrr}
 \toprule
 Set & Fold & Gain [mdeg/$^{\circ}$C] & Yearly p--p [mdeg] & Trend rate [mdeg/yr] & Held-out MAE [mdeg] \\
 \midrule
 \input{../outputs/GM_07_body.tex}\\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 \subsection{What the residual still holds}
@@ -991,7 +992,93 @@ Set & Lag [slots] & Ljung--Box $p$ & Std [mdeg] & MAD [mdeg] \\
 % ===========================================================================
 \section{What the wall temperature and the pyranometer buy}
 \label{sec:ladder}
-\pending{Phase 2b}
+
+The probe and the pyranometer were installed on 21~February 2025 to find out
+whether they carry information the other drivers do not, and D4 tests them
+as a ladder on the current era alone. The window is the one on which every
+channel exists at once: the probe's two valid blocks and the pyranometer's
+certified days, 13,914 slots of twenty minutes, about 193 days. Every rung is
+fitted and scored on those rows, so that a rung differs from the one below in
+its channels alone; the first rung, which reads the station's radiation
+instead of the wall's, holds 13,290 of them, the difference being the
+station's own dropouts inside the window. Each rung fits Model~A, with the
+plain daily term and the parameters of Section~\ref{sec:trend}, on the first
+four fifths of its rows and scores the last fifth. Two cautions govern the
+reading. The comparison between rungs is the paired block-bootstrap skill on
+their shared held-out timestamps, not the mean absolute error column, which is
+each rung's own held-out fifth and, for the first rung, a slightly different
+stretch. And the ladder is the one place in this study where a model is fitted
+on less than two annual cycles, by D4's design: its gains compare channels
+against each other on one window and are not estimates of the wall's
+parameters; those are Section~\ref{sec:regressors}'s.
+
+Table~\ref{tab:ladder} and Figure~\ref{fig:ladder} give the result, rung by
+rung. Replacing the station's radiation with the wall's own pyranometer, on
+the same rows, raises the held-out error by 2.3\,\% (bootstrap bounds 1.6 to
+3.2\,\%). The pyranometer's learned gain is $-0.002$\,mdeg per W\,m$^{-2}$,
+against the $-0.026$ Study~03 measured for it on the diurnal band and the
+$-0.008$ the station's column learns on the same rung; Section~\ref{sec:record}
+had already found that its clock fails Study~02's agreement test. Adding the
+wall temperature at zero delay with a four-hour time constant, the deployable
+form, changes nothing over the rung below (skill 0.000, bounds $-0.3$ to
+$+0.4$\,\%) and leaves the rung 2.2\,\% below the first (bounds 1.2 to
+3.3\,\%). Its learned gain is $-0.30$\,mdeg per degree, a sixth of the
+$-1.75$ Study~03 measured on the diurnal band: in a fit on levels that
+already carries the air temperature and a trend, the probe's slow component
+is shared with both, and what remains for it is small. The residual's
+lag-one autocorrelation falls down the ladder, from 0.827 on the first rung
+to 0.801, 0.798 and 0.789, so each channel absorbs a little of the residual's
+memory without lowering its size. The diagnostic fourth rung, the probe at
+its measured lead of two hours, which reads the future and can never serve
+an expectation, improves on the third by 1.3\,\% (bounds 0.7 to 1.9\,\%) with
+a gain of $-0.68$\,mdeg per degree, and still does not reach the first rung
+(skill against it $-1.1$\,\%, bounds $-2.9$ to $+0.5$\,\%). The coverage
+column is the raw quantile interval of a model fitted once and asked to hold
+for three to four months of held-out record; at 10 to 27\,\% against a nominal
+90\,\% it says what Study~04 found and D8 corrects, and it is not the
+study's interval, which Section~\ref{sec:uncertainty} calibrates.
+
+The verdict per channel, in D4's terms. The pyranometer: a deployment gains
+nothing from it for the expectation, on this window; the station's radiation,
+an hour away, serves the model at least as well, and the wall's own instrument
+earns its place only if something other than the expectation wants it. The
+wall-temperature probe: in its deployable form it buys nothing measurable over
+the drivers the model already has, and its information about the wall arrives
+two hours before the deformation, where a monitor cannot use it; a deployment
+should not count on it for the expectation, and Study~03's finding that it is
+an internal state variable rather than a driver stands.
+
+\begin{table}[H]
+\centering
+\caption{The current-era ladder, on the matched window from 21~February 2025:
+rows fitted and scored, held-out mean absolute error of the last fifth, the
+paired block-bootstrap skill over the rung below and over the first rung with
+their 5 and 95\,\% bounds, the raw quantile interval's coverage of the
+held-out fifth, the learned gain of the rung's last channel (radiation in
+mdeg per W\,m$^{-2}$, wall temperature in mdeg per degree) and the residual's
+lag-one autocorrelation. Read from \texttt{GM\_16\_current\_era\_ladder.csv}.}
+\label{tab:ladder}
+{\scriptsize\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lrrrrrrrrrrr}
+\toprule
+& & & \multicolumn{3}{c}{Skill over rung below} & \multicolumn{3}{c}{Skill over rung 1} & & & \\
+\cmidrule(lr){4-6} \cmidrule(lr){7-9}
+Rung & Rows & MAE & Skill & 5\,\% & 95\,\% & Skill & 5\,\% & 95\,\% & Cov. & Gain & $r_1$ \\
+\midrule
+\input{../outputs/GM_16_body.tex}\\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F14_ladder.png}
+\caption{The current-era ladder. Top: held-out mean absolute error per rung.
+Bottom: the paired block-bootstrap skill of each rung over the one below,
+with its 5 and 95\,\% bounds; zero means the added or replaced channel
+changed nothing.}
+\label{fig:ladder}
+\end{figure}
 
 % ===========================================================================
 \section{The monitor}
