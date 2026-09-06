@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.abspath(
 logging.getLogger('NP').setLevel(logging.ERROR)
 
 
-def _frame(n=24 * 40, freq='1h', seed=0):
+def _frame(n=24 * 40, freq='1h', seed=0, extra=()):
     rng = np.random.default_rng(seed)
     ds = pd.date_range('2024-01-01', periods=n, freq=freq)
     hours = np.arange(n)
@@ -28,8 +28,10 @@ def _frame(n=24 * 40, freq='1h', seed=0):
     y = 100.0 - 2.5 * np.roll(x, 3) + rng.normal(0, 0.3, n)
     doy = ds.dayofyear.to_numpy()
     summer_w = 0.5 * (1 - np.cos(2 * np.pi * (doy - 15) / 365.0))
-    return pd.DataFrame({'ds': ds, 'y': y, 'x': x,
-                         'summer_w': summer_w, 'winter_w': 1 - summer_w})
+    columns = {'ds': ds, 'y': y, 'x': x,
+               'summer_w': summer_w, 'winter_w': 1 - summer_w}
+    return pd.DataFrame({'ds': ds, 'y': y,
+                         **{name: columns[name] for name in extra}})
 
 
 def _model(**kwargs):
@@ -46,7 +48,7 @@ class TestLaggedRegressorWithoutAutoregression(unittest.TestCase):
     """Spec D9: Model B carries lagged regressors with n_lags=0 on the target."""
 
     def test_fit_and_predict_with_lagged_regressor_only(self):
-        df = _frame()
+        df = _frame(extra=('x',))
         m = _model()
         m.add_lagged_regressor('x', n_lags=6)
         m.fit(df, freq='1h', progress='none', minimal=True)
@@ -60,7 +62,7 @@ class TestConformalPredict(unittest.TestCase):
     """Spec D8: split conformal prediction with the cqr method."""
 
     def test_conformal_columns(self):
-        df = _frame()
+        df = _frame(extra=('x',))
         train, cal, test = df.iloc[:600], df.iloc[600:800], df.iloc[800:]
         m = _model()
         m.add_future_regressor('x')
@@ -97,7 +99,7 @@ class TestConditionalSeasonalityWithFloatWeights(unittest.TestCase):
     """Spec D7: two daily series blended by float weights in 0..1."""
 
     def test_float_conditions_are_accepted_and_decomposed(self):
-        df = _frame()
+        df = _frame(extra=('summer_w', 'winter_w'))
         m = _model(daily_seasonality=False)
         m.add_seasonality(name='daily_summer', period=1, fourier_order=3,
                           condition_name='summer_w')
