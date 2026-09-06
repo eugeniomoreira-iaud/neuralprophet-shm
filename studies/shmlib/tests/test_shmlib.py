@@ -786,6 +786,50 @@ class TestFiguresStudy05(unittest.TestCase):
         self.assertEqual(len(fig.axes), 4)
         plt.close(fig)
 
+    def test_plot_fit_metrics_draws_one_panel(self):
+        import matplotlib.pyplot as plt
+        metrics = pd.DataFrame({'MAE': [3.0, 2.0, 1.5], 'MAE_val': [3.2, 2.4, 1.9]})
+        fig = figures.plot_fit_metrics(metrics)
+        self.assertEqual(len(fig.axes), 1)
+        plt.close(fig)
+
+    def test_plot_trend_parameters_draws_two_panels(self):
+        import matplotlib.pyplot as plt
+        index = pd.date_range('2024-01-01', periods=48, freq='1h', tz='UTC')
+        trend = pd.Series(np.linspace(0.0, 4.0, 48), index=index)
+        rates = pd.DataFrame({'start': [index[0], index[24]],
+                              'end': [index[23], index[-1]],
+                              'rate_mdeg_per_year': [30.0, 45.0]})
+        changepoints = pd.DatetimeIndex([index[24]])
+        fig = figures.plot_trend_parameters(trend, rates, changepoints)
+        self.assertEqual(len(fig.axes), 2)
+        plt.close(fig)
+
+    def test_plot_seasonal_parameters_draws_two_panels(self):
+        import matplotlib.pyplot as plt
+        year = pd.date_range('2001-01-01', periods=365, freq='D')
+        yearly_rows = pd.DataFrame({
+            'date': year, 'hour': 0.0, 'component': 'yearly',
+            'value': np.cos(2 * np.pi * np.arange(365) / 365.25)})
+        dates = [pd.Timestamp('2024-06-21'), pd.Timestamp('2024-12-21')]
+        hours = np.arange(24)
+        daily_rows = pd.concat([
+            pd.DataFrame({'date': date, 'hour': hours, 'component': 'daily',
+                         'value': np.sin(2 * np.pi * hours / 24.0)})
+            for date in dates], ignore_index=True)
+        curves = pd.concat([yearly_rows, daily_rows], ignore_index=True)
+        fig = figures.plot_seasonal_parameters(curves)
+        self.assertEqual(len(fig.axes), 2)
+        plt.close(fig)
+
+    def test_plot_regressor_gains_draws_one_panel(self):
+        import matplotlib.pyplot as plt
+        gains = pd.DataFrame({'set': ['gs', 'era5'], 'regressor': ['tair', 'tair'],
+                              'gain': [-2.4, -2.1], 'study03_gain': [-2.5, -2.5]})
+        fig = figures.plot_regressor_gains(gains)
+        self.assertEqual(len(fig.axes), 1)
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

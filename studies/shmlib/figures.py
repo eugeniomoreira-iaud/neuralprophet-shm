@@ -2499,3 +2499,173 @@ def plot_regressor_sets(frame, target, sets, target_channel='inc_comp', title=''
         fig.suptitle(title)
     viz.finish(fig, save_path=save_path, filename=filename)
     return fig
+
+
+def plot_fit_metrics(metrics, title='', save_path=None, filename=None):
+    """
+    Training and validation MAE by epoch, the tutorial's own curve, redrawn.
+
+    Parameters
+    ----------
+    metrics : pd.DataFrame
+        NeuralProphet's own fit-metrics frame (``model.fit_metrics_``),
+        indexed by epoch, with a ``MAE`` column and, when a validation frame
+        was fitted with, ``MAE_val``.
+    title : str, optional
+        Figure title. Default ``''``, which draws none.
+    save_path, filename : optional
+        Passed to :func:`shmlib.viz.finish`. Default ``None``, no save.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, ax = plt.subplots(figsize=viz.figsize(viz.FIGURE_WIDTH, 2.4))
+    ax.plot(metrics.index, metrics['MAE'], color=viz.INC_COLOUR, label='training')
+    if 'MAE_val' in metrics.columns:
+        ax.plot(metrics.index, metrics['MAE_val'], color=viz.INC_COLOUR,
+                linestyle='--', label='validation')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('MAE [mdeg]')
+    viz.format_spines(ax)
+    ax.legend(fontsize='small', ncol=2, loc='upper center',
+              bbox_to_anchor=(0.5, -0.30), frameon=False)
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_trend_parameters(trend, rates, changepoints, title='', save_path=None,
+                          filename=None):
+    """
+    The trend on covered time above, the rate of each segment below;
+    changepoints in the accent colour.
+
+    Parameters
+    ----------
+    trend : pd.Series
+        Datetime-indexed fitted trend, as returned by
+        :func:`shmlib.prediction.trend_parameters`.
+    rates : pd.DataFrame
+        ``start``, ``end``, ``rate_mdeg_per_year`` per segment, as returned
+        by the same function.
+    changepoints : pd.DatetimeIndex
+        Changepoint locations, marked with a vertical line on both panels.
+    title : str, optional
+        Figure title. Default ``''``, which draws none.
+    save_path, filename : optional
+        Passed to :func:`shmlib.viz.finish`. Default ``None``, no save.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, axes = plt.subplots(2, 1, sharex=True,
+                             figsize=viz.figsize(viz.FIGURE_WIDTH, 3.6))
+    axes[0].plot(trend.index, trend, color=viz.INC_COLOUR, linewidth=1.0)
+    axes[0].set_ylabel('Trend [mdeg]')
+    for stamp in pd.DatetimeIndex(changepoints):
+        for ax in axes:
+            ax.axvline(stamp, color=viz.MARK_COLOUR, linewidth=0.6)
+    for _, row in rates.iterrows():
+        axes[1].hlines(row['rate_mdeg_per_year'], row['start'], row['end'],
+                       color=viz.INC_COLOUR, linewidth=2.0)
+    axes[1].axhline(0.0, color='black', linewidth=0.5)
+    axes[1].set_ylabel('Rate [mdeg/yr]')
+    for ax in axes:
+        viz.format_spines(ax)
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_seasonal_parameters(curves, title='', save_path=None, filename=None):
+    """
+    The yearly curve on the left; the daily curve per evaluated date on the
+    right.
+
+    A two-panel figure, so per the project's graphical guidelines its legend
+    belongs to the figure rather than to the right-hand axes: one
+    :class:`matplotlib.lines.Line2D` handle is built per plotted date, in the
+    accent-free identity colour every panel already shares, and the figure's
+    own legend is drawn centred below both panels.
+
+    Parameters
+    ----------
+    curves : pd.DataFrame
+        Long ``date``, ``hour``, ``component``, ``value``, as returned by
+        :func:`shmlib.prediction.seasonal_parameters`.
+    title : str, optional
+        Figure title. Default ``''``, which draws none.
+    save_path, filename : optional
+        Passed to :func:`shmlib.viz.finish`. Default ``None``, no save.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, axes = plt.subplots(1, 2, figsize=viz.figsize(viz.FIGURE_WIDTH, 2.6))
+    yearly = curves[curves['component'] == 'yearly']
+    axes[0].plot(pd.DatetimeIndex(yearly['date']).dayofyear, yearly['value'],
+                 color=viz.INC_COLOUR)
+    axes[0].set_xlabel('Day of year')
+    axes[0].set_ylabel('Yearly term [mdeg]')
+    daily = curves[curves['component'] != 'yearly']
+    styles = ['-', '--', ':', '-.']
+    handles = []
+    for style, (date, group) in zip(styles * 4, daily.groupby('date')):
+        total = group.groupby('hour')['value'].sum()
+        axes[1].plot(total.index, total, color=viz.INC_COLOUR, linestyle=style)
+        handles.append(Line2D([], [], color=viz.INC_COLOUR, linestyle=style,
+                              label=pd.Timestamp(date).strftime('%d %b')))
+    axes[1].set_xlabel('Hour of day (UTC)')
+    axes[1].set_ylabel('Daily term [mdeg]')
+    for ax in axes:
+        viz.format_spines(ax)
+    fig.legend(handles, [h.get_label() for h in handles], loc='upper center',
+              bbox_to_anchor=(0.5, -0.01), ncol=len(handles), frameon=False)
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_regressor_gains(gains, title='', save_path=None, filename=None):
+    """
+    Learned gain per driver and set, with Study 03's measurement beside
+    each.
+
+    Parameters
+    ----------
+    gains : pd.DataFrame
+        ``set``, ``regressor``, ``gain``, ``study03_gain``, one row per
+        driver evaluated in one regressor set.
+    title : str, optional
+        Figure title. Default ``''``, which draws none.
+    save_path, filename : optional
+        Passed to :func:`shmlib.viz.finish`. Default ``None``, no save.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, ax = plt.subplots(figsize=viz.figsize(viz.FIGURE_WIDTH, 2.6))
+    labels = [f"{r['set']} · {r['regressor']}" for _, r in gains.iterrows()]
+    positions = np.arange(len(gains))
+    ax.bar(positions - 0.2, gains['gain'], width=0.4, color=viz.INC_COLOUR,
+           label='learned')
+    ax.bar(positions + 0.2, gains['study03_gain'], width=0.4,
+           color=viz.INC_COLOUR, alpha=0.4, label='Study 03')
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, rotation=30, ha='right', fontsize='small')
+    ax.axhline(0.0, color='black', linewidth=0.5)
+    ax.set_ylabel('Gain [mdeg per unit]')
+    viz.format_spines(ax)
+    ax.legend(fontsize='small', ncol=2, loc='upper center',
+              bbox_to_anchor=(0.5, -0.45), frameon=False)
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
