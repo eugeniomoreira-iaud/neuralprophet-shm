@@ -869,16 +869,37 @@ def _quantile_column(columns, horizon, quantile):
 
 
 def _long_predictions(predictions, test_index, has_id, horizons, quantiles):
-    """Convert NeuralProphet's wide prediction table to study-long format."""
-    test_ds = set(pd.DatetimeIndex(test_index))
+    """
+    Convert NeuralProphet's wide prediction table to study-long format.
+
+    NeuralProphet's ``predict`` always returns its ``ds`` column tz-naive,
+    converted through UTC internally, even when the frame it was given
+    carried a tz-aware ``DatetimeIndex``. Comparing that naive value against
+    a tz-aware ``test_index`` by direct set membership never matches, since a
+    naive and a tz-aware ``Timestamp`` hash differently even at the same
+    instant, so every row would be silently dropped rather than raising an
+    error. The lookup below keys on each side's UTC-naive representation —
+    a no-op when ``test_index`` is itself tz-naive, which is how every
+    caller before this one used it — and reports each matched row under the
+    original, tz-aware timestamp from ``test_index``, so a tz-aware caller
+    gets tz-aware ``ds`` values back exactly as it would expect.
+    """
+    test_index = pd.DatetimeIndex(test_index)
+    if test_index.tz is not None:
+        lookup = dict(zip(test_index.tz_convert('UTC').tz_localize(None),
+                          test_index))
+    else:
+        lookup = {stamp: stamp for stamp in test_index}
+    test_ds = set(lookup)
     rows = []
     quantiles = list(quantiles or [])
     lower = min(quantiles) if quantiles else None
     upper = max(quantiles) if quantiles else None
     for _, record in predictions.iterrows():
-        ds = pd.Timestamp(record['ds'])
-        if ds not in test_ds:
+        raw_ds = pd.Timestamp(record['ds'])
+        if raw_ds not in test_ds:
             continue
+        ds = lookup[raw_ds]
         for horizon in horizons:
             yhat_col = f'yhat{horizon}'
             if yhat_col not in predictions.columns or pd.isna(record[yhat_col]):
@@ -910,7 +931,12 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
                            horizons=None, epochs=30, yearly=False,
                            quantiles=(0.05, 0.95), seed=0, growth='off',
                            changepoints=None, n_changepoints=10, freq=None,
-                           decompose=False):
+                           decompose=False, trend_reg=0.0,
+                           changepoints_range=None, learning_rate=0.01,
+                           yearly_order=None, daily_order=None,
+                           conditional_seasonality=None, lagged_regressors=(),
+                           lagged_n_lags=None, lagged_regularization=None,
+                           validation=None):
     """
     Fit one NeuralProphet model and return long out-of-sample predictions.
 
@@ -964,6 +990,76 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
     decompose : bool, optional
         Whether ``model.predict`` returns component columns beside the
         prediction. Default ``False``, which is what a scoring run needs.
+    trend_reg : float, optional
+        L1 regularisation strength on the trend's changepoint deltas, passed
+        to the constructor unchanged. ``0.0`` reproduces NeuralProphet's own
+        default of an unregularised, freely bending trend. NeuralProphet
+        0.8.0 rescales a positive value by ``0.001`` internally when
+        changepoints exist, and zeroes it when there are none (``growth``
+        ``'off'`` or ``n_changepoints=0``), so the number this argument
+        takes is in this wrapper's user-facing scale, not the scale stored
+        on the fitted model's ``config_trend.trend_reg``. Default ``0.0``.
+    changepoints_range : float or None, optional
+        Fraction of the training range, from its start, in which
+        changepoints may be placed. ``None`` omits the argument from the
+        constructor entirely, so NeuralProphet's own default range applies
+        exactly as it did before this parameter existed. Default ``None``.
+    learning_rate : float, optional
+        Optimiser learning rate, passed to the constructor unchanged.
+        Default ``0.01``, NeuralProphet's own default and this wrapper's
+        previous hard-coded value.
+    yearly_order : int or None, optional
+        Fourier order of yearly seasonality. ``None`` falls back to the
+        boolean ``yearly`` flag, exactly as before this parameter existed;
+        an integer overrides ``yearly`` and requests that many harmonics
+        instead of NeuralProphet's own automatic order. Default ``None``.
+    daily_order : int or None, optional
+        Fourier order of daily seasonality. ``None`` requests NeuralProphet's
+        automatic daily seasonality (``daily_seasonality=True``), the
+        wrapper's previous behaviour; an integer requests that many
+        harmonics instead. When ``conditional_seasonality`` is also given,
+        this order is reused for each conditional daily term and the
+        unconditional daily seasonality is turned off, since the two would
+        otherwise explain the same variation twice. Default ``None``.
+    conditional_seasonality : dict or None, optional
+        Maps a seasonality name to the frame column that gates it, for
+        example ``{'daily_summer': 'summer_w', 'daily_winter': 'winter_w'}``.
+        Each entry becomes one call to ``model.add_seasonality(name,
+        period=1, fourier_order=daily_order or 6, condition_name=column)``,
+        and every named condition column is carried through into the model
+        frames alongside the regressors. Giving this argument turns the
+        model's unconditional daily seasonality off, on the understanding
+        that the conditional terms replace it. ``None`` (the default)
+        registers no conditional seasonality and leaves daily seasonality
+        exactly as ``daily_order`` and ``yearly`` already describe it.
+    lagged_regressors : sequence of str, optional
+        Regressor columns registered as NeuralProphet lagged (autoregressive)
+        regressors regardless of ``task`` — unlike ``regressors``, which
+        follows the forecast/nowcast switch, every name here always reaches
+        ``model.add_lagged_regressor``, so a nowcast model can still see a
+        driver's recent history. Each such column is also carried through
+        into the model frames. Default empty, which registers none and
+        leaves nowcast models exactly as free of lagged regressors as
+        before this parameter existed.
+    lagged_n_lags : int or None, optional
+        Number of past steps used for every column in ``lagged_regressors``.
+        ``None`` falls back to ``regressor_lags``. Ignored when
+        ``lagged_regressors`` is empty. Default ``None``.
+    lagged_regularization : float or None, optional
+        Regularisation strength passed to ``add_lagged_regressor`` for every
+        column in ``lagged_regressors``. ``None`` requests NeuralProphet's
+        own default (no regularisation). Ignored when ``lagged_regressors``
+        is empty. Default ``None``.
+    validation : pd.DataFrame or None, optional
+        A held-out frame, shaped like ``train``, scored after every training
+        epoch. Giving it switches the constructor's ``collect_metrics`` on
+        and calls ``model.fit`` with ``validation_df=`` and
+        ``minimal=False``, and the metrics frame ``fit`` returns is stored
+        on the fitted model as ``model.fit_metrics_`` for a caller to read
+        back (see :func:`~shmlib.figures.plot_fit_metrics`). ``None`` (the
+        default) fits exactly as before this parameter existed: no
+        validation frame, ``collect_metrics=False``, ``minimal=True``, and
+        no ``fit_metrics_`` attribute is set.
 
     Returns
     -------
@@ -979,7 +1075,12 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
         whenever ``train`` and ``test`` carry no ``segment_id`` or every
         segment already holds two or more rows, and a separate
         ``UserWarning`` — naming which side, and how many rows and segments
-        — is raised for each side that is not.
+        — is raised for each side that is not. The fitted model also carries
+        ``extra_columns_``, the tuple of lagged-regressor and condition
+        columns (beyond ``regressors``) that were passed through to fit it;
+        :func:`decompose_components` and :func:`trend_parameters` read it
+        back so a caller does not have to repeat those column names at
+        prediction time.
     """
     if task not in {'forecast', 'nowcast'}:
         raise ValueError("task must be 'forecast' or 'nowcast'")
@@ -990,20 +1091,26 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
     np.random.seed(seed)
 
     regressors = tuple(regressors or ())
+    lagged_regressors = tuple(lagged_regressors or ())
+    conditions = dict(conditional_seasonality or {})
     if task == 'nowcast':
         n_lags = 0
         n_forecasts = 1
 
-    model = NeuralProphet(
+    daily_setting = True if daily_order is None else int(daily_order)
+    if conditions:
+        daily_setting = False
+    constructor = dict(
         growth=growth,
         changepoints=(list(pd.DatetimeIndex(changepoints))
                       if changepoints is not None else None),
         n_changepoints=int(n_changepoints),
+        trend_reg=float(trend_reg),
         n_lags=int(n_lags),
         n_forecasts=int(n_forecasts),
-        daily_seasonality=True,
+        daily_seasonality=daily_setting,
         weekly_seasonality=False,
-        yearly_seasonality=yearly,
+        yearly_seasonality=(yearly if yearly_order is None else int(yearly_order)),
         normalize='standardize',
         global_normalization=True,
         global_time_normalization=True,
@@ -1011,27 +1118,49 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
         impute_missing=False,
         drop_missing=False,
         loss_func='SmoothL1Loss',
-        learning_rate=0.01,
+        learning_rate=float(learning_rate),
         epochs=int(epochs),
         quantiles=list(quantiles or ()),
-        collect_metrics=False,
+        collect_metrics=validation is not None,
     )
+    if changepoints_range is not None:
+        constructor['changepoints_range'] = float(changepoints_range)
+    model = NeuralProphet(**constructor)
+    for name, column in conditions.items():
+        model.add_seasonality(name=name, period=1,
+                              fourier_order=int(daily_order or 6),
+                              condition_name=column)
     for regressor in regressors:
         if task == 'nowcast':
             model.add_future_regressor(regressor)
         else:
             model.add_lagged_regressor(regressor, n_lags=int(regressor_lags))
+    for regressor in lagged_regressors:
+        model.add_lagged_regressor(
+            regressor, n_lags=int(lagged_n_lags or regressor_lags),
+            regularization=lagged_regularization)
 
-    train_df = _model_frame(train, regressors)
-    test_df = _model_frame(test, regressors)
+    passthrough = tuple(regressors) + lagged_regressors + tuple(conditions.values())
+    model.extra_columns_ = tuple(c for c in passthrough if c not in regressors)
+    train_df = _model_frame(train, passthrough)
+    test_df = _model_frame(test, passthrough)
     fit_freq = freq if freq is not None else _analysis_freq(train.index)
     train_df = _drop_singleton_segments(train_df, 'neuralprophet_backtest',
                                         'fitting')
-    model.fit(train_df, freq=fit_freq, progress='none', minimal=True)
+    if validation is not None:
+        validation_df = _drop_singleton_segments(
+            _model_frame(validation, passthrough), 'neuralprophet_backtest',
+            'validation')
+        model.fit_metrics_ = model.fit(train_df, freq=fit_freq,
+                                       validation_df=validation_df,
+                                       progress='none', minimal=False)
+    else:
+        model.fit(train_df, freq=fit_freq, progress='none', minimal=True)
 
     segmented_test = 'segment_id' in test.columns
     predict_df = test_df if task == 'nowcast' or segmented_test else pd.concat(
-        [train_df.tail(max(int(n_lags), int(regressor_lags))), test_df],
+        [train_df.tail(max(int(n_lags), int(regressor_lags),
+                           int(lagged_n_lags or 0))), test_df],
         ignore_index=True)
     predict_df = _drop_singleton_segments(predict_df, 'neuralprophet_backtest',
                                           'prediction')
@@ -1508,6 +1637,42 @@ def covered_changepoints(index, n_changepoints, observed_mask=None):
     return pd.DatetimeIndex(covered[positions])
 
 
+def _frame_columns(model, frame, regressors):
+    """
+    Every column a model frame needs: the requested regressors, plus
+    whatever the model itself was fit with beyond them.
+
+    ``neuralprophet_backtest`` records the lagged-regressor and condition
+    columns it passed through at fit time on the fitted model, as
+    ``extra_columns_``, because NeuralProphet requires those same columns in
+    every frame handed to ``predict`` afterwards — not only ``fit`` — or it
+    raises a ``KeyError`` on the missing condition column. This adds back
+    whichever of them are present in ``frame`` and not already named in
+    ``regressors``, so a caller of :func:`decompose_components` or
+    :func:`trend_parameters` does not have to repeat them by hand. A model
+    without ``extra_columns_`` (for instance one built outside
+    ``neuralprophet_backtest``) is treated as having none.
+
+    Parameters
+    ----------
+    model : object
+        A NeuralProphet model, optionally carrying ``extra_columns_``.
+    frame : pd.DataFrame
+        The frame the columns will be read from.
+    regressors : sequence of str
+        Regressor columns already requested by the caller.
+
+    Returns
+    -------
+    tuple of str
+        ``regressors`` followed by any extra column present in ``frame``.
+    """
+    regressors = tuple(regressors)
+    extra = tuple(c for c in getattr(model, 'extra_columns_', ())
+                  if c in frame.columns and c not in regressors)
+    return regressors + extra
+
+
 def decompose_components(model, frame, regressors=(), freq=None):
     """
     The additive parts NeuralProphet fitted, aligned to the study's index.
@@ -1516,7 +1681,12 @@ def decompose_components(model, frame, regressors=(), freq=None):
     prediction. This reshapes them into one timestamp-indexed table, adds the
     observed value and the residual, and leaves the component names as the model
     produced them, so that a reader can trace any column back to the term that
-    made it.
+    made it. Columns the model needed at fit time beyond ``regressors`` —
+    lagged-regressor and condition columns registered through
+    ``neuralprophet_backtest``'s ``lagged_regressors`` and
+    ``conditional_seasonality`` — are supplied again automatically, through
+    :func:`_frame_columns`, because NeuralProphet requires them again at
+    predict time.
 
     Parameters
     ----------
@@ -1539,7 +1709,7 @@ def decompose_components(model, frame, regressors=(), freq=None):
         produced, plus ``y``, ``yhat1``, ``residual`` and, when the input was
         segmented, ``ID``.
     """
-    model_frame = _model_frame(frame, regressors)
+    model_frame = _model_frame(frame, _frame_columns(model, frame, regressors))
     if getattr(model, 'n_lags', None) == 0:
         model_frame['y'] = model_frame['y'].fillna(0.0)
     wide = model.predict(model_frame, decompose=True)
