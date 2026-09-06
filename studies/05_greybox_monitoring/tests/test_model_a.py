@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import unittest
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -420,6 +421,23 @@ class TestRollingAdditions(unittest.TestCase):
             epochs=2, growth='linear', n_changepoints=2, quantiles=(0.05, 0.95))
         self.assertIn('staleness_d', out.columns)
         self.assertGreater(out['origin'].nunique(), 1)
+
+    def test_score_predictions_skips_an_unused_category_without_warning(self):
+        # Carried-over Phase 3 review fix: pandas 2.3 warns (soon errors)
+        # when groupby() on a categorical column is not told whether to
+        # restrict itself to the categories that actually occur. Before the
+        # fix, an unused category silently produced an all-NaN row here;
+        # after it, that row must not appear at all, and the call itself
+        # must raise no FutureWarning.
+        frame = pd.DataFrame({
+            'y': [1.0, 2.0, 3.0, 4.0],
+            'yhat': [1.1, 1.9, 3.2, 3.8],
+            'group': pd.Categorical(['a', 'a', 'b', 'b'], categories=['a', 'b', 'c']),
+        })
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', FutureWarning)
+            out = prediction.score_predictions(frame, ['group'])
+        self.assertEqual(sorted(out['group'].astype(str)), ['a', 'b'])
 
 
 if __name__ == '__main__':

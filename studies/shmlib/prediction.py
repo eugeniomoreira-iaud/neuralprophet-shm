@@ -559,7 +559,7 @@ def score_predictions(frame, group_cols, naive_scale=None, alpha=0.10):
         return pd.DataFrame([_score_group(frame, naive_scale, alpha)])
 
     rows = []
-    grouped = frame.groupby(group_cols, dropna=False, sort=True)
+    grouped = frame.groupby(group_cols, dropna=False, sort=True, observed=True)
     for key, group in grouped:
         if not isinstance(key, tuple):
             key = (key,)
