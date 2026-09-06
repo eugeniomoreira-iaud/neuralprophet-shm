@@ -40,8 +40,9 @@ able to answer is operational rather than diagnostic. Given the environment
 measured at this instant, is this inclination the one the wall was expected to
 show, and if it is not, which kind of departure is it? Study~04 posed that
 question on the window after the long outage of 2022 to 2023 and answered part
-of it. It also recorded its own weak points: an annual term and a trend that
-did not converge on 3.2 interrupted cycles; a conformal interval calibrated
+of it. It also recorded its own weak points: an annual term that was not
+identifiable on 3.2 interrupted cycles, and a trend that changed sign across
+the thirds of its window; a conformal interval calibrated
 once, eleven months before the record it was then asked to cover, that reached
 67.7\,\% coverage against a nominal 90\,\%; a residual whose lag-one
 autocorrelation of 0.995 pushed the control limit to 14.75 standard deviations
@@ -72,8 +73,10 @@ internal state that leads the deformation and must not be used predictively at
 its measured lead. Study~04 settled the modelling choices this study keeps: no
 autoregression in the decomposition, because it absorbs the diurnal structure
 the regressors should explain; changepoints placed on covered time; the level
-decomposed and monitored rather than scored as a forecast; and no value of the
-target ever imputed, with the library's own gap filling switched off.
+decomposed and monitored rather than scored as a forecast; contemporaneous
+regressors in the expectation treated as legitimate inputs rather than as
+leakage; and no value of the target ever imputed, with the library's own gap
+filling switched off.
 
 Two boundaries hold throughout. The thermal compensation is taken as given: it
 is the manufacturer's procedure, it has been validated against the user's
@@ -101,9 +104,8 @@ recording is set against the level observed?
 \label{sec:record}
 
 The study window is the whole station~02 record, from 26~July 2018 to the end
-of the archive, on the instrument's native grid of one reading every twenty
-minutes: 212,251 slots. The first accepted inclination falls on 28~July 2018
-and the last on 20~August 2026. Unlike Study~04, which worked on the stretch
+of the archive in August 2026, on the instrument's native grid of one reading
+every twenty minutes: 212,251 slots. Unlike Study~04, which worked on the stretch
 after the long outage of 2022 to 2023, this study uses every usable annual
 cycle, because an annual term cannot be identified on three broken years, and
 a trend estimated on such a window disagreed with itself in sign
