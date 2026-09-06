@@ -326,8 +326,18 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 # carry a changepoint; default `0.95`.
 #
 # **`TREND_REG`** — regularization on the trend's rate changes; default
-# `None`, swept in Phase 2 (D7, NeuralProphet tutorial 02 and the sub-daily
-# guide).
+# `0.0`, the value `GM_05c`'s sweep chose on the on-structure set's held-out
+# tail (D7, NeuralProphet tutorial 02 and the sub-daily guide). `None`
+# defers to the sweep instead of fixing a value; the sweep cell still runs
+# and reports every candidate's held-out MAE regardless.
+#
+# **`TREND_REG_CANDIDATES`** — the trend-regularisation values swept on the
+# on-structure set's held-out tail before Model A is fitted for attribution
+# (`GM_05c`); default `(0.0, 0.5, 1.0, 2.0, 5.0)`. These candidates, like
+# `TREND_REG` itself, are in the wrapper's user-facing scale: NeuralProphet
+# 0.8.0 rescales a positive value by `0.001` internally once changepoints
+# exist, so the number stored on a fitted model's own
+# `config_trend.trend_reg` is smaller than the candidate that produced it.
 #
 # **`YEARLY_ORDER`** — Fourier order of the annual term; default `1`, fixed
 # from `GM_04` (D6): the regression residual certifies the annual cycle in its
@@ -384,11 +394,20 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 # **`CONDITIONAL_KEEP_MIN_SHARE`** — minimum variance share the conditional
 # daily term must carry to be kept over the plain daily term when held-out
 # MAE does not already decide it; default `0.01` (D7).
+#
+# **`STUDY03_GAINS`** — Study 03's measured gain per regressor set and
+# driver, in millidegrees per unit of the driver, placed beside every
+# learned gain in `GM_06`; default `{('str', 'tair'): -2.79, ('gs', 'tair'):
+# -2.23, ('era5', 'tair'): -2.04, ('str', 'sr'): -0.035, ('gs', 'sr'):
+# -0.035, ('era5', 'sr'): -0.026, ('str', 'rh'): np.nan, ('gs', 'rh'):
+# np.nan, ('era5', 'rh'): np.nan}`. Relative humidity carries no Study 03
+# measurement, hence `np.nan` on every set for that driver.
 
 # %%
 N_CHANGEPOINTS = 12
 CHANGEPOINTS_RANGE = 0.95
-TREND_REG = None              # swept in Phase 2
+TREND_REG = 0.0                # GM_05c: chosen by the sweep on the on-structure held-out tail
+TREND_REG_CANDIDATES = (0.0, 0.5, 1.0, 2.0, 5.0)
 YEARLY_ORDER = 1              # GM_04: annual peak certified on the residual, no semi-annual one
 DAILY_ORDER = 2               # GM_04: the 12-hour companion of the daily cycle is certified
 WEEKLY_SEASONALITY = False
@@ -408,6 +427,9 @@ WEIGHT_CURVE = {               # GM_04: order-two annual fit of the residual's d
     'n': 1752,
 }                              # None selects the mid-July cosine fallback
 CONDITIONAL_KEEP_MIN_SHARE = 0.01
+STUDY03_GAINS = {('str', 'tair'): -2.79, ('gs', 'tair'): -2.23, ('era5', 'tair'): -2.04,
+                 ('str', 'sr'): -0.035, ('gs', 'sr'): -0.035, ('era5', 'sr'): -0.026,
+                 ('str', 'rh'): np.nan, ('gs', 'rh'): np.nan, ('era5', 'rh'): np.nan}
 
 # %% [markdown]
 # ## Parameters · Uncertainty and validation
@@ -850,3 +872,209 @@ for name in fits:
            for k, v in fits[name]['amplitude'].items()})
     print(name, 'certified periods:')
     display(scans[name])
+
+# %% [markdown]
+# ## Movement 2 · What the record is made of
+#
+# One specification (D7), fitted once per regressor set on the full training
+# window for attribution. The trend regularisation is swept on a held-out
+# tail; the conditional daily term is tested against the plain one and kept
+# only if it earns its place. Every native NeuralProphet plot runs here as a
+# diagnostic, rendered to PNG rather than shown as inline SVG; the report's
+# figures are the same content redrawn (D14). The movement writes the tables
+# `GM_04d`, `GM_05`, `GM_05b`, `GM_05c`, `GM_06`, `GM_07` and `GM_08`, and the
+# figures `GM_F03` to `GM_F06b`.
+
+# %% [markdown]
+# ### Regressor-set frames and the held-out split
+#
+# Each regressor set's block is joined with the target and the conditional-
+# seasonality weight columns into one model-ready frame per set
+# (`prediction.regressor_set_frames`); rows a set cannot cover are dropped
+# rather than filled. The on-structure set's frame is further split into a
+# training head and a held-out tail, and its changepoints placed on that
+# head's own covered time — both reused by the trend-regularisation sweep
+# and the conditional-daily-term comparison below.
+
+# %%
+def_frames = prediction.regressor_set_frames(
+    sets, frame['y'], roles=('tair', 'rh', 'sr'), weight_curve=WEIGHT_CURVE)
+
+split_at = int(len(def_frames['str']) * (1 - VALID_P))
+train_str = def_frames['str'].iloc[:split_at]
+valid_str = def_frames['str'].iloc[split_at:]
+changepoints_str = prediction.covered_changepoints(train_str.index, N_CHANGEPOINTS)
+
+# %% [markdown]
+# ### Trend regularisation swept on the held-out tail
+#
+# Every candidate in `TREND_REG_CANDIDATES` is fitted once on the
+# on-structure set's training head and scored on its held-out tail; the
+# candidate of lowest held-out MAE becomes `TREND_REG` for every fit that
+# follows, and every candidate's score is written to `GM_05c` so the margin
+# behind the winner is on record rather than assumed.
+
+# %%
+sweep = prediction.sweep_trend_reg(
+    train_str, valid_str, TREND_REG_CANDIDATES, ('tair', 'rh', 'sr'),
+    epochs=EPOCHS, freq=NATIVE_FREQ, growth='linear',
+    changepoints=changepoints_str, n_changepoints=N_CHANGEPOINTS,
+    changepoints_range=CHANGEPOINTS_RANGE, yearly_order=YEARLY_ORDER,
+    daily_order=DAILY_ORDER, quantiles=QUANTILES, seed=SEED,
+    learning_rate=LEARNING_RATE)
+display(sweep)
+chosen = float(sweep.loc[sweep['chosen'], 'trend_reg'].iloc[0])
+TREND_REG = TREND_REG if TREND_REG is not None else chosen
+print('sweep-chosen trend_reg:', chosen)
+print('TREND_REG:', TREND_REG)
+sweep.to_csv(OUTPUT_DIR / 'GM_05c_trend_reg_sweep.csv', index=False)
+tables.write_table(sweep, str(OUTPUT_DIR / 'GM_05c_body.tex'),
+                   [('trend_reg', '.1f'), ('mae_val', '.3f'),
+                    ('chosen', tables.yes_no)])
+
+# %% [markdown]
+# ### The conditional daily term against the plain one
+#
+# Same held-out tail, now holding the trend regularisation fixed at
+# `TREND_REG`: one fit with no conditional seasonality and one with the
+# summer/winter daily terms. `prediction.compare_daily_terms` compares them
+# by held-out MAE and by the variance share the daily term(s) carry, and
+# `CONDITIONS` — the dict every attribution fit below is given — is set from
+# whichever the comparison, reported in `GM_05b`, prefers.
+
+# %%
+conditional_test, keep = prediction.compare_daily_terms(
+    train_str, valid_str, ('tair', 'rh', 'sr'),
+    {'daily_summer': 'summer_w', 'daily_winter': 'winter_w'},
+    CONDITIONAL_KEEP_MIN_SHARE, epochs=EPOCHS, freq=NATIVE_FREQ,
+    growth='linear', changepoints=changepoints_str, n_changepoints=N_CHANGEPOINTS,
+    changepoints_range=CHANGEPOINTS_RANGE, trend_reg=TREND_REG,
+    yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER, quantiles=QUANTILES,
+    seed=SEED, learning_rate=LEARNING_RATE)
+display(conditional_test)
+keep_conditional = CONDITIONAL_DAILY and keep
+CONDITIONS = ({'daily_summer': 'summer_w', 'daily_winter': 'winter_w'}
+              if keep_conditional else None)
+print('conditional daily term kept:', keep_conditional)
+conditional_test.to_csv(OUTPUT_DIR / 'GM_05b_conditional_test.csv', index=False)
+tables.write_table(conditional_test, str(OUTPUT_DIR / 'GM_05b_body.tex'),
+                   [('daily_term', tables.texttt), ('mae_val', '.3f'),
+                    ('daily_share', tables.percent)])
+
+# %% [markdown]
+# ### Attribution fit per set
+#
+# One `prediction.attribution_fits` call fits Model A once per regressor
+# set, on that set's full training window, with `TREND_REG` and `CONDITIONS`
+# now fixed; each fit's component variance shares, learned regressor gains
+# (beside Study 03's own measurements) and residual Ljung-Box diagnostics
+# are concatenated across sets and written to `GM_05`, `GM_06` and `GM_08`.
+
+# %%
+fits, shares, gains, diagnostics = prediction.attribution_fits(
+    def_frames, ('tair', 'rh', 'sr'), VALID_P, N_CHANGEPOINTS,
+    study03_gains=STUDY03_GAINS, diagnostic_lags=(1, 72, 216),
+    weight_curve=WEIGHT_CURVE, epochs=EPOCHS, freq=NATIVE_FREQ,
+    growth='linear', changepoints_range=CHANGEPOINTS_RANGE,
+    trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
+    conditional_seasonality=CONDITIONS, quantiles=QUANTILES, seed=SEED,
+    learning_rate=LEARNING_RATE)
+models_a = {n: (f['model'], f['train'], f['changepoints']) for n, f in fits.items()}
+components_a = {n: f['components'] for n, f in fits.items()}
+
+for table, number, name in ((shares, '05', 'component_shares'),
+                            (gains, '06', 'learned_gains'),
+                            (diagnostics, '08', 'residual_diagnostics')):
+    display(table)
+    table.to_csv(OUTPUT_DIR / f'GM_{number}_{name}.csv', index=False)
+tables.write_table(shares, str(OUTPUT_DIR / 'GM_05_body.tex'),
+                   [('set', tables.texttt), ('component', tables.texttt),
+                    ('share', tables.percent), ('peak_to_peak', ',.1f')])
+tables.write_table(gains, str(OUTPUT_DIR / 'GM_06_body.tex'),
+                   [('set', tables.texttt), ('regressor', tables.texttt),
+                    ('gain', '.3f'), ('study03_gain', '.3f'), ('r2', '.3f')])
+tables.write_table(diagnostics, str(OUTPUT_DIR / 'GM_08_body.tex'),
+                   [('set', tables.texttt), ('lag', 'd'), ('lb_pvalue', '.3g'),
+                    ('std', '.2f'), ('mad', '.2f')])
+
+# %% [markdown]
+# ### Native diagnostics, on-structure set only
+#
+# NeuralProphet's own forecast, component and parameter plots, run once on
+# the on-structure fit as a diagnostic (D14) — the report's own figures
+# below redraw the same content in the project's style. Each plot is
+# requested in NeuralProphet's plain `'plotly'` backend, which returns the
+# figure rather than showing it, and rendered inline through
+# `viz.show_static`: the alternative, NeuralProphet's `'plotly-static'`
+# backend, embeds every point of the whole record as inline SVG, tens of
+# megabytes per figure at this record's length and cadence, where a PNG of
+# the same picture is a few hundred kilobytes.
+
+# %%
+model, train, _ = models_a['str']
+forecast_native = model.predict(
+    prediction._model_frame(train, ('tair', 'rh', 'sr')
+                            + (tuple(CONDITIONS.values()) if CONDITIONS else ())),
+    decompose=True)
+for native in (model.plot(forecast_native, plotting_backend='plotly'),
+              model.plot_components(forecast_native, plotting_backend='plotly'),
+              model.plot_parameters(plotting_backend='plotly')):
+    viz.show_static(native)
+
+# %% [markdown]
+# ### Fold stability
+#
+# Component stability the NeuralProphet way: `prediction.fold_stability`
+# takes each set's already-fitted model's own `crossvalidation_split_df`
+# fold boundaries, refits from scratch on each fold's training slice, and
+# reports the on-structure air-temperature gain, the trend rate and the
+# yearly peak-to-peak per set and fold in `GM_07` — a component that changes
+# sign or order of magnitude between folds is noise the full-window fit
+# happened to land on, not a finding (§4.1).
+
+# %%
+stability = prediction.fold_stability(
+    fits, def_frames, ('tair', 'rh', 'sr'), N_CHANGEPOINTS, CV_FOLDS,
+    CV_FOLD_PCT, CV_FOLD_OVERLAP_PCT, NATIVE_FREQ, gain_regressor='tair',
+    epochs=EPOCHS, growth='linear', changepoints_range=CHANGEPOINTS_RANGE,
+    trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
+    conditional_seasonality=CONDITIONS, seed=SEED, learning_rate=LEARNING_RATE)
+display(stability)
+stability.to_csv(OUTPUT_DIR / 'GM_07_component_stability.csv', index=False)
+tables.write_table(stability, str(OUTPUT_DIR / 'GM_07_body.tex'),
+                   [('set', tables.texttt), ('fold', 'd'), ('tair_gain', '.3f'),
+                    ('yearly_peak_to_peak', '.1f'), ('trend_rate', '.1f'),
+                    ('mae_val', '.2f')])
+
+# %% [markdown]
+# ### Trend rates and the report's own figures
+#
+# The on-structure fit's own trend, segment rates and seasonal curves,
+# redrawn in the project's figure style rather than NeuralProphet's native
+# one: fit metrics (`GM_F03`), the trend and its per-segment rates
+# (`GM_04d`, `GM_F04`), the yearly and daily curves (`GM_F05`), the full
+# decomposition stack (`GM_F06`), and the learned gains beside Study 03's
+# own measurements (`GM_F06b`).
+
+# %%
+model_str, train_str_fit, changepoints_str = models_a['str']
+figures.plot_fit_metrics(model_str.fit_metrics_, title='Model A · on-structure set',
+                         save_path=str(OUTPUT_DIR), filename='GM_F03_fit_metrics')
+trend, rates = prediction.trend_parameters(model_str, train_str_fit, changepoints_str,
+                                           regressors=('tair', 'rh', 'sr'))
+rates.to_csv(OUTPUT_DIR / 'GM_04d_trend_rates.csv', index=False)
+tables.write_table(rates, str(OUTPUT_DIR / 'GM_04d_body.tex'),
+                   [(tables.date_cell('start'), None), (tables.date_cell('end'), None),
+                    ('rate_mdeg_per_year', '.2f')])
+figures.plot_trend_parameters(trend, rates, changepoints_str, title='Trend on covered time',
+                              save_path=str(OUTPUT_DIR), filename='GM_F04_trend')
+curves = prediction.seasonal_parameters(
+    model_str, ['2024-03-20', '2024-06-21', '2024-09-22', '2024-12-21'],
+    freq=NATIVE_FREQ, conditions=CONDITIONS, regressors=('tair', 'rh', 'sr'))
+figures.plot_seasonal_parameters(curves, title='Yearly and daily terms',
+                                 save_path=str(OUTPUT_DIR), filename='GM_F05_seasonality')
+figures.plot_decomposition_stack(components_a['str'], freq=NATIVE_FREQ,
+                                 title='Decomposition, on-structure set',
+                                 save_path=str(OUTPUT_DIR), filename='GM_F06_decomposition')
+figures.plot_regressor_gains(gains, title='Learned gains against Study 03',
+                             save_path=str(OUTPUT_DIR), filename='GM_F06b_gains')
