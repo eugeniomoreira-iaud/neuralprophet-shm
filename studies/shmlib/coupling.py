@@ -1086,6 +1086,44 @@ def evaluate_modulation(fit, index):
     return pd.Series(design @ fit['coef'], index=pd.DatetimeIndex(index))
 
 
+def centre_phase(phase, period_hours=24.0):
+    """
+    Recentre a periodic phase on its circular mean so that it can be fitted linearly.
+
+    An hour of daily maximum lives on a circle: 0 h and 24 h are the same
+    instant, and a least-squares fit that treats them as 24 hours apart is
+    pulled towards the middle of the axis by points that are in truth
+    neighbours. Recentring every value into the half-open window
+    ``[mean - period / 2, mean + period / 2)`` around the series' circular
+    mean removes the seam, provided the modulation itself stays within half
+    a period of that mean, which a daily cycle's timing does.
+
+    Parameters
+    ----------
+    phase : pd.Series
+        Phases in hours on ``[0, period_hours)``.
+    period_hours : float, optional
+        The period. Default ``24.0``.
+
+    Returns
+    -------
+    pd.Series
+        Recentred phases, same index, in hours; values may lie outside
+        ``[0, period_hours)``.
+    """
+    values = pd.to_numeric(phase, errors='coerce')
+    angle = 2.0 * np.pi * values / float(period_hours)
+    mean = np.arctan2(np.nanmean(np.sin(angle)), np.nanmean(np.cos(angle)))
+    # arctan2 returns a representative of the circular mean in (-pi, pi],
+    # which maps to an hour representative in (-period/2, period/2] rather
+    # than the conventional [0, period_hours) — reducing it back into that
+    # range keeps the recentring a true no-op on a series already close to
+    # its own mean, instead of shifting every value by a whole period.
+    centre = ((mean / (2.0 * np.pi)) * float(period_hours)) % float(period_hours)
+    half = float(period_hours) / 2.0
+    return ((values - centre + half) % float(period_hours)) - half + centre
+
+
 def cycle_surface_rank(series, doy_bins=52, freq='20min'):
     """
     How many weighted daily shapes the daily-by-annual surface needs.

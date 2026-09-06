@@ -258,14 +258,19 @@ ERA5_SR_IS_ACCUMULATION = True
 #
 # ### Parameter Tuning Guidance
 #
-# **`PERIOD_SCAN_MIN_DAYS`** — shortest period the Lomb–Scargle scan
-# certifies; default `0.5`, half a day, so the daily cycle itself falls
-# inside the scanned range. Lowering it further approaches the Nyquist limit
-# of the 20-minute grid.
-#
-# **`PERIOD_SCAN_MAX_DAYS`** — longest period scanned; default `900.0`,
-# comfortably past the annual cycle so a slower structure is not aliased
-# into it.
+# **`PERIOD_SCAN_BANDS`** — the period ranges the Lomb–Scargle scan
+# certifies, each scanned and ranked on its own; default
+# `{'short': (0.4, 3.0), 'long': (30.0, 900.0)}`. A single ranking spanning
+# both bands lets the long-period continuum bury the short one: the
+# sub-daily peaks carry a small share of the record's variance and are
+# outranked by the annual-ish and multi-hundred-day peaks before a top-`k`
+# cut ever gets to them, even when the sub-daily peaks are genuinely
+# present. Scanning the bands separately gives each its own ranking. The
+# `'short'` band brackets the daily and twelve-hour cycles; the `'long'`
+# band brackets the annual and semi-annual ones. The grid edge `900.0`
+# days is about a third of the eight-year record and is not itself a
+# certified period — it exists so a slower structure is not aliased into
+# the annual band.
 #
 # **`DAILY_HARMONIC_MIN_SLOTS`** — minimum number of the day's 72 slots
 # required before a day's 24-hour harmonic is fitted; default `60`,
@@ -282,11 +287,12 @@ ERA5_SR_IS_ACCUMULATION = True
 # `52`, one bin per week. Coarser binning trades resolution of the annual
 # modulation for a less noisy surface.
 #
-# **`PERIOD_SCAN_N`** — number of log-spaced candidate periods of the
-# Lomb–Scargle scan; default `40000`, which at one day gives a spacing of
-# about `0.0002` days, inside the eight-year record's resolution, so the
-# daily and twelve-hour peaks are sampled rather than stepped over. Fewer
-# points make the scan faster and coarser.
+# **`PERIOD_SCAN_N`** — number of log-spaced candidate periods scanned
+# *per band* of `PERIOD_SCAN_BANDS`; default `40000`, which at one day
+# gives a spacing of about `0.0002` days, inside the eight-year record's
+# resolution, so the daily and twelve-hour peaks are sampled rather than
+# stepped over within the short band. Fewer points make each band's scan
+# faster and coarser.
 #
 # **`ANNUAL_MODULATION_MIN_GAIN`** — the fraction by which a higher Fourier
 # order must lower the leave-one-year-out error before it is preferred over
@@ -295,8 +301,7 @@ ERA5_SR_IS_ACCUMULATION = True
 # by noise.
 
 # %%
-PERIOD_SCAN_MIN_DAYS = 0.5
-PERIOD_SCAN_MAX_DAYS = 900.0
+PERIOD_SCAN_BANDS = {'short': (0.4, 3.0), 'long': (30.0, 900.0)}
 DAILY_HARMONIC_MIN_SLOTS = 60
 ANNUAL_MODULATION_HARMONICS = (1, 2)
 SURFACE_DOY_BINS = 52
@@ -761,11 +766,15 @@ print('OLS gains on the on-structure set:',
 # %%
 scans, dailies, fits = {}, {}, {}
 for name, series in series_for_scan.items():
-    scans[name] = prediction.period_scan(
-        series, min_days=PERIOD_SCAN_MIN_DAYS, max_days=PERIOD_SCAN_MAX_DAYS,
-        n_periods=PERIOD_SCAN_N, spacing='log', top=8).assign(series=name)
+    scans[name] = pd.concat(
+        [prediction.period_scan(series, min_days=lo, max_days=hi,
+                                n_periods=PERIOD_SCAN_N, spacing='log', top=5)
+         .assign(series=name, band=band_name)
+         for band_name, (lo, hi) in PERIOD_SCAN_BANDS.items()],
+        ignore_index=True)
     band = coupling.diurnal_band(series, window=72)
     dailies[name] = monitoring.daily_harmonic(band, min_slots=DAILY_HARMONIC_MIN_SLOTS)
+    dailies[name]['phase_h'] = coupling.centre_phase(dailies[name]['phase_h'])
     table_a, fit_a = coupling.annual_modulation(dailies[name]['amplitude'],
                                                 harmonics=ANNUAL_MODULATION_HARMONICS,
                                                 min_gain=ANNUAL_MODULATION_MIN_GAIN)
@@ -790,7 +799,8 @@ display(harmonic)
 harmonic.to_csv(OUTPUT_DIR / 'GM_04_harmonic_diagnostics.csv', index=False)
 tables.write_table(
     scan_table, str(OUTPUT_DIR / 'GM_04_body.tex'),
-    [('series', tables.texttt), ('rank', 'd'), ('period_days', ',.2f'), ('power', '.3f')])
+    [('series', tables.texttt), ('band', tables.texttt), ('rank', 'd'),
+     ('period_days', ',.2f'), ('power', '.3f')])
 tables.write_table(
     modulation_table, str(OUTPUT_DIR / 'GM_04b_body.tex'),
     [('series', tables.texttt), ('statistic', tables.texttt), ('order', 'd'),
@@ -806,9 +816,13 @@ figures.plot_harmonic_diagnostics(
 
 # %%
 # What the diagnostic decides, printed so the checkpoint can read it back.
-has_semi_annual = prediction.has_certified_period(scans['residual'], 182.6)
-has_twelve_hour = prediction.has_certified_period(scans['residual'], 0.5, tolerance_days=0.05)
-has_daily = prediction.has_certified_period(scans['residual'], 1.0, tolerance_days=0.05)
+short = scans['residual'][scans['residual']['band'] == 'short']
+long_ = scans['residual'][scans['residual']['band'] == 'long']
+has_semi_annual = prediction.has_certified_period(long_, 182.6)
+has_annual = prediction.has_certified_period(long_, 365.25)
+has_twelve_hour = prediction.has_certified_period(short, 0.5, tolerance_days=0.05)
+has_daily = prediction.has_certified_period(short, 1.0, tolerance_days=0.05)
+print('annual peak on the residual:', bool(has_annual))
 print('semi-annual peak on the residual:', bool(has_semi_annual))
 print('12-hour peak on the residual:', bool(has_twelve_hour))
 print('daily peak on the residual:', bool(has_daily))

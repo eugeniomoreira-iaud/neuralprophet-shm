@@ -169,5 +169,18 @@ class TestHasCertifiedPeriod(unittest.TestCase):
             self._scan(), 1.0, tolerance_days=0.05))
 
 
+class TestCentrePhase(unittest.TestCase):
+
+    def test_hours_straddling_midnight_are_pulled_together(self):
+        phase = pd.Series([23.5, 0.5, 23.0, 1.0])
+        centred = coupling.centre_phase(phase)
+        self.assertLess(centred.std(), 1.5)
+
+    def test_a_constant_phase_is_unchanged(self):
+        phase = pd.Series([14.0, 14.0, 14.0, 14.0])
+        centred = coupling.centre_phase(phase)
+        self.assertTrue(np.allclose(centred, 14.0))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
