@@ -1,6 +1,6 @@
 # Study 5 · Grey-box expectation and monitoring of the station 02 inclination
 
-Status: **design approved 2026-09-05, implementation not started.** Built to the design in
+Status: **in progress — Phase 1 complete (record, clocks, regressor sets).** Built to the design in
 `docs/superpowers/specs/2026-09-05-study05-greybox-monitoring-design.md`.
 
 This study answers the question Study 04 posed and did not fully answer, for the same

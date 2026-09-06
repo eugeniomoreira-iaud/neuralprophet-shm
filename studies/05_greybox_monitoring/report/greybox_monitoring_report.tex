@@ -31,17 +31,395 @@ three-scale monitor of the station 02 inclination, 2018 to 2026}
 % ===========================================================================
 \section{Introduction}
 \label{sec:intro}
-\pending{Phase 1}
+
+A reading arrives from the wall every twenty minutes: the inclination of the
+instrument at station~02, the air temperature and relative humidity beside it,
+and, since 21~February 2025, the temperature of the stone and the solar
+radiation falling on it. The question a person watching that stream must be
+able to answer is operational rather than diagnostic. Given the environment
+measured at this instant, is this inclination the one the wall was expected to
+show, and if it is not, which kind of departure is it? Study~04 posed that
+question on the window after the long outage of 2022 to 2023 and answered part
+of it. It also recorded its own weak points: an annual term and a trend that
+did not converge on 3.2 interrupted cycles; a conformal interval calibrated
+once, eleven months before the record it was then asked to cover, that reached
+67.7\,\% coverage against a nominal 90\,\%; a residual whose lag-one
+autocorrelation of 0.995 pushed the control limit to 14.75 standard deviations
+and left the detector blind to every slow mechanism; and a phase-change
+injection scaled by the leftover daily seasonal term rather than by the wall's
+own daily response, which overstated that blind spot by roughly five times.
+This study keeps what Study~04 established and changes what it got wrong.
+
+Four studies precede it, and their conclusions are inherited rather than
+re-litigated. Study~01 read the raw archive, decided which recorded values are
+measurements, and exported the inclination product used here and no other:
+compensated for temperature with the manufacturer's linear correction,
+anchored once across the whole record, cleaned of impulsive noise, and
+accompanied by a flag that marks every value the cleaning replaced. It also
+established that the two instruments installed at station~02 are continuous
+across the changeover of 21~February 2025, and that the excursions of summer
+2026 are an instrument or power artefact rather than a structural or
+environmental event. Study~02 characterised the two external sources, the
+town's ground station and the ERA5 reanalysis, against the on-structure
+channels: the station is the closer proxy, ERA5 the more transferable one, and
+both report global horizontal radiation, the quantity the wall's own
+pyranometer measures. Study~03 measured the couplings: air temperature drives
+the inclination instantaneously, with a diurnal-band gain near
+$-2.8$\,mdeg/$^{\circ}$C on the on-structure channel; radiation acts with a
+delay of about one hour; humidity follows the temperature cycle inversely
+rather than acting as a mechanism of its own; and the wall temperature is an
+internal state that leads the deformation and must not be used predictively at
+its measured lead. Study~04 settled the modelling choices this study keeps: no
+autoregression in the decomposition, because it absorbs the diurnal structure
+the regressors should explain; changepoints placed on covered time; the level
+decomposed and monitored rather than scored as a forecast; and no value of the
+target ever imputed, with the library's own gap filling switched off.
+
+Two boundaries hold throughout. The thermal compensation is taken as given: it
+is the manufacturer's procedure, it has been validated against the user's
+numerical model of the wall, and every gain this study learns is therefore a
+post-compensation wall response and is labelled as such. No fit is made on the
+raw channel. Forecasting is out of scope, because Study~04 answered it: the
+skill of a forecast comes from the response's own memory, and the environment
+adds nothing distinguishable from zero beyond six hours.
+
+Within those boundaries the study asks five questions. What is the record made
+of, over eight years: trend, annual cycle, daily cycle and the response to each
+measured driver, with the share of variance each carries and the gain each
+learns, on three regressor sets? Does the wall answer its drivers with a delay
+or an inertia that the twenty-minute grid can resolve, when the response is
+learned rather than imposed? Is this reading the expected one, given a rolling
+expectation and an interval whose coverage is measured as a function of how
+stale the last refit is? Which departure does each of three control charts
+catch, at a false-alarm budget stated in advance, when the injected departures
+are sized by the wall's measured daily response? And what happened across each
+outage, when the level expected at resumption from the proxies that kept
+recording is set against the level observed?
 
 % ===========================================================================
 \section{The record and the three regressor sets}
 \label{sec:record}
-\pending{Phase 1}
+
+The study window is the whole station~02 record, from 26~July 2018 to the end
+of the archive, on the instrument's native grid of one reading every twenty
+minutes: 212,251 slots. The first accepted inclination falls on 28~July 2018
+and the last on 20~August 2026. Unlike Study~04, which worked on the stretch
+after the long outage of 2022 to 2023, this study uses every usable annual
+cycle, because an annual term cannot be identified on three broken years, and
+a trend estimated on such a window disagreed with itself in sign
+(Section~\ref{sec:method}, D1).
+
+The response is joined by three regressor sets, each mapping the same three
+roles, air temperature, relative humidity and solar radiation, to a different
+source (D2). The on-structure set reads air temperature and humidity from the
+wall's own package, joined across the two instrument eras; the station set
+reads the town's ground station; the ERA5 set reads the reanalysis. The
+on-structure set borrows the station's radiation, because the wall's
+pyranometer did not exist before February 2025 and Study~01 condemned 161 of
+its days after that; every table that reports the on-structure set carries
+that borrowing. The two external sources are hourly or half-hourly and are
+brought onto the twenty-minute grid by linear interpolation between
+consecutive native observations, never across a longer gap, and the ERA5
+radiation, an accumulation over the preceding hour, is centred on the
+half-hour before it is interpolated (D13). Regressor dropouts of at most two
+hours are then filled by linear interpolation and flagged; the target is never
+filled.
+
+Table~\ref{tab:coverage} gives what each set actually holds over the window.
+The inclination returns an accepted value in 67.7\,\% of the slots. The
+on-structure air temperature and humidity reach 71.1\,\%, with about two per
+cent of their accepted slots filled across short dropouts; the station's
+channels reach 91.7 to 94.7\,\%, with under one per cent filled; ERA5 covers
+99.2\,\% of the window with nothing to fill. The radiation of the on-structure
+and station sets is the same column and has the same coverage.
+
+\begin{table}[H]
+\centering
+\caption{Accepted and filled slots and coverage per regressor set and role over
+the study window, on the twenty-minute grid, with the target as the last row.
+The on-structure set's radiation is the station's column, borrowed. Read from
+\texttt{GM\_01\_window\_coverage.csv}.}
+\label{tab:coverage}
+\begin{tabular}{llrrr}
+\toprule
+Set & Role & Accepted slots & Filled slots & Coverage \\
+\midrule
+\input{../outputs/GM_01_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:gapclasses} shows how the target's missing time is distributed.
+Of the 3,302 gaps in the accepted inclination, 2,616 last an hour or less and
+595 between one and six hours; together they hold 2,679 of the 22,819 missing
+hours. Nine gaps longer than seven days hold 19,234 hours, 84\,\% of the
+missing time. These are gaps in the accepted values rather than in the raw
+archive, and they are therefore longer than the outages the data-quality
+report lists: two interruptions of three weeks and one of eight in the autumn
+of 2018 and the first half of 2019, when the legacy instrument's readings were
+condemned; 57 days in the summer of 2020, around an archive outage of eleven;
+a single gap of 437.6 days from 9~April 2022 to 21~June 2023, in which the two
+outages of 2022 and the condemned weeks before and between them merge; and the
+outages of 2024, 2025 and 2026, of 41.5, 42.7, 17.8 and 104 days. Nothing is
+written into any of them. They are what the rolling expectation must be
+refitted around, and the ones that fall in the monitored period are the
+hypotheses that Section~\ref{sec:outages} tests.
+
+\begin{table}[H]
+\centering
+\caption{The target's missing time by gap duration: how many gaps of each class
+the accepted inclination has, and how many hours they hold. Read from
+\texttt{GM\_02\_gap\_inventory.csv}.}
+\label{tab:gapclasses}
+\begin{tabular}{lrr}
+\toprule
+Gap class & Gaps & Hours \\
+\midrule
+\input{../outputs/GM_02_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Before anything was joined, each radiation source's clock was checked with
+Study~02's two-sided test, on the hourly grid the test was designed for
+(Table~\ref{tab:clock}): the offset of the daily maximum from computed solar
+noon, and the lag of the cross-correlation against ERA5. The station and ERA5
+pass both tests, with solar offsets of 0.11 and 0.44 hours and no
+cross-correlation lag. ERA5's larger offset is the signature of its hourly
+accumulation, which is stamped at the end of the hour it describes and which
+D13 centres before interpolation. The on-structure pyranometer fails the
+agreement test over its 215 certified days, its solar offset of $-0.22$ hours
+sitting against a cross-correlation lag of one hour. No regressor set consumes
+that channel in the main line; it enters only the current-era ladder of D4,
+where its clock is part of what the ladder judges.
+
+\begin{table}[H]
+\centering
+\caption{Study~02's clock check on each radiation source, on the hourly grid:
+the days with a usable solar maximum, the offset of that maximum from computed
+solar noon with its interquartile range, the cross-correlation lag against ERA5
+with its correlation, and whether the two tests agree. Read from
+\texttt{GM\_03\_clock\_check.csv}.}
+\label{tab:clock}
+\begin{tabular}{llrrrrrr}
+\toprule
+Source & Channel & Days & Solar offset [h] & IQR [h] & Lag [h] & $r$ & Agree \\
+\midrule
+\input{../outputs/GM_03_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Figure~\ref{fig:regressor-sets} draws the record and the three sets on one
+clock, with the gaps left as gaps.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F01_regressor_sets.png}
+\caption{The record and the three regressor sets, 2018 to 2026, on the
+twenty-minute grid. Top: the compensated, once-anchored, spike-cleaned
+inclination, its gaps left as gaps. Below: air temperature, relative humidity
+and global horizontal radiation, each panel overlaying the three sets, told
+apart by line style. The on-structure set's radiation is the station's,
+borrowed; the wall's own pyranometer does not enter the main line.}
+\label{fig:regressor-sets}
+\end{figure}
 
 % ===========================================================================
 \section{Method}
 \label{sec:method}
-\pending{Phase 1}
+
+Each subsection states one design decision, the evidence for it, and the
+alternative it rejects, in the order of the design document. Decisions whose
+results arrive in later phases, D6 onward, are stated here and reported in
+their own sections.
+
+\subsection{D1 · The whole record, 2018 to the archive end}
+
+Study~04's annual term was not identifiable on 3.2 cycles with a 103-day hole,
+and its trend disagreed with itself in sign across the thirds of its window:
+$+38.6$, $+4.8$ and $+45.5$\,mdeg per year against $-2.77$ for the window as a
+whole. The whole record holds five usable annual cycles, 2019, 2020, 2021, 2024
+and 2025, compensated and anchored once by Study~01. The instrument change of
+21~February 2025 is not modelled: the recorded channel is continuous across it
+to $+1.58$\,mdeg on thirty-day means, and the compensated gain is stable across
+both eras. The rejected alternative is a per-era offset, which would plant an
+arithmetic step the instruments did not record.
+
+\subsection{D2 · Three regressor sets through one model specification}
+
+One specification is fitted three times, once per regressor set. The
+on-structure set gives the site result, the station set the best external
+proxy, and the ERA5 set the transferable arm. The paper narrates two and
+tables all three. The on-structure set borrows the station's radiation, as
+Section~\ref{sec:record} states. Wall temperature and on-structure radiation
+stay out of the main line, since they cover 17.6\,\% and 18.8\,\% of the
+window, and are tested on their own window in D4. The rejected alternative, a
+single set, would not separate what the site can achieve from what a
+deployment without on-structure instruments could.
+
+\subsection{D3 · Study~03's operator is applied outside the model; radiation is global horizontal in every set}
+
+Air temperature enters instantaneously. Radiation enters delayed by one hour,
+the diurnal-band optimum Study~03 measured for all three sources. Both pass
+through the library's one delay-and-filter operator, and no driver is given a
+time constant from the level band, where Study~03 showed such constants pin
+against the grid. Global horizontal irradiance is used in every set, so that
+the radiation gain is comparable across sets and matches the variable
+Study~03 screened. ERA5's skin temperature is not loaded: the radiative
+temperature of a grid cell several kilometres across, averaged over fields,
+roads and roofs, carries nothing about one stone face that the air temperature
+and radiation do not already carry. The rejected alternative, letting Model~A
+learn the delay through lagged regressors, is the job of Model~B in D9, where
+the learned response is confronted with the imposed one rather than replacing
+it.
+
+\subsection{D4 · Wall temperature and on-structure radiation, tested as a ladder on the current era}
+
+On the window from 21~February 2025 onward, the same specification is refitted
+rung by rung: the on-structure set as in the main line; on-structure radiation
+replacing the station's, on the certified days; the wall temperature added at
+zero delay with a four-hour time constant, the deployable form; and, as a
+diagnostic row only, the wall temperature at its measured lead of two hours,
+which is never used for the expectation. Each rung reports held-out error with
+a paired block-bootstrap increment, variance share, the learned gain beside
+Study~03's, conformal coverage and width, and residual autocorrelation. The
+verdict is one sentence per channel on whether a deployment should keep it.
+The rejected alternative, carrying both channels in the main line, would cost
+four fifths of the window.
+
+\subsection{D5 · The trend stays on in the monitoring fit}
+
+Study~04 removed the trend from its monitoring fit so that drift would remain
+in the residual. The consequence was a residual with lag-one autocorrelation
+of 0.995, a control limit swept out to 14.75 standard deviations, a 288-day
+alarm that said only that the wall had moved since calibration, and a detector
+blind to every slow mechanism. Here the expectation comes from a rolling refit
+every thirty days with the trend on; over thirty days the trend's extrapolation
+error is a fraction of a millidegree at the measured rates, and the residual it
+leaves is stationary enough to chart. Drift is detected by the slow chart of
+D10 on daily means, and by the sequence of refit trend slopes. Component shares,
+gains and the parameter figures come from a single attribution fit over the
+full training window.
+
+\subsection{D6 · Harmonic diagnostics before modelling}
+
+The Fourier orders of the seasonal terms and the weight curve of the
+conditional daily term are measured before any model is fitted, on two series:
+the target, and the residual of a plain least-squares regression of the target
+on the on-structure drivers, which is what the seasonal terms will actually
+have to explain. A Lomb--Scargle scan from twelve hours to nine hundred days
+certifies the periods; the daily cycle's amplitude and phase, fitted day by
+day, are then fitted against day of year with an annual Fourier series whose
+order is chosen on held-out years; and the singular values of the
+daily-by-annual surface say how many weighted daily shapes it takes to
+reproduce it. Every order and weight used afterwards traces to that table. The
+results are reported in Section~\ref{sec:seasonality}.
+
+\subsection{D7 · Model~A, an additive grey-box without autoregression}
+
+Model~A is a linear trend with changepoints placed on covered time, an annual
+term and a daily term as Fourier series of the orders D6 measured, no weekly
+term, the three regressors of one set as future regressors, quantile regression
+at 0.05 and 0.95, and no autoregression, with the library's imputation switched
+off. The daily cycle is fitted as two shapes, a midsummer and a midwinter form,
+blended by two weights that vary only with the day of year and sum to one, so
+that the daily cycle's amplitude and phase modulate through the year without a
+boundary day at which the shape steps. The weight curve is the measured annual
+modulation of D6, normalised to the unit interval, with a cosine peaking in
+mid-July as the documented fallback. The conditional term is kept only if it
+improves the held-out error or carries more than one per cent of the variance,
+and four boolean seasons are the stated fallback if the smooth weights fail to
+fit. Training histories shorter than two full annual cycles are not allowed to
+speak.
+
+\subsection{D8 · Uncertainty the library's way, calibrated on a rolling window}
+
+Quantile regression inside the model gives a nominal ninety per cent interval;
+split conformal prediction then calibrates it. Study~04 calibrated once, on a
+stretch that ended eleven months before the record it covered, and reached
+67.7\,\% coverage. Here each refit calibrates on the most recent six months of
+its own out-of-sample residuals, so the interval is never calibrated on a
+quieter era than the one it covers. Coverage, width, Winkler score and pinball
+loss are reported per set and per days since refit.
+
+\subsection{D9 · Model~B, a learned impulse response on the on-structure set}
+
+The same specification without any autoregression on the target carries air
+temperature and the station's radiation as lagged regressors with thirty-six
+lags at twenty minutes, twelve hours of history per driver, at the resolution
+Study~03's scan could not reach. The learned weight per lag is the impulse
+response; from it an effective delay and a time constant are read and set
+beside Study~03's operator for each driver. Agreement validates the operator
+imposed in Model~A; disagreement is reported, and Model~A is not re-tuned to
+hide it. Phase~0 verified that the library accepts lagged regressors without
+autoregression on the target, so the hourly fallback the design provided for is
+not needed.
+
+\subsection{D10 · Three charts, one per damage mechanism and time scale}
+
+Reference statistics come from a fixed window, 2019 to 2021, before the 2022
+outages and before the instrument change; the monitored record runs from
+January 2022. All three charts run on Model~A's rolling residual for each set.
+The fast chart applies an exponentially weighted moving average and a CUSUM to
+the residual's prewhitened innovations at twenty minutes, for steps, spikes
+and instrument faults, at a budget of ninety watched days per false alarm. The
+daily chart applies the same pair to the amplitude and phase of a 24-hour
+harmonic fitted to each day's residual, for amplitude growth and phase change,
+at the same budget. The slow chart applies a CUSUM with a small reference value
+to the daily mean residual, beside the sequence of refit trend slopes, for
+drift, at a budget of one year. Every fast alarm is cross-checked against the
+air temperature, humidity and battery channels in the same slot, so that the
+episode table carries an attribution: environment, instrument, or unattributed.
+
+\subsection{D11 · Detectability by mechanism, with injections sized by the wall's daily response}
+
+Study~04's three injection shapes, amplitude growth, phase change and drift,
+are kept with two corrections. The phase injection is sized by the wall's
+fitted daily response on the injection date rather than by the leftover daily
+seasonal term, which on the measured numbers means about 5.6\,mdeg for a
+two-hour shift where Study~04 injected 1.07. Injections are placed at several
+dates across the seasons, so that the detectability field is monotone rather
+than an artefact of one injection point. Each mechanism is scored on the chart
+built for it, with the other two reported as well, and an alarm counts only
+where the uncontaminated record is silent within the response window.
+
+\subsection{D12 · Outages as hypotheses, never as data}
+
+For each whole-day outage of seven days or more in the monitored period, the
+model refitted on the data up to the outage predicts the level at resumption
+from the station and ERA5 sets, which kept recording. The observed mean over
+the first seven days after resumption, with the restart transient excluded, is
+compared with the expected level and its conformal interval, giving a level
+shift with an interval and a verdict per outage and per proxy set. Nothing is
+written into the gap: an imputed value may serve as history or as hypothesis,
+never as evidence. Section~\ref{sec:record} showed that the accepted target's
+gaps are longer than the archive's outages; which intervals are bridged is
+stated in Section~\ref{sec:outages}.
+
+\subsection{D13 · The target is never filled; regressor dust is}
+
+Rows with a missing target are left out of every fit. Regressor gaps of at most
+two hours are filled by linear interpolation and flagged in a provenance
+column, because a regressor is a measured, smooth driver and not the thing
+being judged; longer regressor gaps leave the row out of the fit for that set
+only. Proxies are brought to the twenty-minute grid by linear interpolation
+between consecutive native observations, never across a longer gap, with the
+ERA5 radiation centred on the half-hour before interpolation. Each source's
+clock is checked before anything is joined, as Section~\ref{sec:record}
+reports.
+
+\subsection{D14 · Every native plot type, redrawn in the project's graphical language}
+
+The library's native plots run in the notebook as diagnostics. The report shows
+the same content redrawn by the project's own figure functions under its
+binding graphical rules, each redraw reading its data through the library's
+public methods, the decomposed prediction, the trend and seasonal components,
+the lagged-regressor weights and the conformal output columns, through one
+extractor per plot type, and each extractor is tested against the numbers the
+native plot draws. Phase~0 found that this library version's matplotlib
+backend returns no figure object from its parameter plot; nothing in the
+design depends on it.
 
 % ===========================================================================
 \section{Trend}
