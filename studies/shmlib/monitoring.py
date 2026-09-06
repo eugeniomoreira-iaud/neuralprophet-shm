@@ -684,3 +684,61 @@ def prewhiten(residuals, phi=None, start=None, end=None, freq='20min'):
     previous = values.shift(1, freq=freq).reindex(values.index)
     innovations = values - float(phi) * previous
     return innovations, float(phi)
+
+
+def channel_coincidence(alarm, channels, scale_start=None, scale_end=None,
+                        window='24h', threshold=5.0, instrument=('batt',),
+                        environment=('tair', 'rh')):
+    """
+    What else moved in the slot of each alarm: the instrument, the weather, or nothing.
+
+    Study 01 settled the summer 2026 excursions by asking whether the
+    environmental and supply channels carried them too. This applies that
+    test to every fast-chart alarm, so the episode table can say which alarms
+    are the wall's to answer for (spec D10).
+
+    Parameters
+    ----------
+    alarm : pd.Series
+        Boolean alarm series indexed by timestamp.
+    channels : pd.DataFrame
+        One column per candidate channel, on the same grid as ``alarm``.
+        Every column named in ``instrument`` or ``environment`` is read from
+        here; a name absent from ``channels`` is silently skipped.
+    scale_start, scale_end : pd.Timestamp or str or None, optional
+        Reference window the excursion scale is estimated on. ``None``
+        extends to the respective end of the series. Default ``None``.
+    window : str, optional
+        Width of each channel's centred rolling median, as a pandas offset
+        string. Default ``'24h'``.
+    threshold : float, optional
+        Number of scaled departures a slot must exceed to count as an
+        excursion. Default ``5.0``.
+    instrument : sequence of str, optional
+        Channel names whose excursion attributes an alarm to the instrument.
+        Default ``('batt',)``.
+    environment : sequence of str, optional
+        Channel names whose excursion attributes an alarm to the
+        environment, checked after ``instrument``. Default ``('tair',
+        'rh')``.
+
+    Returns
+    -------
+    pd.Series
+        ``'instrument'``, ``'environment'`` or ``'unattributed'`` for every
+        slot where ``alarm`` is true.
+    """
+    alarm = alarm.astype(bool)
+    excursions = {}
+    for column in channels.columns:
+        series = pd.to_numeric(channels[column], errors='coerce')
+        departure = series - series.rolling(window, center=True, min_periods=1).median()
+        scale = 1.4826 * departure.loc[scale_start:scale_end].abs().median()
+        excursions[column] = departure.abs() > float(threshold) * float(scale)
+    excursions = pd.DataFrame(excursions).reindex(alarm.index).fillna(False)
+    labels = pd.Series('unattributed', index=alarm.index[alarm])
+    env = excursions[[c for c in environment if c in excursions]].any(axis=1)
+    ins = excursions[[c for c in instrument if c in excursions]].any(axis=1)
+    labels[env.reindex(labels.index).fillna(False).to_numpy()] = 'environment'
+    labels[ins.reindex(labels.index).fillna(False).to_numpy()] = 'instrument'
+    return labels

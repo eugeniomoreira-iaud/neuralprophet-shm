@@ -43,5 +43,23 @@ class TestPrewhiten(unittest.TestCase):
         self.assertFalse(np.isnan(innovations.iloc[211]))
 
 
+class TestChannelCoincidence(unittest.TestCase):
+
+    def test_alarms_are_attributed_by_the_coincident_channel(self):
+        index = pd.date_range('2024-01-01', periods=1000, freq='20min', tz='UTC')
+        rng = np.random.default_rng(1)
+        channels = pd.DataFrame({'tair': rng.normal(0, 0.1, 1000),
+                                 'rh': rng.normal(0, 0.1, 1000),
+                                 'batt': rng.normal(0, 0.001, 1000)}, index=index)
+        channels.loc[index[500], 'batt'] += 1.0     # instrument excursion
+        channels.loc[index[700], 'tair'] += 10.0    # environment excursion
+        alarm = pd.Series(False, index=index)
+        alarm.iloc[[500, 700, 900]] = True
+        out = monitoring.channel_coincidence(alarm, channels)
+        self.assertEqual(out.loc[index[500]], 'instrument')
+        self.assertEqual(out.loc[index[700]], 'environment')
+        self.assertEqual(out.loc[index[900]], 'unattributed')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
