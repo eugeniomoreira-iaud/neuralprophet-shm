@@ -647,3 +647,40 @@ def daily_harmonic(series, min_slots=60, period_hours=24.0):
     out = pd.DataFrame(rows, columns=['day', 'amplitude', 'phase_h',
                                       'amplitude_12h', 'n', 'r2'])
     return out.set_index('day')
+
+
+def prewhiten(residuals, phi=None, start=None, end=None, freq='20min'):
+    """
+    The part of the residual its own previous value could not predict.
+
+    Control-chart limits are derived for independent samples, and this
+    project's residual is nothing of the kind (lag-1 autocorrelation 0.995
+    at 20 minutes in Study 04). Charting ``e(t) = r(t) - phi r(t - 1)``
+    restores the assumption for sudden departures; slow ones need the daily
+    and slow charts instead (spec D10).
+
+    Parameters
+    ----------
+    residuals : pd.Series
+        Residual on a regular grid.
+    phi : float or None, optional
+        AR(1) coefficient. ``None`` estimates it as the lag-1 autocorrelation
+        over ``[start, end]``. Default ``None``.
+    start, end : str or pd.Timestamp or None, optional
+        Reference window for the estimate.
+    freq : str, optional
+        Grid spacing; a previous sample farther than this is a gap. Default
+        ``'20min'``.
+
+    Returns
+    -------
+    (pd.Series, float)
+        Innovations aligned to ``residuals``, and the ``phi`` used.
+    """
+    values = pd.to_numeric(residuals, errors='coerce')
+    if phi is None:
+        window = values.loc[start:end].dropna()
+        phi = float(window.autocorr(1))
+    previous = values.shift(1, freq=freq).reindex(values.index)
+    innovations = values - float(phi) * previous
+    return innovations, float(phi)
