@@ -2839,3 +2839,69 @@ def plot_impulse_response(weights, summary, reference=None, dt_hours=1.0 / 3.0,
         fig.suptitle(title)
     viz.finish(fig, save_path=save_path, filename=filename)
     return fig
+
+
+def plot_daily_harmonic_chart(chart_amplitude, chart_phase, episodes=None,
+                              title='', save_path=None, filename=None):
+    """
+    The daily chart: amplitude and phase of the daily cycle, stacked.
+
+    Two panels sharing one clock, each an EWMA control chart in the sense of
+    :func:`plot_control_chart` — the statistic, its limits and its alarming
+    episodes shaded — one for the amplitude of the residual's daily cycle and
+    one for its phase. :func:`plot_control_chart` itself takes no axes to draw
+    into, so the two panels are drawn directly here rather than by calling it
+    twice; the colours, the limit styling and the shaded episodes are kept
+    identical to it on purpose, so the fast, daily and slow charts read as one
+    family of figures.
+
+    Parameters
+    ----------
+    chart_amplitude, chart_phase : pd.DataFrame
+        Output of :func:`shmlib.monitoring.ewma_chart` on the daily
+        amplitude and the daily phase respectively: columns ``ewma``,
+        ``ucl`` and ``lcl``.
+    episodes : pd.DataFrame or None, optional
+        Output of :func:`shmlib.monitoring.alarm_episodes`, shaded behind
+        both panels — the same shading on each, since an alarm on either
+        statistic is an alarm of the daily chart as a whole. Default
+        ``None``.
+    title : str, optional
+        Figure title. Default ``''``.
+    save_path, filename : str or None, optional
+        Passed to :func:`shmlib.viz.finish`; nothing is written when either
+        is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, axes = plt.subplots(2, 1, sharex=True,
+                             figsize=viz.figsize(viz.FIGURE_WIDTH, 4.4))
+    panels = ((axes[0], chart_amplitude, 'Amplitude, standardised'),
+             (axes[1], chart_phase, 'Phase, standardised'))
+
+    for ax, chart, ylabel in panels:
+        for _, episode in (episodes if episodes is not None
+                          else pd.DataFrame()).iterrows():
+            ax.axvspan(episode['start'], episode['end'], **viz.SPAN_STYLE)
+
+        ax.plot(chart.index, chart['ewma'], color=viz.INC_COLOUR,
+               linewidth=1.0, label='ewma')
+        limit_labelled = False
+        for limit in ('ucl', 'lcl'):
+            if limit in chart.columns:
+                ax.plot(chart.index, chart[limit], color=viz.MARK_COLOUR,
+                       linewidth=0.9, linestyle='--',
+                       label=None if limit_labelled else 'limit')
+                limit_labelled = True
+        ax.set_ylabel(ylabel)
+        viz.format_spines(ax)
+
+    if title:
+        fig.suptitle(title)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, fontsize='small', ncol=len(labels),
+              loc='upper center', bbox_to_anchor=(0.5, -0.01), frameon=False)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig

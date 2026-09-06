@@ -46,9 +46,9 @@ def reference_stats(residuals, start=None, end=None, robust=True):
     """
     values = pd.to_numeric(residuals, errors='coerce').dropna()
     if start is not None:
-        values = values.loc[pd.Timestamp(start):]
+        values = values.loc[start:]
     if end is not None:
-        values = values.loc[:pd.Timestamp(end)]
+        values = values.loc[:end]
 
     if values.empty:
         return {'mu': np.nan, 'sigma': np.nan, 'n': 0,
@@ -492,43 +492,62 @@ def phase_shift_amplitude(daily_amplitude, shift_hours, period_hours=24.0):
                  * abs(np.sin(np.pi * float(shift_hours) / float(period_hours))))
 
 
+def _monitor_statistic(series, statistic, phi=None, freq='20min', min_slots=60):
+    """Reduce a residual to the series a chart is built on, and say its grid."""
+    if statistic == 'residual':
+        return series, freq
+    if statistic == 'innovation':
+        return prewhiten(series, phi=phi, freq=freq)[0], freq
+    if statistic in ('daily_amplitude', 'daily_phase'):
+        column = 'amplitude' if statistic == 'daily_amplitude' else 'phase_h'
+        return daily_harmonic(series, min_slots=min_slots)[column], '1D'
+    if statistic == 'daily_mean':
+        return series.resample('1D').mean(), '1D'
+    raise ValueError(f'unknown statistic {statistic!r}')
+
+
 def detectability_curve(residuals, mu, sigma, magnitudes, durations,
                         freq='20min', lam=0.2, L=3.0, k=0.5, h=5.0, seed=0,
-                        kind='pulse', period='24h', response_window='24h'):
+                        kind='pulse', period='24h', response_window='24h',
+                        statistic='residual', phi=None, injection_starts=None,
+                        min_slots=60):
     """
     Whether a departure of each size and length is found, and how late.
 
-    For every pair, a step of that magnitude lasting that long is injected into
-    the middle of the residual, both charts are run, and the joint alarm is
-    compared against the alarm the uncontaminated record raises on its own
-    within the same span. Only an alarm the clean run does not also raise
-    counts as a detection; a chart that would have fired in that slot
-    regardless of the injection has not found the injection, and counting it
-    would report a sensitivity the detector does not have. The search is
-    bounded to the injection window plus ``response_window``, so an unrelated
-    alarm far down the record cannot be attributed to the injection either.
-    The reference statistics are the caller's, estimated once on the
-    uncontaminated record, so that the detector is never re-tuned to the
-    anomaly it is being asked to find.
+    For every pair, a departure of that magnitude and length is injected at
+    one or more points of the residual, the statistic each chart is actually
+    built on is charted, and its joint alarm is compared against the alarm the
+    uncontaminated record raises on its own within the same span. Only an
+    alarm the clean run does not also raise counts as a detection; a chart
+    that would have fired in that slot regardless of the injection has not
+    found the injection, and counting it would report a sensitivity the
+    detector does not have. The search is bounded to the injection window plus
+    ``response_window``, so an unrelated alarm far down the record cannot be
+    attributed to the injection either. The reference statistics are the
+    caller's, estimated once on the uncontaminated record, so that the
+    detector is never re-tuned to the anomaly it is being asked to find.
 
     Parameters
     ----------
     residuals : pd.Series
-        Uncontaminated residual, indexed by timestamp.
+        Uncontaminated residual, indexed by timestamp, on its native grid.
+        The raw residual is always what is contaminated; ``statistic`` says
+        what is charted afterwards.
     mu, sigma : float
-        Reference centre and scale from ``reference_stats``.
+        Reference centre and scale from ``reference_stats``, estimated on the
+        same statistic named by ``statistic``.
     magnitudes : sequence of float
-        Departure sizes in the residual's units.
+        Departure sizes in the charted statistic's units.
     durations : sequence of str or pd.Timedelta
         How long each departure persists.
     freq : str, optional
-        Spacing of the residual. Default ``'20min'``.
+        Spacing of ``residuals``. Default ``'20min'``.
     lam, L : float, optional
         EWMA settings, as in ``ewma_chart``. Defaults ``0.2`` and ``3.0``.
     k, h : float, optional
         CUSUM settings, as in ``cusum_chart``. Defaults ``0.5`` and ``5.0``.
     seed : int, optional
-        Reserved for future randomised placement; the injection point is
+        Reserved for future randomised placement; the injection points are
         currently deterministic. Default ``0``.
     kind : str, optional
         Shape passed to ``inject_anomaly`` for every point of the sweep.
@@ -543,52 +562,108 @@ def detectability_curve(residuals, mu, sigma, magnitudes, durations,
     response_window : str, optional
         How long after the departure ends an alarm still counts as having
         found it, as a pandas offset string. Default ``'24h'``.
+    statistic : {'residual', 'innovation', 'daily_amplitude', 'daily_phase', 'daily_mean'}, optional
+        What is charted. ``'residual'`` (default) reproduces the sweep's
+        original behaviour, charting the residual itself at ``freq``.
+        ``'innovation'`` prewhitens both the contaminated and the
+        uncontaminated residual with ``phi`` before charting, at ``freq``.
+        ``'daily_amplitude'`` and ``'daily_phase'`` chart the ``amplitude`` or
+        ``phase_h`` column of ``daily_harmonic``, and ``'daily_mean'`` charts
+        the daily mean; all three run on a daily grid, so for them the joint
+        window is one day and ``delay_h`` is counted in days times 24.
+    phi : float or None, optional
+        AR(1) coefficient passed to ``prewhiten`` when ``statistic`` is
+        ``'innovation'``. Ignored otherwise. Default ``None``.
+    injection_starts : sequence of str or pd.Timestamp or None, optional
+        Where to inject the departure. ``None`` (default) keeps the original
+        single injection at the middle of the record. A sequence sweeps the
+        injection once per start, and ``detected`` becomes the fraction of
+        starts detected and ``delay_h`` their mean delay.
+    min_slots : int, optional
+        Passed to ``daily_harmonic`` for the ``'daily_amplitude'`` and
+        ``'daily_phase'`` statistics. Default ``60``.
 
     Returns
     -------
     pd.DataFrame
         Columns ``magnitude``, ``duration_h``, ``detected`` and ``delay_h``,
-        one row per pair. ``delay_h`` is missing where nothing alarmed.
+        one row per pair. ``detected`` is the fraction of injection points
+        detected — ``1.0`` or ``0.0`` for the single default point, which
+        keeps ``bool(...)`` working for a caller written against the
+        original behaviour. ``delay_h`` is the mean delay over the points
+        that detected, missing where none did. When ``statistic`` is not
+        ``'residual'`` or several ``injection_starts`` are swept, two more
+        columns are carried: ``statistic`` and ``n_starts``, the count of
+        injection points the row was swept over.
     """
     values = pd.to_numeric(residuals, errors='coerce')
     index = pd.DatetimeIndex(values.index)
-    injection = index[len(index) // 2]
+    if injection_starts is None:
+        points = pd.DatetimeIndex([index[len(index) // 2]])
+    else:
+        points = pd.DatetimeIndex(injection_starts)
+        # A caller names injection dates as plain, zone-free strings; the
+        # residual's own index carries whatever zone it was built on. The
+        # two must agree before either is compared with the other.
+        if index.tz is not None and points.tz is None:
+            points = points.tz_localize(index.tz)
+        elif index.tz is None and points.tz is not None:
+            points = points.tz_convert(None)
 
+    base_values, chart_freq = _monitor_statistic(values, statistic, phi, freq, min_slots)
     baseline = joint_alarm(
-        ewma_chart(values, mu, sigma, lam=lam, L=L)['alarm'],
-        cusum_chart(values, mu, sigma, k=k, h=h)['alarm'], window=freq)
+        ewma_chart(base_values, mu, sigma, lam=lam, L=L)['alarm'],
+        cusum_chart(base_values, mu, sigma, k=k, h=h)['alarm'], window=chart_freq)
+
+    # The original four columns are always present; the two describing the
+    # sweep itself are added only when the sweep departs from the original
+    # single-point, residual-statistic behaviour, so that a caller written
+    # against that behaviour sees exactly the frame it always has.
+    extended = statistic != 'residual' or injection_starts is not None
+    columns = (['magnitude', 'duration_h', 'detected', 'delay_h', 'statistic', 'n_starts']
+              if extended else ['magnitude', 'duration_h', 'detected', 'delay_h'])
 
     rows = []
     for magnitude in magnitudes:
         for duration in durations:
             span = pd.Timedelta(duration)
-            contaminated = inject_anomaly(
-                values, kind, float(magnitude), start=injection,
-                duration=span, freq=freq, period=period)
+            hits = 0
+            delays = []
+            for point in points:
+                contaminated = inject_anomaly(
+                    values, kind, float(magnitude), start=point,
+                    duration=span, freq=freq, period=period)
+                chart_values, _ = _monitor_statistic(
+                    contaminated, statistic, phi, freq, min_slots)
 
-            ewma = ewma_chart(contaminated, mu, sigma, lam=lam, L=L)
-            cusum = cusum_chart(contaminated, mu, sigma, k=k, h=h)
-            alarm = joint_alarm(ewma['alarm'], cusum['alarm'], window=freq)
+                ewma = ewma_chart(chart_values, mu, sigma, lam=lam, L=L)
+                cusum = cusum_chart(chart_values, mu, sigma, k=k, h=h)
+                alarm = joint_alarm(ewma['alarm'], cusum['alarm'], window=chart_freq)
 
-            horizon = injection + span + pd.Timedelta(response_window)
-            fired = alarm.loc[injection:horizon]
-            # An alarm counts only where the uncontaminated run is silent. A
-            # chart that would have raised this slot anyway has not detected
-            # the injection, and counting it would report a sensitivity the
-            # detector does not have.
-            attributable = fired.astype(bool) & ~baseline.loc[
-                injection:horizon].astype(bool)
-            hit = attributable[attributable].index
-            detected = len(hit) > 0
-            rows.append({
+                horizon = point + span + pd.Timedelta(response_window)
+                fired = alarm.loc[point:horizon]
+                # An alarm counts only where the uncontaminated run is silent.
+                # A chart that would have raised this slot anyway has not
+                # detected the injection, and counting it would report a
+                # sensitivity the detector does not have.
+                attributable = fired.astype(bool) & ~baseline.loc[
+                    point:horizon].astype(bool)
+                hit = attributable[attributable].index
+                if len(hit) > 0:
+                    hits += 1
+                    delays.append(float((hit[0] - point) / pd.Timedelta(hours=1)))
+
+            row = {
                 'magnitude': float(magnitude),
                 'duration_h': float(span / pd.Timedelta(hours=1)),
-                'detected': bool(detected),
-                'delay_h': (float((hit[0] - injection) / pd.Timedelta(hours=1))
-                            if detected else np.nan),
-            })
-    return pd.DataFrame(
-        rows, columns=['magnitude', 'duration_h', 'detected', 'delay_h'])
+                'detected': hits / len(points),
+                'delay_h': float(np.mean(delays)) if delays else np.nan,
+            }
+            if extended:
+                row['statistic'] = statistic
+                row['n_starts'] = len(points)
+            rows.append(row)
+    return pd.DataFrame(rows, columns=columns)
 
 
 def daily_harmonic(series, min_slots=60, period_hours=24.0):

@@ -61,5 +61,32 @@ class TestChannelCoincidence(unittest.TestCase):
         self.assertEqual(out.loc[index[900]], 'unattributed')
 
 
+class TestStatisticAwareDetectability(unittest.TestCase):
+
+    def test_innovation_statistic_finds_a_step_the_raw_residual_needs_a_wide_limit_for(self):
+        residual = _ar1(n=30000, phi=0.99)
+        innovations, phi = monitoring.prewhiten(residual, start='2019-01-01', end='2019-04-30')
+        reference = monitoring.reference_stats(innovations, start='2019-01-01', end='2019-04-30')
+        curve = monitoring.detectability_curve(
+            residual, reference['mu'], reference['sigma'], magnitudes=(8.0,),
+            durations=('24h',), kind='step', statistic='innovation', phi=phi,
+            lam=0.2, L=4.0)
+        self.assertTrue(bool(curve.loc[0, 'detected']))
+
+    def test_daily_amplitude_statistic_runs_on_a_daily_grid(self):
+        index = pd.date_range('2019-01-01', periods=72 * 400, freq='20min', tz='UTC')
+        hours = index.hour + index.minute / 60.0
+        rng = np.random.default_rng(2)
+        residual = pd.Series(2.0 * np.cos(2 * np.pi * (hours - 14) / 24.0)
+                             + rng.normal(0, 0.5, len(index)), index=index)
+        daily = monitoring.daily_harmonic(residual)['amplitude']
+        reference = monitoring.reference_stats(daily, start='2019-01-01', end='2019-06-30')
+        curve = monitoring.detectability_curve(
+            residual, reference['mu'], reference['sigma'], magnitudes=(6.0,),
+            durations=('168h',), kind='amplitude', statistic='daily_amplitude',
+            injection_starts=('2019-09-01', '2019-11-01'))
+        self.assertIn(curve.loc[0, 'detected'], (0.5, 1.0, True))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

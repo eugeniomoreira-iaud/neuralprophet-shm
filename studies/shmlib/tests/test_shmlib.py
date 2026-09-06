@@ -894,6 +894,19 @@ class TestFiguresStudy05(unittest.TestCase):
         self.assertEqual(len(fig.axes), 2)
         plt.close(fig)
 
+    def test_plot_daily_harmonic_chart_draws_two_panels(self):
+        import matplotlib.pyplot as plt
+        index = pd.date_range('2020-01-01', periods=30, freq='D', tz='UTC')
+
+        def _chart():
+            return pd.DataFrame({'ewma': np.linspace(-1.0, 1.0, 30),
+                                 'ucl': 2.0, 'lcl': -2.0}, index=index)
+
+        episodes = pd.DataFrame({'start': [index[10]], 'end': [index[12]]})
+        fig = figures.plot_daily_harmonic_chart(_chart(), _chart(), episodes=episodes)
+        self.assertEqual(len(fig.axes), 2)
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
