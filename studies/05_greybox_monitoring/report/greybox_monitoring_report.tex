@@ -987,7 +987,126 @@ Set & Lag [slots] & Ljung--Box $p$ & Std [mdeg] & MAD [mdeg] \\
 % ===========================================================================
 \section{Uncertainty and validation}
 \label{sec:uncertainty}
-\pending{Phase 3}
+
+Three things are validated here: that the attribution fit converged and where
+its held-out error settles; that its components hold across the library's
+chronological folds; and that the rolling expectation of D5, with the
+rolling conformal interval of D8, is accurate and covers at the rate it
+claims, as a function of how stale the last refit is.
+
+\subsection{The fit and the folds}
+
+Figure~\ref{fig:fit-metrics} draws the library's own training curve for the
+on-structure attribution fit, the mean absolute error on the training rows
+and on the held-out last fifth at every epoch. The training error falls
+through the thirty epochs and settles; the held-out error reaches its minimum
+early and then rises towards the 17.7\,mdeg that Table~\ref{tab:trend-reg}
+reports for the same fit. That divergence is not a defect of the optimiser: the
+held-out rows are the last fifth of a level record, from March 2025 onward, and
+a model fitted once on the years before them extrapolates its last trend
+segment across them. The same thing, measured across five folds, is what
+Table~\ref{tab:stability} showed in Section~\ref{sec:regressors}: the gain
+and the yearly amplitude are stable, the held-out error of a fold is not, and
+it ranges from 7.8 to 100.7\,mdeg on the on-structure set according to where
+the fold's window ends. A single fit cannot be the expectation; the
+expectation has to be refitted as the record grows, which is D5.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F03_fit_metrics.png}
+\caption{The training curve of the on-structure attribution fit: mean absolute
+error on the training rows (solid) and on the held-out last fifth (dashed) by
+epoch, in millidegrees.}
+\label{fig:fit-metrics}
+\end{figure}
+
+\subsection{The rolling expectation, by days since refit}
+
+The expectation was refitted every thirty days from 20~November 2020, the
+first origin with two annual cycles of history behind it, to the end of the
+record, each refit on the trailing three years with its changepoints placed
+on the covered time of that window, and each refit's interval calibrated by
+split conformal prediction on the previous six months of its own
+out-of-sample residuals (D5, D8). Every row of the record from that origin
+onward is therefore predicted by a model that has not seen it, from an origin
+at most thirty days old. Table~\ref{tab:nowcast} scores the result per
+regressor set and per week of staleness: 91,187 rows on the on-structure set,
+88,414 on the station set and 100,583 on ERA5.
+
+Accuracy decays with staleness, and it decays the same way on every set. On
+the on-structure set the mean absolute error is 5.31\,mdeg in the first week
+after a refit, 7.54 in the second, 9.05 in the third and 10.89 in the fourth,
+a growth of about 1.9\,mdeg per week; the station set runs from 5.90 to 12.09
+and ERA5 from 6.77 to 13.08. The bias stays within $\pm 1.2$\,mdeg in every
+bin. Pooled over the month, the mean absolute error is 8.40\,mdeg on the
+on-structure set, 9.38 on the station set and 10.19 on ERA5: the nearer the
+driver, the better the expectation, by about one millidegree per step
+outward. The growth within the month is larger than the trend line's own
+extrapolation error, which D5 estimated at a fraction of a millidegree over
+thirty days; what accumulates between refits is the residual's slow
+wandering, the memory Section~\ref{sec:regressors} found in the residual
+and D7 kept out of the model, which each refit re-anchors and the next month
+lets drift again.
+
+Coverage decays with staleness too, and this is the interval's finding. The
+nominal 90\,\% interval covers 96.2\,\% of the on-structure rows in the first
+week, 90.2\,\% in the second, 87.3\,\% in the third and 81.9\,\% in the fourth;
+the station and ERA5 sets run from 97.1 to 81.0\,\% and from 95.5 to 78.1\,\%.
+Its width does not change with staleness: about 35\,mdeg on the on-structure
+set, 39 on the station set and 46 on ERA5 in every bin, because the
+calibration pools the previous six months of residuals across every
+staleness and so fixes one width for the whole month. The interval is
+therefore right on average and wrong at both ends, too wide in the week after
+a refit and too narrow in the week before the next. Pooled over the month it
+covers 88.4\,\% of the on-structure rows, 88.0\,\% of the station set's and
+86.5\,\% of ERA5's, against the nominal 90\,\% and against the 67.7\,\% that
+Study~04 reached with an interval calibrated once, eleven months before the
+record it was asked to cover. Two remedies follow from the table and are not
+applied here: a calibration conditioned on staleness, which would let the
+width grow through the month, or a shorter refit interval, which would cut
+the month off before the fourth week; either is a design choice for the
+deployment rather than for this study, and the interval score of the last
+column, which charges both width and misses, is the number on which to
+compare them.
+
+\begin{table}[H]
+\centering
+\caption{The rolling expectation scored per regressor set and per week since
+the last refit: rows, mean absolute error, root mean square error and bias in
+millidegrees, the coverage and mean width of the nominal 90\,\% conformal
+interval, and the interval score. Read from
+\texttt{GM\_09\_nowcast\_metrics.csv}.}
+\label{tab:nowcast}
+{\small\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{llrrrrrrr}
+\toprule
+Set & Staleness & Rows & MAE & RMSE & Bias & Coverage & Width & Interval score \\
+\midrule
+\input{../outputs/GM_09_body.tex}\\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+Figure~\ref{fig:observed-expected} shows one month of the on-structure
+expectation against the record, with its interval: December 2025, the first
+full month after the autumn 2025 outage in which every driver of the set is
+present, since the station's radiation is missing for most of November. The daily
+cycle of the observed inclination is followed in phase and in size, the
+expected level sits a few millidegrees above the observed one for most of the
+month and the interval covers it throughout: a departure of that shape and
+size, sustained across a refit month, is exactly what the daily and slow
+charts of Section~\ref{sec:monitor} are built to judge, and the interval,
+which asks only whether a reading is plausible given the last refit, is not
+the instrument for it.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F08_observed_expected.png}
+\caption{Observed inclination against the rolling expectation with its
+90\,\% conformal interval, on-structure set, December 2025, on the
+twenty-minute grid.}
+\label{fig:observed-expected}
+\end{figure}
 
 % ===========================================================================
 \section{What the wall temperature and the pyranometer buy}

@@ -12,7 +12,7 @@
 
 ## Progress
 
-Updated 2026-09-06 · 18:25 UTC. This block is the summary a reader needs to follow the
+Updated 2026-09-06 · 19:04 UTC. This block is the summary a reader needs to follow the
 implementation; the checkboxes under each task below are ticked as the work lands, and the
 detailed execution ledger (rulings, fix rounds, commits) lives in
 `.superpowers/sdd/2026-09-05-study05-greybox-monitoring/progress.md`, which is gitignored.
@@ -20,7 +20,7 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 | Measure | Progress |
 |---|---|
 | Tasks complete (of 41, Tasks 0.1 to 7.3) | `[████████████░░░░░░░░]` **24 of 41** (58 %) |
-| Report sections written (of 14) | `[██████████░░░░░░░░░░]` **7 of 14** (50 %) |
+| Report sections written (of 14) | `[███████████░░░░░░░░░]` **8 of 14** (57 %) |
 
 | Phase | Tasks | State | Result and commits |
 |---|---|---|---|
@@ -29,13 +29,13 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 | 1b · Harmonic diagnostics | 1b.1–1b.6 | ✅ complete | 12043f6…6176256. `GM_04`, `GM_F02`; `YEARLY_ORDER = 1`, `DAILY_ORDER = 2`, weight curve from the residual's order-two fit; report §5.1. Checkpoint 1b approved. |
 | 2 · Model A attribution on three sets | 2.1–2.6, 2.4b, 2.4c | ✅ complete | a4652cf…2853c8a, 16f3cb1, 442f5d6. `GM_04d`, `GM_05`–`GM_08b`, `GM_F03`–`GM_F06b`; `TREND_REG = 0.0`; conditional daily term rejected. **Checkpoint 2 passed:** on-structure air-temperature gain −2.64 mdeg/°C against Study 03's −2.79, inside its interval. Report §4, §5.2, §6. |
 | 2b · Current-era ladder | 2b.1–2b.2 | ✅ complete | ef0a67a, 6882563, 74cf7dc; 0d63e51, e5e07ba. `GM_16`, `GM_F14` on one matched window. Neither the pyranometer nor the probe buys anything for the expectation on the current era. Report §9 written. |
-| 3 · Expectation and interval | 3.1–3.3 | 🔄 in progress | 3.1 + 3.2 implementer running (the long walk-forward run, two to three hours). Then report §8. |
+| 3 · Expectation and interval | 3.1–3.3 | ✅ committed · in review | 9f4719f, 4f0278f; §8 committed. `GM_09`, `GM_F08`: pooled coverage 88.4 % (on-structure) against Study 04's 67.7 %; coverage 96 → 82 % and MAE 5.3 → 10.9 mdeg across the refit month. Two runs of about an hour each (the first died on the native conformal plot). |
 | 4 · Model B impulse response | 4.1–4.3 | ⬜ pending | `GM_10`, `GM_F07`; report §7. |
 | 5 · The monitor | 5.1–5.5 | ⬜ pending | `GM_11`–`GM_13`, `GM_F09`–`GM_F11`, `GM_F13`; report §10. |
 | 6 · Outage bridges | 6.1–6.3 | ⬜ pending | `GM_14`, `GM_F12`; report §11. |
 | 7 · Closure and the revision pass | 7.1–7.3 | ⬜ pending | `GM_15`; report §12–§14; then Task 7.3, the revision pass from `report05_check.md`. |
 
-Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend ✅ · 5 Seasonality ✅ · 6 Regressors ✅ · 7 Impulse response ⬜ · 8 Uncertainty ⬜ · 9 Ladder ✅ · 10 Monitor ⬜ · 11 Outages ⬜ · 12 Verdict ⬜ · 13 Limitations ⬜ · 14 Run metadata ⬜.
+Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend ✅ · 5 Seasonality ✅ · 6 Regressors ✅ · 7 Impulse response ⬜ · 8 Uncertainty ✅ · 9 Ladder ✅ · 10 Monitor ⬜ · 11 Outages ⬜ · 12 Verdict ⬜ · 13 Limitations ⬜ · 14 Run metadata ⬜.
 
 ## Global Constraints
 
