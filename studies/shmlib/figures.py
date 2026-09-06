@@ -2314,13 +2314,18 @@ def plot_regressor_sets(frame, target, sets, target_channel='inc_comp', title=''
     top of each other and is unreadable: a reader cannot tell the sets
     apart, since colour here already carries the role and cannot also carry
     the set. This layout instead gives every distinct record its own panel:
-    the target first, then one panel per ``(role, column)`` pair found
-    across ``sets``, in role order ``'tair'``, ``'rh'``, ``'sr'`` and then
-    set order as ``sets`` is given. A column reused by more than one set —
-    the on-structure set borrows the ground station's radiation, so
-    ``sr_gs`` may appear as both sets' ``'sr'`` column — is drawn once, in a
-    panel whose title names every set that reads it, rather than being drawn
-    twice from the same data. Every panel of one role shares its vertical
+    the target first, then one panel per distinct record found across
+    ``sets``, in role order ``'tair'``, ``'rh'``, ``'sr'`` and then set
+    order as ``sets`` is given. Two sets naming the same role are merged
+    into one panel when their columns hold identical values, checked with
+    ``frame[a].equals(frame[b])`` rather than by column name alone: the
+    on-structure set stores the ground station's borrowed radiation under
+    its own suffix, so its ``'sr'`` column and the ground station's own
+    differ in name but not in content, and the two must still collapse to
+    one panel rather than drawing the same record twice under two names.
+    Two columns sharing a literal name are the same check, since a column
+    trivially equals itself. A merged panel's title names every set that
+    reads it. Every panel of one role shares its vertical
     scale, fitted to the finite range of every column that role draws
     (shared even where the columns differ), so that an amplitude difference
     between two sets is a difference in the drawn shape rather than an
@@ -2356,20 +2361,25 @@ def plot_regressor_sets(frame, target, sets, target_channel='inc_comp', title=''
     """
     roles = ['tair', 'rh', 'sr']
 
-    # The distinct (role, column) pairs, in role order then set order,
-    # remembering which set names share a column.
+    # The distinct records, in role order then set order. Two sets of the
+    # same role merge into one panel when their columns hold identical
+    # values (`frame[a].equals(frame[b])`), not only when they share a
+    # column name — the on-structure set's borrowed radiation is the case
+    # this exists for: same values, different suffix.
     panels = []
-    index_of = {}
     for role in roles:
         for name, mapping in sets.items():
             if role not in mapping:
                 continue
             column = mapping[role]
-            key = (role, column)
-            if key in index_of:
-                panels[index_of[key]][2].append(name)
+            series = frame[column]
+            matched = next(
+                (panel for panel in panels if panel[0] == role
+                 and (column == panel[1] or series.equals(frame[panel[1]]))),
+                None)
+            if matched is not None:
+                matched[2].append(name)
             else:
-                index_of[key] = len(panels)
                 panels.append([role, column, [name]])
 
     n_panels = len(panels)

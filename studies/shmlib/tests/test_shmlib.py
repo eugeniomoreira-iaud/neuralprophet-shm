@@ -738,6 +738,32 @@ class TestFiguresStudy05(unittest.TestCase):
         self.assertEqual(fig.axes[1].get_ylim(), fig.axes[2].get_ylim())
         plt.close(fig)
 
+    def test_identical_records_under_different_names_share_one_panel(self):
+        """
+        `str`'s `'sr'` column is `sr_str`, not `sr_gs`, but it holds the
+        ground station's borrowed radiation values verbatim under its own
+        suffix. The merge must go by value, not by name, so `sr_str` and
+        `sr_gs` still collapse to one panel titled for both sets.
+        """
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        index = pd.date_range('2024-01-01', periods=48, freq='1h', tz='UTC')
+        frame = pd.DataFrame({
+            'y': np.sin(np.arange(48) / 4.0), 'tair_str': 10.0, 'rh_str': 50.0,
+            'sr_str': 100.0, 'sr_gs': 100.0, 'tair_gs': 11.0, 'rh_gs': 51.0,
+            'tair_era5': 9.0, 'rh_era5': 49.0, 'sr_era5': 90.0}, index=index)
+        sets = {'str': {'tair': 'tair_str', 'rh': 'rh_str', 'sr': 'sr_str'},
+                'gs': {'tair': 'tair_gs', 'rh': 'rh_gs', 'sr': 'sr_gs'},
+                'era5': {'tair': 'tair_era5', 'rh': 'rh_era5', 'sr': 'sr_era5'}}
+        fig = figures.plot_regressor_sets(frame, 'y', sets)
+        # Titles are set with `loc='left'`, which matplotlib stores apart
+        # from the default (`loc='center'`) `get_title()` reads.
+        titles = [ax.get_title(loc='left') for ax in fig.axes]
+        self.assertEqual(len(fig.axes), 9)
+        self.assertIn('sr · str and gs', titles)
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
