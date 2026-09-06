@@ -364,6 +364,37 @@ class TestLadder(unittest.TestCase):
         self.assertFalse(np.isnan(ladder['skill_q95'].iloc[1]))
         self.assertEqual(set(errors), {'1 base', '2 + sr'})
 
+        # skill_vs_first is chain skill's own value with only two rungs
+        # (the rung below the second is also the first), but the column is
+        # its own computation, not an alias, and must exist and follow the
+        # same NaN-on-the-first-rung rule.
+        for column in ('skill_vs_first', 'skill_vs_first_q05', 'skill_vs_first_q95'):
+            self.assertIn(column, ladder.columns)
+            self.assertTrue(np.isnan(ladder[column].iloc[0]))
+            self.assertFalse(np.isnan(ladder[column].iloc[1]))
+
+    def test_channel_ladder_multi_column_gate_matches_all_columns_present(self):
+        # A rung's gate may name channels the rung does not itself regress
+        # on, exactly how D4's ladder holds every rung to one matched
+        # window defined by the deployable channels rather than by each
+        # rung's own regressor coverage. Two gate columns with only
+        # partially overlapping gaps exercise that the restriction is the
+        # intersection of both, not either alone.
+        frame = _frame()
+        frame = frame.copy()
+        frame['gate_a'] = 1.0
+        frame['gate_b'] = 1.0
+        frame.loc[frame.index[:50], 'gate_a'] = np.nan
+        frame.loc[frame.index[30:80], 'gate_b'] = np.nan
+        rungs = [('1 gated', ['tair'], ['gate_a', 'gate_b'])]
+
+        ladder, _ = prediction.channel_ladder(
+            frame, rungs, valid_p=0.2, n_changepoints=2, block_hours=24,
+            repetitions=10, seed=0, epochs=1, freq='1h')
+
+        expected_rows = len(frame.dropna(subset=['y', 'tair', 'gate_a', 'gate_b']))
+        self.assertEqual(int(ladder.loc[0, 'rows']), expected_rows)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

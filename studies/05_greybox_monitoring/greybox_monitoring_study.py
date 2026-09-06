@@ -554,8 +554,7 @@ MODEL_B_FALLBACK_LAGS = 12
 # that leaves the count.
 #
 # **`LADDER_RUNGS`** — the four `(label, columns, gate)` triples
-# `prediction.channel_ladder` fits in order, `gate` naming the column whose
-# presence defines that rung's matched window: (1) the on-structure set
+# `prediction.channel_ladder` fits in order: (1) the on-structure set
 # alone, its radiation still borrowed from the ground station; (2) the same
 # set with its own pyranometer in place of the borrowed radiation, so this
 # rung differs from rung 1 in radiation source alone; (3) that set with the
@@ -564,8 +563,18 @@ MODEL_B_FALLBACK_LAGS = 12
 # measured lead over the deformation (`TWALL_LEAD_H`) rather than its
 # filtered value — a rung nobody can deploy, since it consumes the probe's
 # own future readings, kept only to bound what the probe could buy under a
-# lead that will never be available at prediction time. Default as given in
-# D4's table.
+# lead that will never be available at prediction time. `gate` is the same
+# three-column set — `['sr_wall', 'twall_tau', 'twall_lead']` — on every
+# rung, including the first two, which do not themselves regress on the
+# probe: D4 defines the ladder on **one** matched window, the rows where
+# the pyranometer and the probe are both present, so that a rung's held-out
+# error differs from the rung below's in its added channel alone and never
+# in a training window that happens to be a different size. Gating rung 1
+# on only `columns` (as an earlier version of this cell did) let it train
+# on every current-era row while rungs 2-4 were held to the probe's and
+# pyranometer's rows alone, so a chain skill computed across that boundary
+# priced the channel and a halved training window together and could not
+# be trusted. Default as given in D4's table.
 
 # %%
 CURRENT_ERA_START = '2025-02-21'
@@ -574,12 +583,14 @@ TWALL_LEAD_H = -2
 LADDER_BOOTSTRAP_BLOCK_HOURS = 24
 LADDER_BOOTSTRAP_REPETITIONS = 2000
 LADDER_N_CHANGEPOINTS = max(2, N_CHANGEPOINTS // 3)
+LADDER_MATCHED_GATE = ['sr_wall', 'twall_tau', 'twall_lead']
 LADDER_RUNGS = [
-    ('1 on-structure set', ['tair_str', 'rh_str', 'sr_gs'], None),
-    ('2 on-structure radiation', ['tair_str', 'rh_str', 'sr_wall'], 'sr_wall'),
-    ('3 + twall, tau 4 h', ['tair_str', 'rh_str', 'sr_wall', 'twall_tau'], 'twall_tau'),
+    ('1 on-structure set', ['tair_str', 'rh_str', 'sr_gs'], LADDER_MATCHED_GATE),
+    ('2 on-structure radiation', ['tair_str', 'rh_str', 'sr_wall'], LADDER_MATCHED_GATE),
+    ('3 + twall, tau 4 h', ['tair_str', 'rh_str', 'sr_wall', 'twall_tau'],
+     LADDER_MATCHED_GATE),
     ('4 twall at its lead (diagnostic)',
-     ['tair_str', 'rh_str', 'sr_wall', 'twall_lead'], 'twall_lead'),
+     ['tair_str', 'rh_str', 'sr_wall', 'twall_lead'], LADDER_MATCHED_GATE),
 ]
 
 # %% [markdown]
@@ -1165,8 +1176,12 @@ figures.plot_regressor_gains(gains, title='Learned gains against Study 03',
 # wall probe, the delayed on-structure pyranometer, the probe's
 # thermal-inertia and lead variants, and the conditional-seasonality
 # weights. `prediction.channel_ladder` then fits `LADDER_RUNGS` in order on
-# a matched held-out split, one specification per rung, and pairs each
-# rung's held-out error against the rung immediately below it with the same
+# a matched held-out split, one specification per rung, gated to the same
+# rows on every rung — the window where the pyranometer and the probe are
+# both present — so that a rung's held-out error differs from the rung
+# below's in its added channel alone, never in a training window of a
+# different size (D4). It pairs each rung's held-out error against both
+# the rung immediately below it and the first rung directly, with the same
 # block bootstrap Study 04 uses for its own route comparisons.
 
 # %%
@@ -1189,16 +1204,20 @@ display(ladder)
 #
 # `GM_16` records, per rung, the matched block's size, the held-out mean
 # absolute error, interval coverage, the newest regressor's learned gain
-# and the fit's residual lag-1 autocorrelation, alongside the paired skill
-# over the rung below and its bootstrap interval. `GM_F14` draws the same
-# held-out MAE and paired skill, one bar or marker per rung.
+# and the fit's residual lag-1 autocorrelation, alongside two paired
+# skills: over the rung immediately below (the chain) and over the first
+# rung directly, each with its bootstrap interval — the second reads a
+# rung's total gain over the ladder's starting specification without
+# compounding it through every rung in between. `GM_F14` draws the
+# held-out MAE and the chain skill, one bar or marker per rung.
 
 # %%
 ladder.to_csv(OUTPUT_DIR / 'GM_16_current_era_ladder.csv', index=False)
 tables.write_table(ladder, str(OUTPUT_DIR / 'GM_16_body.tex'),
                    [('rung', tables.texttt), ('rows', ',d'), ('mae_val', '.2f'),
                     ('skill', '.3f'), ('skill_q05', '.3f'), ('skill_q95', '.3f'),
-                    ('coverage', tables.percent), ('gain_last', '.3f'),
-                    ('residual_r1', '.3f')])
+                    ('skill_vs_first', '.3f'), ('skill_vs_first_q05', '.3f'),
+                    ('skill_vs_first_q95', '.3f'), ('coverage', tables.percent),
+                    ('gain_last', '.3f'), ('residual_r1', '.3f')])
 figures.plot_ladder(ladder, title='What each on-structure channel buys',
                     save_path=str(OUTPUT_DIR), filename='GM_F14_ladder')

@@ -2848,14 +2848,19 @@ def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
     current : pd.DataFrame
         The ladder's window, as returned by :func:`ladder_frame`, carrying
         ``y`` and every column any rung names.
-    rungs : sequence of (str, sequence of str, str or None)
-        ``(label, columns, gate)`` triples, in the order they are fitted and
-        reported. ``columns`` are the regressor columns of that rung's
-        specification. ``gate`` is the column, if any, whose presence
-        further restricts the rung's matched window; every rung on record
-        as of this writing names a ``gate`` already present in ``columns``,
-        which makes the restriction a no-op there, but the argument is kept
-        general for a rung whose gate is not itself a regressor.
+    rungs : sequence of (str, sequence of str, gate)
+        ``(label, columns, gate)`` triples, ``gate`` a column name, a
+        sequence of column names, or ``None``, in the order they are fitted
+        and reported. ``columns`` are the regressor columns of that rung's
+        specification. ``gate`` is the column, or sequence of columns, whose
+        presence further restricts the rung's matched window beyond
+        ``columns``' own coverage; every column named in ``gate`` must be
+        non-missing for a row to enter the rung's block, whether or not that
+        column is also one of ``columns`` — a rung with no channel of its
+        own to gate on can still be held to a window another rung's gate
+        defines, which is exactly how every rung of D4's ladder is matched
+        to one common window rather than each to its own regressors' own
+        coverage. ``None`` applies no restriction beyond ``columns``.
     valid_p : float
         Fraction of each rung's matched block held out at its tail for
         scoring, mirroring the main line's own held-out split.
@@ -2882,11 +2887,16 @@ def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
         ``[q05, q95]``, ``NaN`` when the fit carries no interval),
         ``gain_last`` (the last-named regressor's learned gain),
         ``residual_r1`` (lag-1 autocorrelation of the fit's own residual,
-        computed on its training window), and ``skill``, ``skill_q05``,
+        computed on its training window), ``skill``, ``skill_q05``,
         ``skill_q95`` (:func:`paired_mae_skill`'s paired block-bootstrap
         skill of this rung's held-out error over the rung immediately
         below's, evaluated on their shared timestamps; the first rung has no
-        rung below it, so its three skill columns are ``NaN``).
+        rung below it, so its three skill columns are ``NaN``), and
+        ``skill_vs_first``, ``skill_vs_first_q05``, ``skill_vs_first_q95``
+        (the same paired skill, but always against the first rung rather
+        than the one immediately below, so a rung's improvement over the
+        ladder's starting specification can be read off directly rather
+        than compounded from the chain; ``NaN`` on the first rung itself).
     errors : dict
         Rung label to its held-out absolute-error series, indexed by
         prediction timestamp, so a caller can re-inspect a pairing the
@@ -2898,7 +2908,8 @@ def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
         columns = list(columns)
         block = current.dropna(subset=['y'] + columns)
         if gate is not None:
-            block = block.loc[block[gate].notna()]
+            gate_columns = [gate] if isinstance(gate, str) else list(gate)
+            block = block.dropna(subset=gate_columns)
         split = int(len(block) * (1 - valid_p))
         train, valid = block.iloc[:split], block.iloc[split:]
         changepoints = covered_changepoints(train.index, n_changepoints)
@@ -2929,5 +2940,21 @@ def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
             block_hours=block_hours, repetitions=repetitions, seed=seed)
         skills.append({'skill': result['skill'], 'skill_q05': result['skill_q05'],
                        'skill_q95': result['skill_q95']})
-    ladder = pd.concat([ladder, pd.DataFrame(skills)], axis=1)
+
+    first_label = labels[0]
+    skills_vs_first = [{'skill_vs_first': np.nan, 'skill_vs_first_q05': np.nan,
+                        'skill_vs_first_q95': np.nan}]
+    for label in labels[1:]:
+        shared = errors[first_label].index.intersection(errors[label].index)
+        result = paired_mae_skill(
+            errors[first_label].loc[shared], errors[label].loc[shared],
+            block_hours=block_hours, repetitions=repetitions, seed=seed)
+        skills_vs_first.append({
+            'skill_vs_first': result['skill'],
+            'skill_vs_first_q05': result['skill_q05'],
+            'skill_vs_first_q95': result['skill_q95'],
+        })
+
+    ladder = pd.concat(
+        [ladder, pd.DataFrame(skills), pd.DataFrame(skills_vs_first)], axis=1)
     return ladder, errors
