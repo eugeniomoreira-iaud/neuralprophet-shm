@@ -12,14 +12,14 @@
 
 ## Progress
 
-Updated 2026-09-06 · 19:04 UTC. This block is the summary a reader needs to follow the
+Updated 2026-09-06 · 19:11 UTC. This block is the summary a reader needs to follow the
 implementation; the checkboxes under each task below are ticked as the work lands, and the
 detailed execution ledger (rulings, fix rounds, commits) lives in
 `.superpowers/sdd/2026-09-05-study05-greybox-monitoring/progress.md`, which is gitignored.
 
 | Measure | Progress |
 |---|---|
-| Tasks complete (of 41, Tasks 0.1 to 7.3) | `[████████████░░░░░░░░]` **24 of 41** (58 %) |
+| Tasks complete (of 41, Tasks 0.1 to 7.3) | `[█████████████░░░░░░░]` **27 of 41** (65 %) |
 | Report sections written (of 14) | `[███████████░░░░░░░░░]` **8 of 14** (57 %) |
 
 | Phase | Tasks | State | Result and commits |
@@ -29,8 +29,8 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 | 1b · Harmonic diagnostics | 1b.1–1b.6 | ✅ complete | 12043f6…6176256. `GM_04`, `GM_F02`; `YEARLY_ORDER = 1`, `DAILY_ORDER = 2`, weight curve from the residual's order-two fit; report §5.1. Checkpoint 1b approved. |
 | 2 · Model A attribution on three sets | 2.1–2.6, 2.4b, 2.4c | ✅ complete | a4652cf…2853c8a, 16f3cb1, 442f5d6. `GM_04d`, `GM_05`–`GM_08b`, `GM_F03`–`GM_F06b`; `TREND_REG = 0.0`; conditional daily term rejected. **Checkpoint 2 passed:** on-structure air-temperature gain −2.64 mdeg/°C against Study 03's −2.79, inside its interval. Report §4, §5.2, §6. |
 | 2b · Current-era ladder | 2b.1–2b.2 | ✅ complete | ef0a67a, 6882563, 74cf7dc; 0d63e51, e5e07ba. `GM_16`, `GM_F14` on one matched window. Neither the pyranometer nor the probe buys anything for the expectation on the current era. Report §9 written. |
-| 3 · Expectation and interval | 3.1–3.3 | ✅ committed · in review | 9f4719f, 4f0278f; §8 committed. `GM_09`, `GM_F08`: pooled coverage 88.4 % (on-structure) against Study 04's 67.7 %; coverage 96 → 82 % and MAE 5.3 → 10.9 mdeg across the refit month. Two runs of about an hour each (the first died on the native conformal plot). |
-| 4 · Model B impulse response | 4.1–4.3 | ⬜ pending | `GM_10`, `GM_F07`; report §7. |
+| 3 · Expectation and interval | 3.1–3.3 | ✅ complete | 9f4719f, 4f0278f, ed7f326. `GM_09`, `GM_F08`: pooled coverage 88.4 % (on-structure) against Study 04's 67.7 %; coverage 96 → 82 % and MAE 5.3 → 10.9 mdeg across the refit month. Two runs of about an hour each (the first died on the native conformal plot). |
+| 4 · Model B impulse response | 4.1–4.3 | 🔄 in progress | 4.1 + 4.2 implementer running (library, Movement 4, one full run). Then report §7. |
 | 5 · The monitor | 5.1–5.5 | ⬜ pending | `GM_11`–`GM_13`, `GM_F09`–`GM_F11`, `GM_F13`; report §10. |
 | 6 · Outage bridges | 6.1–6.3 | ⬜ pending | `GM_14`, `GM_F12`; report §11. |
 | 7 · Closure and the revision pass | 7.1–7.3 | ⬜ pending | `GM_15`; report §12–§14; then Task 7.3, the revision pass from `report05_check.md`. |
@@ -2465,7 +2465,7 @@ Before running, check `prediction.paired_mae_skill`'s return type (grep its docs
 - `rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d', freq=None, train_window=None, changepoints_per_window=False, **model_kwargs)`: with `train_window` (offset alias) each window trains on `[origin − train_window, origin)` instead of all history; with `changepoints_per_window=True` each window computes `covered_changepoints(train.index, model_kwargs['n_changepoints'])` and passes them as `changepoints`. Defaults reproduce today's behaviour. Output gains a column `staleness_d = (ds − origin) / 1 day`.
 - `prediction.rolling_conformal(predictions, alpha=0.10, window='180d', method='cqr') -> pd.DataFrame`: copy of the rolling output in which, for every origin, the calibration set is the rolling output's own rows with `ds` in `[origin − window, origin)` (all out of sample by construction); the nonconformity score is `max(q05 − y, y − q95)` for `'cqr'` and `|y − yhat|` for `'naive'`; `qhat` is the `⌈(n+1)(1−α)⌉/n` empirical quantile; the model's `q05`/`q95` are kept as `q05_model`/`q95_model` and replaced by the conformal `q05 = q05_model − qhat`, `q95 = q95_model + qhat` (`'naive'`: `yhat ∓ qhat`). Rows whose origin has no calibration rows get `NaN` bounds. Columns added: `qhat`, `n_cal`.
 
-- [ ] **Step 1: Write the failing tests** (append)
+- [x] **Step 1: Write the failing tests** (append)
 
 ```python
 class TestRollingAdditions(unittest.TestCase):
@@ -2494,9 +2494,9 @@ class TestRollingAdditions(unittest.TestCase):
         self.assertGreater(out['origin'].nunique(), 1)
 ```
 
-- [ ] **Step 2: Run; expected TypeError on `train_window`, AttributeError on `rolling_conformal`.**
+- [x] **Step 2: Run; expected TypeError on `train_window`, AttributeError on `rolling_conformal`.**
 
-- [ ] **Step 3: Implement.** In `rolling_nowcast`: add the two keyword arguments before `**model_kwargs`; inside the loop replace `train = ordered.loc[index < origin]` by
+- [x] **Step 3: Implement.** In `rolling_nowcast`: add the two keyword arguments before `**model_kwargs`; inside the loop replace `train = ordered.loc[index < origin]` by
 
 ```python
         lower = (origin - pd.Timedelta(train_window)) if train_window else index.min()
@@ -2578,16 +2578,16 @@ def rolling_conformal(predictions, alpha=0.10, window='180d', method='cqr'):
     return out
 ```
 
-- [ ] **Step 4: Run new tests (PASS) and Study 04's `test_prediction.py` (unchanged).**
+- [x] **Step 4: Run new tests (PASS) and Study 04's `test_prediction.py` (unchanged).**
 
-- [ ] **Step 5: Commit** `feat(shmlib): bounded training windows, per-window changepoints and rolling conformal bounds for the walk-forward expectation`.
+- [x] **Step 5: Commit** `feat(shmlib): bounded training windows, per-window changepoints and rolling conformal bounds for the walk-forward expectation`.
 
 ### Task 3.2 (S runs, O reviews): Movement 3 — the rolling expectation per set, `GM_09`, `GM_F03` already done, `GM_F08`
 
 **Files:**
 - Modify: notebook (parameter cell: add `TRAIN_WINDOW = '1095d'` with guidance in the Model A group; append Movement 3).
 
-- [ ] **Step 1: Append the cells**
+- [x] **Step 1: Append the cells**
 
 ```python
 # %% [markdown]
@@ -2652,11 +2652,11 @@ model_str.conformal_plot(native)
 
 Check `score_predictions`'s column names for the interval (`coverage_q05_q95`, `width_q05_q95`, `interval_score`, per `NP_07_nowcast_metrics.csv`) and adjust the body columns if they differ.
 
-- [ ] **Step 2: Sync, execute (this is the long run: ~70 refits × 3 sets; timeout 43200 s; run in the background and poll), read back, copy back. Commit** `feat(study05): the rolling expectation with rolling conformal bounds, scored by staleness`.
+- [x] **Step 2: Sync, execute (this is the long run: ~70 refits × 3 sets; timeout 43200 s; run in the background and poll), read back, copy back. Commit** `feat(study05): the rolling expectation with rolling conformal bounds, scored by staleness`.
 
 ### Task 3.3 (O): Report §8 Uncertainty and validation
 
-- [ ] From `GM_09_body.tex`, `GM_07_body.tex`, `GM_F03_fit_metrics.png`, `GM_F08_observed_expected.png`: the fit curve, the folds and component stability, the rolling expectation's accuracy and the interval's coverage by staleness, the comparison with Study 04's 67.7 %. Build, honesty test, README status, commit `docs(study05): write the uncertainty and validation section`.
+- [x] From `GM_09_body.tex`, `GM_07_body.tex`, `GM_F03_fit_metrics.png`, `GM_F08_observed_expected.png`: the fit curve, the folds and component stability, the rolling expectation's accuracy and the interval's coverage by staleness, the comparison with Study 04's 67.7 %. Build, honesty test, README status, commit `docs(study05): write the uncertainty and validation section`.
 
 > **Checkpoint 3 (O):** coverage within a stated tolerance of 90 %, or the shortfall explained by staleness. Approval opens Phase 4.
 
