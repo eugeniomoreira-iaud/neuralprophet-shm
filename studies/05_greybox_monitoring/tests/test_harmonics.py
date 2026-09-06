@@ -91,5 +91,83 @@ class TestSeasonalWeights(unittest.TestCase):
         self.assertAlmostEqual(out['summer_w'].min(), 0.0, places=6)
 
 
+class TestPeriodScanSpacing(unittest.TestCase):
+
+    def _series(self, n_days=400, seed=2):
+        rng = np.random.default_rng(seed)
+        index = pd.date_range('2020-01-01', periods=n_days * 72, freq='20min', tz='UTC')
+        t_days = (index - index[0]) / pd.Timedelta(days=1)
+        values = np.cos(2 * np.pi * t_days) + rng.normal(0, 0.05, len(index))
+        return pd.Series(values, index=index)
+
+    def test_the_daily_peak_is_certified_on_a_log_grid(self):
+        scan = prediction.period_scan(
+            self._series(), min_days=0.5, max_days=30.0, n_periods=4000,
+            spacing='log', top=3)
+        top = scan.iloc[0]
+        self.assertLess(abs(top['period_days'] - 1.0), top['resolution_days'])
+
+    def test_an_unknown_spacing_raises(self):
+        with self.assertRaises(ValueError):
+            prediction.period_scan(
+                self._series(), min_days=0.5, max_days=30.0, n_periods=4000,
+                spacing='bogus', top=3)
+
+    def test_chunked_evaluation_matches_a_single_call(self):
+        series = self._series()
+        kwargs = dict(min_days=0.5, max_days=30.0, n_periods=4000,
+                     spacing='log', top=3)
+        default_chunk = prediction._LOMBSCARGLE_CHUNK
+        whole = prediction.period_scan(series, **kwargs)
+        prediction._LOMBSCARGLE_CHUNK = 7
+        try:
+            chunked = prediction.period_scan(series, **kwargs)
+        finally:
+            prediction._LOMBSCARGLE_CHUNK = default_chunk
+        pd.testing.assert_frame_equal(whole, chunked)
+
+
+class TestOlsResidual(unittest.TestCase):
+
+    def test_gains_and_residual_on_paired_rows_with_missing_data(self):
+        rng = np.random.default_rng(3)
+        n = 500
+        index = pd.date_range('2021-01-01', periods=n, freq='D', tz='UTC')
+        a = pd.Series(rng.normal(0, 1, n), index=index, name='a')
+        b = pd.Series(rng.normal(0, 1, n), index=index, name='b')
+        a.iloc[10] = np.nan
+        a.iloc[200] = np.nan
+        target = pd.Series(2 + 3 * a + (-1) * b + rng.normal(0, 0.01, n),
+                           index=index, name='y')
+        residual, gains = prediction.ols_residual(target, pd.concat([a, b], axis=1))
+        self.assertTrue(np.allclose(
+            gains[['intercept', 'a', 'b']].to_numpy(), [2.0, 3.0, -1.0], atol=0.05))
+        self.assertEqual(len(residual), 498)
+        self.assertAlmostEqual(residual.mean(), 0.0, delta=0.01)
+
+
+class TestHasCertifiedPeriod(unittest.TestCase):
+
+    def _scan(self):
+        return pd.DataFrame({
+            'period_days': [365.2, 1.0],
+            'resolution_days': [20.0, 0.0003],
+        })
+
+    def test_own_resolution_certifies_the_annual_peak(self):
+        self.assertTrue(prediction.has_certified_period(self._scan(), 365.25))
+
+    def test_own_resolution_rejects_a_far_off_period(self):
+        self.assertFalse(prediction.has_certified_period(self._scan(), 182.6))
+
+    def test_fixed_tolerance_rejects_a_sub_daily_peak_absent_from_the_scan(self):
+        self.assertFalse(prediction.has_certified_period(
+            self._scan(), 0.5, tolerance_days=0.05))
+
+    def test_fixed_tolerance_certifies_the_daily_peak(self):
+        self.assertTrue(prediction.has_certified_period(
+            self._scan(), 1.0, tolerance_days=0.05))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

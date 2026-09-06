@@ -281,6 +281,18 @@ ERA5_SR_IS_ACCUMULATION = True
 # surface is binned into before its singular value decomposition; default
 # `52`, one bin per week. Coarser binning trades resolution of the annual
 # modulation for a less noisy surface.
+#
+# **`PERIOD_SCAN_N`** — number of log-spaced candidate periods of the
+# Lomb–Scargle scan; default `40000`, which at one day gives a spacing of
+# about `0.0002` days, inside the eight-year record's resolution, so the
+# daily and twelve-hour peaks are sampled rather than stepped over. Fewer
+# points make the scan faster and coarser.
+#
+# **`ANNUAL_MODULATION_MIN_GAIN`** — the fraction by which a higher Fourier
+# order must lower the leave-one-year-out error before it is preferred over
+# a lower one; default `0.01`. A value of zero returns to the bare
+# lowest-error choice, which on a nearly sinusoidal modulation is decided
+# by noise.
 
 # %%
 PERIOD_SCAN_MIN_DAYS = 0.5
@@ -288,6 +300,8 @@ PERIOD_SCAN_MAX_DAYS = 900.0
 DAILY_HARMONIC_MIN_SLOTS = 60
 ANNUAL_MODULATION_HARMONICS = (1, 2)
 SURFACE_DOY_BINS = 52
+PERIOD_SCAN_N = 40000
+ANNUAL_MODULATION_MIN_GAIN = 0.01
 
 # %% [markdown]
 # ## Parameters · Model A
@@ -727,3 +741,85 @@ figures.plot_regressor_sets(
     target_channel='inc_comp',
     title='The record and the three regressor sets',
     save_path=str(OUTPUT_DIR), filename='GM_F01_regressor_sets')
+
+# %% [markdown]
+# ## Movement 1b · Harmonic diagnostics before modelling
+#
+# Two series: the target, and the residual of a plain least-squares
+# regression of the target on the on-structure set's drivers. The spectral
+# scan fixes the seasonal orders; the daily cycle's amplitude and phase,
+# fitted against day of year, give the weight curve; the surface rank says
+# how many weighted daily shapes the conditional term needs (D6).
+
+# %%
+residual_ols, ols_gains = prediction.ols_residual(
+    frame['y'], sets['str'][['tair', 'rh', 'sr']])
+series_for_scan = {'target': frame['y'], 'residual': residual_ols}
+print('OLS gains on the on-structure set:',
+      ols_gains.drop('intercept').round(4).to_dict())
+
+# %%
+scans, dailies, fits = {}, {}, {}
+for name, series in series_for_scan.items():
+    scans[name] = prediction.period_scan(
+        series, min_days=PERIOD_SCAN_MIN_DAYS, max_days=PERIOD_SCAN_MAX_DAYS,
+        n_periods=PERIOD_SCAN_N, spacing='log', top=8).assign(series=name)
+    band = coupling.diurnal_band(series, window=72)
+    dailies[name] = monitoring.daily_harmonic(band, min_slots=DAILY_HARMONIC_MIN_SLOTS)
+    table_a, fit_a = coupling.annual_modulation(dailies[name]['amplitude'],
+                                                harmonics=ANNUAL_MODULATION_HARMONICS,
+                                                min_gain=ANNUAL_MODULATION_MIN_GAIN)
+    table_p, fit_p = coupling.annual_modulation(dailies[name]['phase_h'],
+                                                harmonics=ANNUAL_MODULATION_HARMONICS,
+                                                min_gain=ANNUAL_MODULATION_MIN_GAIN)
+    fits[name] = {'amplitude': fit_a, 'phase': fit_p,
+                  'amplitude_table': table_a.assign(series=name, statistic='amplitude'),
+                  'phase_table': table_p.assign(series=name, statistic='phase')}
+surface = coupling.cycle_surface_rank(coupling.diurnal_band(residual_ols, window=72),
+                                      doy_bins=SURFACE_DOY_BINS, freq=NATIVE_FREQ)
+
+scan_table = pd.concat(scans.values(), ignore_index=True).assign(block='period_scan')
+modulation_table = pd.concat(
+    [fits[n][k] for n in fits for k in ('amplitude_table', 'phase_table')],
+    ignore_index=True).assign(block='annual_modulation')
+harmonic = pd.concat(
+    [scan_table, modulation_table,
+     surface['table'].assign(block='surface_rank', series='residual')],
+    ignore_index=True)
+display(harmonic)
+harmonic.to_csv(OUTPUT_DIR / 'GM_04_harmonic_diagnostics.csv', index=False)
+tables.write_table(
+    scan_table, str(OUTPUT_DIR / 'GM_04_body.tex'),
+    [('series', tables.texttt), ('rank', 'd'), ('period_days', ',.2f'), ('power', '.3f')])
+tables.write_table(
+    modulation_table, str(OUTPUT_DIR / 'GM_04b_body.tex'),
+    [('series', tables.texttt), ('statistic', tables.texttt), ('order', 'd'),
+     ('holdout_mse', ',.3f'), ('chosen', tables.yes_no)])
+tables.write_table(
+    surface['table'].head(6), str(OUTPUT_DIR / 'GM_04c_body.tex'),
+    [('component', '.0f'), ('variance_share', tables.percent),
+     ('cumulative_share', tables.percent)])
+
+figures.plot_harmonic_diagnostics(
+    scans, dailies, fits, surface, title='Harmonic diagnostics',
+    save_path=str(OUTPUT_DIR), filename='GM_F02_harmonic_diagnostics')
+
+# %%
+# What the diagnostic decides, printed so the checkpoint can read it back.
+has_semi_annual = prediction.has_certified_period(scans['residual'], 182.6)
+has_twelve_hour = prediction.has_certified_period(scans['residual'], 0.5, tolerance_days=0.05)
+has_daily = prediction.has_certified_period(scans['residual'], 1.0, tolerance_days=0.05)
+print('semi-annual peak on the residual:', bool(has_semi_annual))
+print('12-hour peak on the residual:', bool(has_twelve_hour))
+print('daily peak on the residual:', bool(has_daily))
+print('annual modulation order for the daily amplitude:', fits['residual']['amplitude']['order'])
+print('first two surface components carry',
+      f"{surface['table']['cumulative_share'].iloc[1]:.1%}")
+weights_measured = prediction.seasonal_weights(frame.index, modulation=fits['residual']['amplitude'])
+print('measured summer weight peaks on day', int(weights_measured['summer_w'].idxmax().dayofyear))
+for name in fits:
+    print(name, 'amplitude fit:',
+          {k: (v.tolist() if hasattr(v, 'tolist') else v)
+           for k, v in fits[name]['amplitude'].items()})
+    print(name, 'certified periods:')
+    display(scans[name])

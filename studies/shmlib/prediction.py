@@ -15,6 +15,17 @@ import pandas as pd
 
 from . import coupling
 
+# scipy's lombscargle evaluates every (frequency, sample) pair in one shot
+# internally; on a multi-year record at native resolution (order 2e5
+# samples) a scan of tens of thousands of candidate periods materialises a
+# broadcast array large enough to exhaust ordinary machine memory and kill
+# the interpreter with no Python traceback to show for it. period_scan
+# below evaluates the periodogram in slices of this many frequencies at a
+# time instead — each frequency's normalised power is independent of every
+# other, so the sliced result is identical to the one-shot computation,
+# just bounded in peak memory.
+_LOMBSCARGLE_CHUNK = 2000
+
 
 def _as_series(values, index, name=None):
     """Return ``values`` as a Series aligned to ``index``."""
@@ -1715,7 +1726,8 @@ def residual_diagnostics(residuals, lags=(1, 24, 72)):
     })
 
 
-def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
+def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5,
+                spacing='linear'):
     """
     Confirm, by measurement, that a claimed periodic component has the
     period it is claimed to have — on a record too gappy for an FFT.
@@ -1765,6 +1777,19 @@ def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
         ``min_days`` and ``max_days``. Default ``4000``.
     top : int, optional
         Maximum number of peaks to return. Default ``5``.
+    spacing : {'linear', 'log'}, optional
+        How the candidate grid is laid out between ``min_days`` and
+        ``max_days``. Default ``'linear'``, ``np.linspace`` — unchanged
+        from every call site that predates this parameter. A peak's own
+        resolution near period ``p`` is about ``p ** 2 / span_days``: on a
+        record spanning years, a linear grid built to reach from half a
+        day to hundreds of days takes steps at the long-period end far
+        wider than the width of the daily or twelve-hour peak, and can
+        step past it entirely. ``'log'`` (``np.geomspace``) holds the
+        *relative* spacing constant instead, so the grid remains dense
+        enough near a day to certify a sub-daily peak on the same scan
+        that also reaches out to the annual one. Any other value raises
+        ``ValueError``.
 
     Returns
     -------
@@ -1786,7 +1811,20 @@ def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
     ValueError
         If fewer than 50 samples survive dropping missing values. A
         periodogram built from fewer points than that is not a measurement
-        of a period, it is noise with a shape.
+        of a period, it is noise with a shape. Also raised if ``spacing``
+        is neither ``'linear'`` nor ``'log'``.
+
+    Notes
+    -----
+    ``scipy.signal.lombscargle`` evaluates the full (frequencies, samples)
+    pair set in one call. On a multi-year record at native temporal
+    resolution and a scan of tens of thousands of candidate periods, that
+    array is large enough to exceed ordinary machine memory and be killed
+    by the operating system with no Python exception to explain it. To
+    keep peak memory bounded, the periodogram is evaluated in slices of
+    :data:`_LOMBSCARGLE_CHUNK` frequencies at a time; each frequency's
+    normalized power is independent of every other, so the sliced result
+    is numerically identical to evaluating all frequencies at once.
     """
     from scipy.signal import lombscargle
 
@@ -1803,9 +1841,20 @@ def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
     y = values.to_numpy(dtype=float) - float(values.mean())
     span_days = float(t_days[-1] - t_days[0])
 
-    periods = np.linspace(float(min_days), float(max_days), int(n_periods))
+    if spacing == 'linear':
+        periods = np.linspace(float(min_days), float(max_days), int(n_periods))
+    elif spacing == 'log':
+        periods = np.geomspace(float(min_days), float(max_days), int(n_periods))
+    else:
+        raise ValueError(
+            "period_scan: spacing must be 'linear' or 'log', got {0!r}."
+            .format(spacing))
     angular_freqs = 2.0 * np.pi / periods
-    power = lombscargle(t_days, y, angular_freqs, normalize=True)
+    power = np.empty(len(angular_freqs))
+    for start in range(0, len(angular_freqs), _LOMBSCARGLE_CHUNK):
+        stop = start + _LOMBSCARGLE_CHUNK
+        power[start:stop] = lombscargle(
+            t_days, y, angular_freqs[start:stop], normalize=True)
 
     # A peak's own resolution — period**2/span_days — is the width around
     # it that this record cannot tell apart from the peak itself, so a
@@ -1871,3 +1920,76 @@ def seasonal_weights(index, modulation=None, peak_doy=196):
     summer = np.clip(summer, 0.0, 1.0)
     return pd.DataFrame({'summer_w': summer, 'winter_w': 1.0 - summer},
                         index=index)
+
+
+def ols_residual(target, drivers):
+    """
+    Residual of an ordinary-least-squares fit of the target on the drivers.
+
+    The plain linear fit is not a model of the wall; it is the quickest way
+    to remove what the regressors explain, so that the harmonic diagnostic
+    of spec D6 can look at what the seasonal terms will actually have to
+    carry. Only rows where the target and every driver are present enter
+    the fit, and the residual is returned on those rows.
+
+    Parameters
+    ----------
+    target : pd.Series
+        The response.
+    drivers : pd.DataFrame
+        The regressors, on an index compatible with ``target``.
+
+    Returns
+    -------
+    residual : pd.Series
+        ``target`` minus the fit, on the paired index, named ``'residual'``.
+    gains : pd.Series
+        Fitted coefficients indexed ``['intercept', *drivers.columns]``.
+    """
+    paired = pd.concat([target.rename('__target__'), drivers], axis=1).dropna()
+    columns = list(drivers.columns)
+    design = np.column_stack([np.ones(len(paired)),
+                              paired[columns].to_numpy(dtype=float)])
+    coef, _, _, _ = np.linalg.lstsq(design, paired['__target__'].to_numpy(dtype=float),
+                                    rcond=None)
+    residual = pd.Series(paired['__target__'].to_numpy(dtype=float) - design @ coef,
+                         index=paired.index, name='residual')
+    gains = pd.Series(coef, index=['intercept', *columns])
+    return residual, gains
+
+
+def has_certified_period(scan, period_days, tolerance_days=None):
+    """
+    Whether a candidate period is certified by a :func:`period_scan` table.
+
+    A period is certified when some row of ``scan`` reports a
+    ``period_days`` within tolerance of the candidate. The honest default
+    tolerance is that row's own ``resolution_days`` — the width the record
+    itself cannot resolve around that period — rather than a value chosen
+    to make the answer come out a particular way. A fixed
+    ``tolerance_days`` is for a sub-daily candidate (the twelve-hour tide
+    of a diurnal cycle, say) whose ``resolution_days`` on a multi-year scan
+    is thousandths of a day: too fine a tolerance to allow for the grid's
+    own finite spacing, so a fixed, coarser tolerance is supplied instead.
+
+    Parameters
+    ----------
+    scan : pd.DataFrame
+        Output of :func:`period_scan`, with columns ``period_days`` and
+        ``resolution_days``.
+    period_days : float
+        The candidate period to check for, in days.
+    tolerance_days : float or None, optional
+        Fixed tolerance, in days. Default ``None``, meaning each row's own
+        ``resolution_days`` is used as that row's tolerance.
+
+    Returns
+    -------
+    bool
+        ``True`` if any row of ``scan`` certifies ``period_days``.
+    """
+    period_days = float(period_days)
+    diff = (scan['period_days'].astype(float) - period_days).abs()
+    tolerance = (scan['resolution_days'].astype(float) if tolerance_days is None
+                else float(tolerance_days))
+    return bool((diff < tolerance).any())
