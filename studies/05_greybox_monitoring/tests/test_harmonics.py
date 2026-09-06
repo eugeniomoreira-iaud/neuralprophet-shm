@@ -39,5 +39,24 @@ class TestDailyHarmonic(unittest.TestCase):
         self.assertEqual(len(out), 2)
 
 
+class TestAnnualModulation(unittest.TestCase):
+
+    def _daily(self, years=4, seed=1):
+        rng = np.random.default_rng(seed)
+        days = pd.date_range('2019-01-01', periods=365 * years, freq='D', tz='UTC')
+        doy = days.dayofyear.to_numpy()
+        truth = 20.0 + 8.0 * np.cos(2 * np.pi * (doy - 200) / 365.25)
+        return pd.Series(truth + rng.normal(0, 1.0, len(days)), index=days)
+
+    def test_one_harmonic_is_chosen_and_the_peak_day_is_recovered(self):
+        table, fit = coupling.annual_modulation(self._daily(), harmonics=(1, 2))
+        self.assertEqual(fit['order'], 1)
+        self.assertTrue(table.loc[table['chosen'], 'order'].item() == 1)
+        year = pd.date_range('2023-01-01', periods=365, freq='D', tz='UTC')
+        curve = coupling.evaluate_modulation(fit, year)
+        self.assertAlmostEqual(curve.idxmax().dayofyear, 200, delta=6)
+        self.assertAlmostEqual(curve.max() - curve.min(), 16.0, delta=1.0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -974,6 +974,118 @@ def gain_stability(frame, response, drivers, lags, taus=None, freq='MS',
                                        'ci_high', 'r', 'n'])
 
 
+def _annual_design(index, order, period_days=365.25):
+    doy = pd.DatetimeIndex(index).dayofyear.to_numpy(dtype=float)
+    columns = [np.ones_like(doy)]
+    for k in range(1, int(order) + 1):
+        angle = 2.0 * np.pi * k * doy / period_days
+        columns += [np.cos(angle), np.sin(angle)]
+    return np.column_stack(columns)
+
+
+def annual_modulation(daily_series, harmonics=(1, 2), holdout='year',
+                      min_gain=0.01):
+    """
+    How a daily statistic moves through the year, as a low-order Fourier fit.
+
+    Fits ``a0 + sum_k (a_k cos + b_k sin)(2 pi k doy / 365.25)`` to a daily
+    series for each candidate order and scores each by leave-one-year-out
+    mean squared error. The order is chosen by a parsimony rule rather than
+    by the bare minimum of that score: candidates are tried in ascending
+    order, the first with a defined hold-out score is the current choice,
+    and a higher order replaces it only when its hold-out MSE improves on
+    the current choice's by at least the fraction ``min_gain``
+    (``mse < best_mse * (1 - min_gain)``). On a series whose true structure
+    is a single harmonic, the hold-out MSE of a higher order differs from
+    the lower order's only by noise, and choosing whichever of the two
+    happens to score marginally lower would let that noise decide the
+    order; requiring a minimum relative gain keeps the simpler order unless
+    the data give a real reason to prefer the richer one. An order whose
+    hold-out MSE is ``NaN`` (too few years to hold one out) is never
+    chosen. The chosen fit is what the smooth conditional daily term
+    consumes as its weight curve (spec D6, D7).
+
+    Parameters
+    ----------
+    daily_series : pd.Series
+        One value per day, indexed by day.
+    harmonics : sequence of int, optional
+        Candidate Fourier orders, tried in ascending order. Default
+        ``(1, 2)``.
+    holdout : {'year'}, optional
+        Hold-out unit for the order choice. Default ``'year'``.
+    min_gain : float, optional
+        Minimum relative improvement in hold-out MSE a higher order must
+        show over the current choice before it replaces it. Default
+        ``0.01``.
+
+    Returns
+    -------
+    (pd.DataFrame, dict)
+        ``table`` with ``order``, ``holdout_mse``, ``chosen``; ``fit`` with
+        ``order``, ``coef``, ``period_days`` and ``n`` for the chosen order.
+    """
+    values = pd.to_numeric(daily_series, errors='coerce').dropna()
+    index = pd.DatetimeIndex(values.index)
+    years = index.year
+    ordered_harmonics = sorted(int(order) for order in harmonics)
+    rows, coefs = [], {}
+    for order in ordered_harmonics:
+        errors = []
+        for held in np.unique(years):
+            train, test = years != held, years == held
+            if train.sum() < 3 * (2 * order + 1) or test.sum() == 0:
+                continue
+            coef, _, _, _ = np.linalg.lstsq(
+                _annual_design(index[train], order), values.to_numpy()[train],
+                rcond=None)
+            predicted = _annual_design(index[test], order) @ coef
+            errors.append(float(((values.to_numpy()[test] - predicted) ** 2).mean()))
+        coef, _, _, _ = np.linalg.lstsq(_annual_design(index, order),
+                                        values.to_numpy(), rcond=None)
+        coefs[order] = coef
+        rows.append({'order': order,
+                     'holdout_mse': float(np.mean(errors)) if errors else np.nan})
+
+    best_order, best_mse = None, None
+    for row in rows:
+        order, mse = row['order'], row['holdout_mse']
+        if pd.isna(mse):
+            continue
+        if best_order is None or mse < best_mse * (1.0 - min_gain):
+            best_order, best_mse = order, mse
+    if best_order is None:
+        raise ValueError(
+            'annual_modulation: every candidate order has too few years to '
+            'hold one out; pass fewer years worth of harmonics or a longer '
+            'daily_series.')
+
+    table = pd.DataFrame(rows)
+    table['chosen'] = table['order'] == best_order
+    fit = {'order': best_order, 'coef': coefs[best_order],
+           'period_days': 365.25, 'n': int(values.size)}
+    return table, fit
+
+
+def evaluate_modulation(fit, index):
+    """
+    The fitted annual modulation at each timestamp's day of year.
+
+    Parameters
+    ----------
+    fit : dict
+        Second return value of :func:`annual_modulation`.
+    index : pd.DatetimeIndex
+
+    Returns
+    -------
+    pd.Series
+        Indexed by ``index``.
+    """
+    design = _annual_design(index, fit['order'], fit['period_days'])
+    return pd.Series(design @ fit['coef'], index=pd.DatetimeIndex(index))
+
+
 def shortlist(table, control, expected_sign='-', margin=0.0):
     """
     Which drivers clear the control, and which of those move the right way.
