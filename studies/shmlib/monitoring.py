@@ -589,3 +589,61 @@ def detectability_curve(residuals, mu, sigma, magnitudes, durations,
             })
     return pd.DataFrame(
         rows, columns=['magnitude', 'duration_h', 'detected', 'delay_h'])
+
+
+def daily_harmonic(series, min_slots=60, period_hours=24.0):
+    """
+    Amplitude and phase of the daily cycle, one row per calendar day.
+
+    A 24-hour harmonic and its 12-hour companion are fitted to each day by
+    least squares. The amplitude of the 24-hour term is the size of the
+    daily swing; its phase is the hour at which that term peaks. On a
+    residual these two series are the daily chart's statistics (spec D10);
+    on the diurnal band of the target they are the measured daily cycle the
+    harmonic diagnostic fits against day of year (spec D6).
+
+    Parameters
+    ----------
+    series : pd.Series
+        Signal indexed by UTC timestamp on a regular sub-daily grid.
+    min_slots : int, optional
+        Fewest finite samples a day needs to be fitted. Default ``60``.
+    period_hours : float, optional
+        Period of the fundamental. Default ``24.0``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Indexed by day (UTC midnight): ``amplitude``, ``phase_h`` in
+        ``[0, period_hours)``, ``amplitude_12h``, ``n``, ``r2``.
+    """
+    values = pd.to_numeric(series, errors='coerce')
+    index = pd.DatetimeIndex(values.index)
+    omega = 2.0 * np.pi / float(period_hours)
+    rows = []
+    for day, chunk in values.groupby(index.floor('D')):
+        chunk = chunk.dropna()
+        if len(chunk) < int(min_slots):
+            continue
+        t = (chunk.index.hour + chunk.index.minute / 60.0
+             + chunk.index.second / 3600.0).to_numpy(dtype=float)
+        design = np.column_stack([
+            np.ones_like(t), np.cos(omega * t), np.sin(omega * t),
+            np.cos(2 * omega * t), np.sin(2 * omega * t)])
+        y = chunk.to_numpy(dtype=float)
+        coef, _, _, _ = np.linalg.lstsq(design, y, rcond=None)
+        fitted = design @ coef
+        total = float(((y - y.mean()) ** 2).sum())
+        r2 = 1.0 - float(((y - fitted) ** 2).sum()) / total if total > 0 else np.nan
+        a1, b1, a2, b2 = coef[1], coef[2], coef[3], coef[4]
+        rows.append({
+            'day': day,
+            'amplitude': float(np.hypot(a1, b1)),
+            'phase_h': float((np.arctan2(b1, a1) / omega) % period_hours),
+            'amplitude_12h': float(np.hypot(a2, b2)),
+            'n': int(len(chunk)),
+            'r2': r2,
+        })
+    out = pd.DataFrame(rows, columns=['day', 'amplitude', 'phase_h',
+                                      'amplitude_12h', 'n', 'r2'])
+    return out.set_index('day')
