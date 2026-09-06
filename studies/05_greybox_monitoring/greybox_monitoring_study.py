@@ -375,6 +375,16 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 # fraction of a millidegree at the measured drift rates, and the residual it
 # leaves is stationary enough for the monitor to chart.
 #
+# **`TRAIN_WINDOW`** — the trailing history each refit is fitted on, rather
+# than everything back to the record's start; default `'1095d'`, three
+# years. Three annual cycles sit above `MIN_TRAIN`'s two, so the yearly term
+# stays identifiable in every window, and a bounded window keeps every
+# refit a comparable size across a multi-year record instead of the last
+# fit dwarfing the first. This is also the "last N years" fallback the
+# spec's risk table names for a walk-forward run that turns out too slow at
+# an unbounded window — stated here in advance, rather than adopted only
+# after a slow run is already under way.
+#
 # **`CONDITIONAL_DAILY`** — whether the daily term is fitted as two
 # smoothly weighted conditional seasonalities (summer and winter shapes)
 # rather than one plain daily term; default `True` (D7). Kept only if it
@@ -427,6 +437,7 @@ EPOCHS = 30
 SEED = 0
 MIN_TRAIN = '730d'
 REFIT_EVERY = '30d'
+TRAIN_WINDOW = '1095d'
 CONDITIONAL_DAILY = True
 WEIGHT_CURVE = {               # GM_04: order-two annual fit of the residual's daily amplitude
     'order': 2,
@@ -466,6 +477,15 @@ SEASONAL_CURVE_DATES = ('2024-03-20', '2024-06-21', '2024-09-22', '2024-12-21')
 # reached 67.7 % coverage; calibrating on each refit's own recent residuals
 # is the fix this study makes.
 #
+# **`STALENESS_EDGES_D`** — bin edges, in days since a row's own refit
+# origin, that group the rolling expectation's predictions by how stale
+# their fit is when scored; default `[-0.01, 7, 14, 21, 31]`, four bins
+# covering the first week, the second, the third and the run-out to
+# `REFIT_EVERY`'s thirty days — the small negative first edge admits a
+# same-day nowcast (`staleness_d == 0`) into the first bin rather than
+# leaving it on a boundary. A study choice, not a library default: it says
+# how finely Movement 3 wants to see the interval widen as a fit ages.
+#
 # **`VALID_P`** — fraction of each fold held out as NeuralProphet's own
 # validation split; default `0.2`.
 #
@@ -481,6 +501,7 @@ SEASONAL_CURVE_DATES = ('2024-03-20', '2024-06-21', '2024-09-22', '2024-12-21')
 CONFORMAL_ALPHA = 0.10
 CONFORMAL_METHOD = 'cqr'
 CONFORMAL_CALIBRATION_WINDOW = '180d'
+STALENESS_EDGES_D = [-0.01, 7, 14, 21, 31]
 VALID_P = 0.2
 CV_FOLDS = 5
 CV_FOLD_PCT = 0.1
@@ -1221,3 +1242,117 @@ tables.write_table(ladder, str(OUTPUT_DIR / 'GM_16_body.tex'),
                     ('gain_last', '.3f'), ('residual_r1', '.3f')])
 figures.plot_ladder(ladder, title='What each on-structure channel buys',
                     save_path=str(OUTPUT_DIR), filename='GM_F14_ladder')
+
+# %% [markdown]
+# ## Movement 3 · Is this reading the expected one?
+#
+# A walk-forward expectation, refitted every `REFIT_EVERY` on the trailing
+# `TRAIN_WINDOW` with the trend on (D5), and a conformal interval calibrated
+# on the previous `CONFORMAL_CALIBRATION_WINDOW` of out-of-sample residuals
+# (D8). Scored per set and per days since refit. The movement writes the
+# table `GM_09` and the figure `GM_F08`.
+
+# %% [markdown]
+# ### The rolling expectation, per regressor set
+#
+# `prediction.rolling_nowcast` refits on the `REFIT_EVERY` schedule inside
+# the trailing `TRAIN_WINDOW`, with `changepoints_per_window=True` so that
+# no window's trend changepoints fall inside that window's own outages
+# (Task 3.1). `prediction.rolling_conformal` then recalibrates each row's
+# `q05`/`q95` against the rolling output's own out-of-sample residuals in
+# the preceding `CONFORMAL_CALIBRATION_WINDOW`, one calibration set per
+# refit origin rather than a single split fixed for the whole record (D8).
+# Each row is labelled by its regressor set and by which `STALENESS_EDGES_D`
+# bin its own `staleness_d` falls into.
+
+# %%
+rolling_sets = {}
+for name, block in def_frames.items():
+    rolling = prediction.rolling_nowcast(
+        block, regressors=('tair', 'rh', 'sr'), refit_every=REFIT_EVERY,
+        min_train=MIN_TRAIN, train_window=TRAIN_WINDOW,
+        changepoints_per_window=True, freq=NATIVE_FREQ, epochs=EPOCHS,
+        growth='linear', n_changepoints=N_CHANGEPOINTS,
+        changepoints_range=CHANGEPOINTS_RANGE, trend_reg=TREND_REG,
+        yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
+        conditional_seasonality=CONDITIONS, quantiles=QUANTILES, seed=SEED,
+        learning_rate=LEARNING_RATE)
+    rolling = prediction.rolling_conformal(
+        rolling, alpha=CONFORMAL_ALPHA, window=CONFORMAL_CALIBRATION_WINDOW,
+        method=CONFORMAL_METHOD)
+    rolling['set'] = name
+    rolling['staleness'] = pd.cut(rolling['staleness_d'], STALENESS_EDGES_D,
+                                  labels=['0-7 d', '8-14 d', '15-21 d', '22-30 d'])
+    rolling_sets[name] = rolling
+    print(f'{name}: {len(rolling):,} rows from {rolling["origin"].nunique()} refits')
+
+# %% [markdown]
+# ### Scored by set and by staleness
+#
+# `prediction.score_predictions` pools every set's rolling predictions and
+# scores each set-by-staleness group on its own out-of-sample rows: mean
+# absolute error, bias, the interval's coverage and median width against
+# the nominal `CONFORMAL_ALPHA`, and the Winkler interval score. `GM_09`
+# records the table.
+
+# %%
+all_rolling = pd.concat(rolling_sets.values(), ignore_index=True)
+nowcast = prediction.score_predictions(
+    all_rolling.dropna(subset=['q05', 'q95']), ['set', 'staleness'],
+    alpha=CONFORMAL_ALPHA)
+display(nowcast)
+nowcast.to_csv(OUTPUT_DIR / 'GM_09_nowcast_metrics.csv', index=False)
+tables.write_table(nowcast, str(OUTPUT_DIR / 'GM_09_body.tex'),
+                   [('set', tables.texttt), ('staleness', tables.texttt), ('n', ',d'),
+                    ('mae', '.2f'), ('rmse', '.2f'), ('bias', '.2f'),
+                    ('coverage_q05_q95', tables.percent), ('width_q05_q95', '.1f'),
+                    ('interval_score', '.1f')])
+
+# %% [markdown]
+# ### Observed against expected, on-structure set, December 2025
+#
+# `GM_F08`: the on-structure rolling expectation and its conformal band
+# against the measured record, drawn over the first full calendar month
+# after the archive's 2025 outage (26 September – 12 October 2025) whose
+# on-structure regressors are actually complete. November 2025 still
+# carries a residual on-structure solar-radiation gap the outage table does
+# not list separately — 82 % of `n_sr_ok` missing that month — which
+# `regressor_set_frames` drops rows for outright, so it is skipped in
+# favour of December 2025, whose three roles are essentially complete
+# (under 0.5 % missing each).
+
+# %%
+view = rolling_sets['str'].set_index('ds').loc['2025-12-01':'2026-01-01']
+figures.plot_prediction_band(
+    view['y'], view['yhat'], view['q05'], view['q95'], freq=NATIVE_FREQ,
+    title='Observed against expected, on-structure set, December 2025',
+    save_path=str(OUTPUT_DIR), filename='GM_F08_observed_expected')
+
+# %% [markdown]
+# ### Native conformal diagnostic, on-structure set only
+#
+# NeuralProphet's own `conformal_predict`/`conformal_plot`, run once on the
+# on-structure fit as a diagnostic counterpart to `GM_F08` (D14) rather than
+# a second scored result — an 80/20 split of that fit's own training frame
+# stands in for the calibration and evaluation data respectively, distinct
+# from the rolling calibration `GM_09` and `GM_F08` use. As in Movement 2's
+# native diagnostics, the plot is requested in NeuralProphet's plain
+# `'plotly'` backend and rendered to PNG inline through `viz.show_static`,
+# never the whole-record-as-SVG `'plotly-static'` backend. `conformal_plot`
+# reads every retained interval width, not only the one `'cqr'` keeps by
+# default, so `conformal_predict` is called with `show_all_PI=True`.
+
+# %%
+model_str, train_str_fit, _ = models_a['str']
+split = int(len(train_str_fit) * 0.8)
+passthrough = ('tair', 'rh', 'sr') + (tuple(CONDITIONS.values()) if CONDITIONS else ())
+native = model_str.conformal_predict(
+    prediction._model_frame(def_frames['str'].iloc[len(train_str_fit):], passthrough),
+    calibration_df=prediction._model_frame(train_str_fit.iloc[split:], passthrough),
+    alpha=CONFORMAL_ALPHA, method=CONFORMAL_METHOD, show_all_PI=True)
+native_fig = model_str.conformal_plot(native, plotting_backend='plotly')
+if native_fig is not None:
+    viz.show_static(native_fig)
+else:
+    print('conformal_plot returned None under the plotly backend; '
+         'native diagnostic skipped rather than embedding SVG.')

@@ -78,6 +78,26 @@ class TestConformalPredict(unittest.TestCase):
         self.assertIn('yhat1 95.0%', out.columns)
         self.assertEqual(len(out), len(test))
 
+    def test_conformal_plot_requires_show_all_pi(self):
+        """conformal_plot raises ValueError unless conformal_predict was
+        called with show_all_PI=True: NeuralProphet 0.8.0's conformal_plot
+        looks for a '+'-joined interval-width column that 'cqr' only writes
+        when every retained interval is kept, not only the narrowest one
+        the method returns by default. Study 05's native diagnostic cell
+        (Movement 3) passes show_all_PI=True for exactly this reason, so
+        this test pins that the fitted-and-conformalised pair the study
+        depends on actually plots once that flag is set.
+        """
+        df = _frame(extra=('x',))
+        train, cal, test = df.iloc[:600], df.iloc[600:800], df.iloc[800:]
+        m = _model(epochs=2)
+        m.add_future_regressor('x')
+        m.fit(train, freq='1h', progress='none', minimal=True)
+        out = m.conformal_predict(test, calibration_df=cal, alpha=0.1,
+                                  method='cqr', show_all_PI=True)
+        fig = m.conformal_plot(out, plotting_backend='plotly')
+        self.assertIsNotNone(fig)
+
 
 class TestParameterExtractors(unittest.TestCase):
     """Spec D14: redraws read public methods, not figures."""
