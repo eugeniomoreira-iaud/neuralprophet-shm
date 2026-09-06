@@ -344,7 +344,12 @@ stretch that ended eleven months before the record it covered, and reached
 67.7\,\% coverage. Here each refit calibrates on the most recent six months of
 its own out-of-sample residuals, so the interval is never calibrated on a
 quieter era than the one it covers. Coverage, width, Winkler score and pinball
-loss are reported per set and per days since refit.
+loss are reported per set and per days since refit. The stability of the
+decomposition's components is measured across the library's own
+chronological folds, each refitted from scratch on the record up to its
+held-out stretch: a gain or a seasonal amplitude is reported as a finding
+only if it keeps its sign and its order of magnitude in every fold, and a
+component that changes sign between folds is not.
 
 \subsection{D9 · Model~B, a learned impulse response on the on-structure set}
 
@@ -427,7 +432,107 @@ design depends on it.
 % ===========================================================================
 \section{Trend}
 \label{sec:trend}
-\pending{Phase 2}
+
+Model~A was fitted once per regressor set for attribution, on the first four
+fifths of each set's rows, with the last fifth held out as the library's own
+validation split (D5, D7). On the on-structure set the training window runs
+from 21~November 2018, the first slot at which all three drivers are present,
+to 11~March 2025, and holds 109,259 rows; the station and ERA5 sets hold
+106,849 and 113,955. Twelve changepoints were placed on covered time, so that
+none falls inside a gap, and the trend's regularisation was chosen on the
+held-out tail before the attribution fits were made.
+
+\subsection{The regularisation sweep}
+
+Table~\ref{tab:trend-reg} gives the sweep. Without regularisation the held-out
+mean absolute error is 17.7\,mdeg. Every positive candidate gives the same
+122.3\,mdeg, to three decimals: the library's penalty on the changepoint
+deltas, at any of the four strengths tried, drives every delta to zero, and
+the trend collapses to a single straight line through six and a half years of
+a record that is not straight. The candidates are in the wrapper's own scale;
+NeuralProphet multiplies a positive value by 0.001 before it reaches the loss.
+The study therefore keeps the unregularised trend, and the parameter cell
+records \texttt{TREND\_REG = 0.0} with this table as its reason.
+
+\begin{table}[H]
+\centering
+\caption{The trend-regularisation sweep on the on-structure set: the held-out
+mean absolute error of the last fifth of the rows for each candidate, and the
+one kept. Read from \texttt{GM\_05c\_trend\_reg\_sweep.csv}.}
+\label{tab:trend-reg}
+\begin{tabular}{rrl}
+\toprule
+Trend regularisation & Held-out MAE [mdeg] & Kept \\
+\midrule
+\input{../outputs/GM_05c_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The trend on covered time}
+
+Figure~\ref{fig:trend} draws the fitted trend of the on-structure set and the
+rate of each segment between changepoints; Table~\ref{tab:trend-rates} lists
+the rates. The trend carries 60.1\,\% of the fitted variance on the
+on-structure set, 60.7\,\% on the station set and 64.1\,\% on ERA5
+(Table~\ref{tab:shares}), with a peak-to-peak of 116.4, 119.9 and
+139.5\,mdeg: over six years the level of the compensated inclination moved by
+more than a hundred millidegrees net of air temperature, humidity, radiation
+and the annual cycle, and that movement is what the trend holds.
+
+Its shape is not a drift. The level rose through 2019 and 2020, at rates
+between 17 and 104\,mdeg per year over segments of four to six months, to a
+maximum at the changepoint of 19~November 2020; it then fell through 2021 at
+29 to 91\,mdeg per year. Across the long gap of 2022--2023 the segment from
+5~December 2021 to 26~June 2023 has a rate of $-2.2$\,mdeg per year, which is
+the straight line between the last data before the gap and the first after
+it, not a measurement of anything inside it. From mid-2023 the level fell
+again, at 89 and 49\,mdeg per year, to a minimum at the changepoint of
+31~March 2024, and rose by 28\,mdeg per year through the rest of 2024 before
+flattening, at 3\,mdeg per year, in the first months of 2025.
+
+Two readings of this trend must be kept apart. As a component of the
+decomposition it is the slow part of the record after the drivers and the
+annual term, and its rates are the wall's net movement on the scale of months.
+As evidence about the structure it says nothing on its own: a rate of
+100\,mdeg per year sustained for five months and then reversed is the
+signature of a slow, reversible process, and whether that process is
+structural or a thermal memory of the masonry that the compensation and the
+instantaneous drivers do not carry is what the monitor of
+Section~\ref{sec:monitor} and the current-era ladder of
+Section~\ref{sec:ladder} are built to separate. The mean rate over a fold is
+not a stable quantity: in the chronological folds of
+Table~\ref{tab:stability} it changes sign between folds on every set, because
+each fold's training window ends at a different point of the same reversing
+record, and by the rule of Section~\ref{sec:method} a component that changes
+sign between folds is not reported as a finding. The segment rates of
+Table~\ref{tab:trend-rates} are.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F04_trend.png}
+\caption{The trend of Model~A on the on-structure set over the training
+window, 2018 to 2025. Top: the fitted trend on covered time, with the twelve
+changepoints marked. Bottom: the rate of each segment between changepoints,
+in millidegrees per year. The segment that spans the 2022--2023 gap is the
+straight line between the data on either side of it.}
+\label{fig:trend}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{The rate of the fitted trend on each segment between consecutive
+changepoints of the on-structure fit, from the trend's value at the segment's
+ends. Read from \texttt{GM\_04d\_trend\_rates.csv}.}
+\label{tab:trend-rates}
+\begin{tabular}{llr}
+\toprule
+From & To & Rate [mdeg/yr] \\
+\midrule
+\input{../outputs/GM_04d_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % ===========================================================================
 \section{Seasonality}
@@ -584,12 +689,286 @@ interval and peaking on day 206, and the two weighted shapes go forward to
 Phase~2's held-out test, since the first two components of the surface carry
 92.7\,\% of its variance.
 
-\pending{Phase 2 — the fitted yearly and daily terms}
+\subsection{The fitted terms, and the conditional daily term's test}
+\label{sec:seasonal-fitted}
+
+Figure~\ref{fig:seasonality} draws the two seasonal terms Model~A fitted on
+the on-structure set. The yearly term, of Fourier order one, has a
+peak-to-peak of 44.4\,mdeg and carries 12.2\,\% of the fitted variance
+(Table~\ref{tab:shares}); on the station and ERA5 sets it is 51.9 and
+49.3\,mdeg and 16.8 and 14.6\,\%. On the on-structure set it reaches its
+maximum of $+22.2$\,mdeg on 21~March, day 80, and its minimum of
+$-22.2$\,mdeg on 20~September, day 263 (\texttt{GM\_05d}): the term peaks at
+the equinoxes, in quadrature with the annual cycle of air temperature, which
+peaks near the solstices. That is the shape a delayed annual response leaves
+when its driver enters instantaneously, since the first-order correction for
+a lag is proportional to the driver's rate of change, largest when the
+season turns; the yearly term is the part of the wall's seasonal response
+that follows the air with a delay the instantaneous driver cannot supply.
+The delay itself is not estimated here. The daily term, of order two, is
+small, as D7 anticipated: a peak-to-peak of 3.9\,mdeg and 0.1\,\% of the
+variance on the on-structure set, 8.2\,mdeg and 0.4\,\% on the station set,
+13.4\,mdeg and 1.0\,\% on ERA5, larger where the driver is measured farther
+from the wall, since whatever the driver does not explain of the daily cycle
+is left for the term to hold. On the on-structure set it rises to
+$+2.3$\,mdeg at 17:00\,UTC and falls to $-1.6$\,mdeg at 08:20\,UTC
+(\texttt{GM\_05d}), the evening and the morning, on either side of the
+afternoon maximum of the air temperature that carries the rest of the daily
+swing.
+
+The conditional daily term did not earn its place
+(Table~\ref{tab:conditional}). Fitted as two shapes weighted by the measured
+annual curve, it raised the held-out error from 17.745 to 18.177\,mdeg and
+carried 0.12\,\% of the variance against the plain term's 0.09\,\%, under the
+one per cent D7 set as the alternative criterion. Every fit downstream of
+this comparison therefore uses the plain daily term of order two, and the two
+shapes the design would have drawn at the solstices and equinoxes collapse to
+one curve, which is the one Figure~\ref{fig:seasonality} shows. The outcome
+is consistent with the diagnostic: once air temperature has been removed, the
+daily cycle's annual modulation is weak, 2.20 to 3.32\,mdeg over the year
+(Table~\ref{tab:annual-modulation}), and a term that varies with the season
+has almost nothing to modulate. D7's further fallback, four boolean seasons,
+is not reached: the smooth weights fitted; they were not worth their
+parameters.
+
+\begin{table}[H]
+\centering
+\caption{The plain daily term against the conditional one, on the
+on-structure set: held-out mean absolute error and the share of variance the
+daily term carries in each fit. Read from \texttt{GM\_05b\_conditional\_test.csv}.}
+\label{tab:conditional}
+\begin{tabular}{lrr}
+\toprule
+Daily term & Held-out MAE [mdeg] & Share of variance \\
+\midrule
+\input{../outputs/GM_05b_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F05_seasonality.png}
+\caption{The seasonal terms of Model~A on the on-structure set. Left: the
+yearly term over one synthetic year, by day of year. Right: the daily term
+over one synthetic day, by hour of day in UTC. With the conditional term
+rejected, the daily curve is the same on every day of the year.}
+\label{fig:seasonality}
+\end{figure}
 
 % ===========================================================================
 \section{Regressors and gains}
 \label{sec:regressors}
-\pending{Phase 2}
+
+Table~\ref{tab:shares} gives what each set's record is made of, and
+Figure~\ref{fig:decomposition} draws the decomposition of the on-structure set
+over the training window. The picture is the same on all three sets. The trend
+holds three fifths of the fitted variance (60.1, 60.7 and 64.1\,\%); air
+temperature holds the next largest share, 24.1\,\% on the on-structure set,
+18.3\,\% on the station set and 15.6\,\% on ERA5, with a peak-to-peak
+contribution of 115.4, 100.9 and 105.0\,mdeg; the yearly term holds 12 to
+17\,\%; the residual 3.1, 3.7 and 4.2\,\%; and humidity, the daily term and
+radiation together hold half a per cent on the two nearer sets and 1.6\,\% on
+ERA5. Net of its slow movement, the record is a thermometer: the contribution
+of air temperature alone swings by more than a hundred millidegrees.
+
+\begin{table}[H]
+\centering
+\caption{The share of the fitted variance each additive component carries and
+its peak-to-peak contribution over the training window, per regressor set,
+ordered by share. The on-structure set's radiation is the station's column,
+borrowed. Read from \texttt{GM\_05\_component\_shares.csv}.}
+\label{tab:shares}
+\begin{tabular}{llrr}
+\toprule
+Set & Component & Share & Peak-to-peak [mdeg] \\
+\midrule
+\input{../outputs/GM_05_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The gains against Study~03}
+
+Table~\ref{tab:gains} and Figure~\ref{fig:gains} put each learned gain beside
+Study~03's. NeuralProphet's additive future regressor is linear in the driver,
+so the gain is the slope of the component against the driver and is read off
+exactly; the coefficient of determination of that reading is one by
+construction and is not tabulated. On the on-structure set the air-temperature
+gain is $-2.639$\,mdeg per degree against Study~03's $-2.79$, within
+5.4\,\% of it and inside the month-to-month range of $-3.63$ to $-1.88$ that
+Study~03 measured over 35 months. This is the agreement Checkpoint~2 required
+before the study could go on: an additive model with a trend, an annual term
+and three instantaneous drivers, fitted on six years of levels, recovers the
+coupling that Study~03 measured by a different method on the diurnal band.
+The station and ERA5 sets learn $-2.402$ and $-2.295$ against Study~03's
+$-2.23$ and $-2.04$, larger in magnitude by 7.7 and 12.5\,\%; a driver
+measured farther from the wall is smoother than the wall's own air, and a fit
+on levels compensates with a larger slope where Study~03's band-limited fit
+did not have to.
+
+Relative humidity, for which Study~03 reports a positive correlation and no
+gain, learns $+0.108$, $+0.092$ and $+0.140$\,mdeg per percentage point:
+positive on every set, small, and worth 8.8 to 11.5\,mdeg peak-to-peak over
+the humidity range the record spans. Study~03 read the correlation as the
+inverse of the temperature cycle rather than as a mechanism, and nothing here
+contradicts that. Radiation is the one driver the model does not recover.
+Study~03 measured $-0.035$\,mdeg per W\,m$^{-2}$ for the station's radiation
+and $-0.026$ for ERA5's on the diurnal band; here the learned gains are
+$+0.006$ on the on-structure set, $-0.001$ on the station set and $-0.011$
+on ERA5, with peak-to-peak contributions of 5.8, 0.6 and 10.0\,mdeg, and on
+the on-structure set the sign is the wrong one. The discrepancy is less a
+contradiction of Study~03 than a statement about what a fit on levels can
+separate: radiation, delayed by an hour, moves in step with the air
+temperature that heats with it, and its marginal contribution once
+temperature and the daily term have taken theirs is close to zero. Study~03
+asked what radiation does to the diurnal swing; this fit asks what it adds to
+the level beyond air temperature, and answers that it adds little.
+Section~\ref{sec:impulse} returns to the question with a learned impulse
+response, and the ladder of Section~\ref{sec:ladder} asks it again of the
+wall's own pyranometer.
+
+\begin{table}[H]
+\centering
+\caption{The gain each future regressor learned, per set, beside Study~03's
+diurnal-band measurement where one exists. Units: millidegrees per degree
+Celsius for air temperature, per percentage point for relative humidity and
+per W\,m$^{-2}$ for radiation. Read from \texttt{GM\_06\_learned\_gains.csv}.}
+\label{tab:gains}
+\begin{tabular}{llrr}
+\toprule
+Set & Driver & Learned gain & Study~03 \\
+\midrule
+\input{../outputs/GM_06_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F06b_gains.png}
+\caption{The learned gain per set and driver (solid) beside Study~03's
+measurement (light), in millidegrees per unit of the driver. Study~03 has no
+gain for relative humidity.}
+\label{fig:gains}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F06_decomposition.png}
+\caption{The additive decomposition of the on-structure set over the training
+window: the trend, the yearly and daily terms, the contribution of each
+driver and the residual, on one clock, with the lines broken across the
+gaps.}
+\label{fig:decomposition}
+\end{figure}
+
+\subsection{Stability across folds}
+
+Table~\ref{tab:stability} reports the gain, the yearly amplitude and the mean
+trend rate on each of NeuralProphet's five chronological folds, each refitted
+from scratch on the record up to its own held-out tenth. The air-temperature
+gain keeps its sign in every fold and stays within $-2.45$ to $-2.70$ on the
+on-structure set, $-2.28$ to $-2.50$ on the station set and $-2.21$ to
+$-2.34$ on ERA5; the yearly peak-to-peak stays within 39 to 45, 44 to 52 and
+45 to 50\,mdeg. Both are findings by the rule of Section~\ref{sec:method}. The
+mean trend rate is not: it changes sign between folds on every set, because
+each fold's window ends at a different point of a record whose slow movement
+reverses. The held-out error of the folds, from 7.8 to 100.7\,mdeg on the
+on-structure set, measures how far a trend extrapolated over a tenth of the
+record, about six months, wanders from the level the wall actually reached.
+That number is the case for the thirty-day refit of D5, which
+Section~\ref{sec:uncertainty} scores.
+
+\begin{table}[H]
+\centering
+\caption{Component stability across NeuralProphet's five chronological folds,
+per set: the air-temperature gain, the yearly term's peak-to-peak, the mean
+trend rate and the held-out mean absolute error of each fold. Read from
+\texttt{GM\_07\_component\_stability.csv}.}
+\label{tab:stability}
+\begin{tabular}{lrrrrr}
+\toprule
+Set & Fold & Gain [mdeg/$^{\circ}$C] & Yearly p--p [mdeg] & Trend rate [mdeg/yr] & Held-out MAE [mdeg] \\
+\midrule
+\input{../outputs/GM_07_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{What the residual still holds}
+
+Table~\ref{tab:residual} gives the residual's scale and whiteness. Its
+standard deviation is 7.97\,mdeg on the on-structure set, 8.65 on the station
+set and 9.47 on ERA5, with median absolute deviations of 4.76, 5.27 and 5.39:
+the nearer the driver, the less is left. It is not white. The Ljung--Box test
+rejects independence at lags of one slot, one day and three days on every set
+with a p-value that rounds to zero, and the bottom panel of
+Figure~\ref{fig:decomposition} shows why: the residual wanders over weeks,
+with a peak-to-peak of 60.6\,mdeg on the on-structure set
+(Table~\ref{tab:shares}). The component that would absorb this is the
+record's own memory, an autoregressive term, and D7 leaves it out on purpose,
+because with it the decomposition stops reading as physics. The memory is
+handed instead to the two places built for it: the rolling refit of D5, which
+re-anchors the expectation every thirty days so that the wandering never
+accumulates, and the prewhitening of D10, which removes the residual's
+lag-one dependence before a chart is drawn on it.
+
+Table~\ref{tab:residual-periods} names the periodic structure the residual
+still carries, scanned band by band as the diagnostic of
+Section~\ref{sec:harmonic-diagnostic} was. In the short band the daily line
+survives on every set, at normalised powers of 0.004 to 0.006, and it
+survives split in two, at 0.9972 and 1.0027 days: these are the annual
+sidebands of the daily cycle, $1 \pm 1/365.25$ days, which is to say the
+seasonally modulated part of the daily cycle that a daily term of fixed shape
+cannot remove. This is exactly the structure the conditional daily term was
+designed for, and Section~\ref{sec:seasonal-fitted} found that the term did
+not lower the held-out error; what remains is small, known, and left in the
+residual on purpose. The 12-hour line survives on the on-structure and ERA5
+sets at 0.002 to 0.003. In the long band the largest peak on every set is
+semi-annual, 181 to 183 days at powers of 0.17 to 0.24, followed by entries
+at 325, 247, 220 and 150 days on the on-structure set. The semi-annual peak
+is a finding to be read with care. The yearly term's order was fixed at one
+by the diagnostic of D6, on a regression residual that certified no
+semi-annual cycle; the residual of the full model, after a trend with twelve
+changepoints whose segments are four to six months long, carries one.
+Whether it is a component of the wall's annual response that the order-one
+term cannot represent, or the imprint of the changepoint spacing on what
+the trend leaves behind, this study does not decide: by D6's rule the order
+is never raised beyond what the diagnostic scan supports, and the question
+is carried to Section~\ref{sec:limitations}.
+
+\begin{table}[H]
+\centering
+\caption{Periods certified by the Lomb--Scargle scan on the attribution
+fit's residual, per set, each band ranked against its own continuum, as in
+Table~\ref{tab:certified-periods}. Read from
+\texttt{GM\_08b\_residual\_periods.csv}.}
+\label{tab:residual-periods}
+\begin{tabular}{llrrr}
+\toprule
+Set & Band & Rank & Period [days] & Power \\
+\midrule
+\input{../outputs/GM_08b_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Residual diagnostics of the attribution fit, per set: the Ljung--Box
+p-value at lags of one slot, one day and three days, and the residual's
+standard deviation and median absolute deviation. Read from
+\texttt{GM\_08\_residual\_diagnostics.csv}.}
+\label{tab:residual}
+\begin{tabular}{lrrrr}
+\toprule
+Set & Lag [slots] & Ljung--Box $p$ & Std [mdeg] & MAD [mdeg] \\
+\midrule
+\input{../outputs/GM_08_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % ===========================================================================
 \section{Impulse response}
