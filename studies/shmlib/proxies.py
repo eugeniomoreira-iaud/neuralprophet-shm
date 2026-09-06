@@ -730,6 +730,58 @@ def harmonise(frames, freq=site.ANALYSIS_FREQ):
     return out
 
 
+def to_native_grid(frame, freq='20min', accumulations=('sr',)):
+    """
+    Bring hourly or half-hourly proxies onto the sensor's native grid.
+
+    Each column is interpolated linearly in time between consecutive native
+    observations, but only where those two observations are at most one
+    native step apart, so a proxy outage is never bridged. A column whose
+    quantity is an accumulation over the preceding native step (ERA5
+    radiation) is first shifted back by half a step, since a value reported
+    at H describes the interval (H-1, H] and belongs at its centre.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        Datetime-indexed proxies, UTC, one column per channel.
+    freq : str, optional
+        Target grid. Default ``'20min'``.
+    accumulations : sequence of str, optional
+        Quantity prefixes (``column.split('_')[0]``) reported as accumulations.
+        Default ``('sr',)``.
+
+    Returns
+    -------
+    pd.DataFrame
+        On ``pd.date_range(start.ceil(freq), end.floor(freq), freq=freq)``,
+        index named ``'datetime'``.
+    """
+    step = pd.Timedelta(freq)
+    grid = pd.date_range(frame.index.min().ceil(freq),
+                         frame.index.max().floor(freq), freq=freq,
+                         tz=frame.index.tz)
+    out = pd.DataFrame(index=grid)
+    out.index.name = 'datetime'
+    for column in frame.columns:
+        series = pd.to_numeric(frame[column], errors='coerce').dropna()
+        if series.size < 2:
+            out[column] = np.nan
+            continue
+        native = pd.Series(series.index).diff().median()
+        if column.split('_')[0] in accumulations:
+            series.index = series.index - native / 2
+        union = series.index.union(grid)
+        dense = series.reindex(union).interpolate(method='time',
+                                                  limit_area='inside')
+        stamps = pd.Series(series.index, index=series.index)
+        previous = stamps.reindex(union).ffill()
+        following = stamps.reindex(union).bfill()
+        bridged = (following - previous) > native * 1.5
+        out[column] = dense.where(~bridged).reindex(grid)
+    return out
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Characterisation, one source at a time
 # ──────────────────────────────────────────────────────────────────────
