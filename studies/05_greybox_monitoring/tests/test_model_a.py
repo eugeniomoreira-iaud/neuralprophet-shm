@@ -283,7 +283,7 @@ class TestExtractors(unittest.TestCase):
         frame = _frame()
         model, _ = prediction.neuralprophet_backtest(
             frame, frame, regressors=('tair',), task='nowcast', epochs=3,
-            freq='1h', daily_order=3, quantiles=())
+            freq='1h', daily_order=3, yearly_order=1, quantiles=())
         curves = prediction.seasonal_parameters(
             model, ['2024-06-21', '2024-12-21'], freq='1h', regressors=('tair',))
         daily = curves[curves['component'] == 'daily']
@@ -295,6 +295,16 @@ class TestExtractors(unittest.TestCase):
         self.assertIsNone(pd.DatetimeIndex(curves['date']).tz)
         sorted_curves = curves.sort_values('date')
         self.assertEqual(len(sorted_curves), len(curves))
+        # Regression test: the per-day evaluation used to also carry
+        # 'yearly' rows (NeuralProphet reports that component on every
+        # prediction regardless of horizon), one non-representative value
+        # per hour of each evaluated date, alongside the 365 real values the
+        # synthetic-year sweep produces. Only the year sweep may contribute
+        # 'yearly' rows, so every one of them sits at hour 0.0 and there are
+        # exactly 365 distinct dates among them.
+        yearly = curves[curves['component'] == 'yearly']
+        self.assertTrue((yearly['hour'] == 0.0).all())
+        self.assertEqual(yearly['date'].nunique(), 365)
 
 
 if __name__ == '__main__':

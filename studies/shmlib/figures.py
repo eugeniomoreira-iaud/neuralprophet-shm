@@ -2536,11 +2536,20 @@ def plot_fit_metrics(metrics, title='', save_path=None, filename=None):
     return fig
 
 
-def plot_trend_parameters(trend, rates, changepoints, title='', save_path=None,
-                          filename=None):
+def plot_trend_parameters(trend, rates, changepoints, freq=None, title='',
+                          save_path=None, filename=None):
     """
     The trend on covered time above, the rate of each segment below;
     changepoints in the accent colour.
+
+    ``trend`` is indexed on covered time only — a segmented fit skips a
+    missing timestamp outright rather than carrying it as a ``NaN`` row — so
+    drawing it straight joins the line across any gap between segments as if
+    the trend were known there, which it is not. Passing ``freq`` reindexes
+    the trend onto the regular grid first, through
+    :func:`_reindex_regular`, the same mechanism :func:`plot_decomposition_stack`
+    uses for its own panels, so a gap longer than one step becomes a break in
+    the drawn line rather than a silent interpolation.
 
     Parameters
     ----------
@@ -2552,6 +2561,11 @@ def plot_trend_parameters(trend, rates, changepoints, title='', save_path=None,
         by the same function.
     changepoints : pd.DatetimeIndex
         Changepoint locations, marked with a vertical line on both panels.
+    freq : str or None, optional
+        Grid spacing ``trend`` is reindexed onto before drawing, so a gap
+        longer than one step breaks the line instead of being bridged.
+        Default ``None``, which keeps today's behaviour of drawing ``trend``
+        exactly as given.
     title : str, optional
         Figure title. Default ``''``, which draws none.
     save_path, filename : optional
@@ -2561,6 +2575,7 @@ def plot_trend_parameters(trend, rates, changepoints, title='', save_path=None,
     -------
     matplotlib.figure.Figure
     """
+    trend = _reindex_regular(trend, freq)
     fig, axes = plt.subplots(2, 1, sharex=True,
                              figsize=viz.figsize(viz.FIGURE_WIDTH, 3.6))
     axes[0].plot(trend.index, trend, color=viz.INC_COLOUR, linewidth=1.0)
@@ -2590,7 +2605,12 @@ def plot_seasonal_parameters(curves, title='', save_path=None, filename=None):
     belongs to the figure rather than to the right-hand axes: one
     :class:`matplotlib.lines.Line2D` handle is built per plotted date, in the
     accent-free identity colour every panel already shares, and the figure's
-    own legend is drawn centred below both panels.
+    own legend is drawn centred below both panels. The yearly block is
+    sorted by ``date`` before it is drawn, because
+    :func:`shmlib.prediction.seasonal_parameters` builds it from a
+    synthetic-year sweep whose row order is not guaranteed to already be
+    calendar order; drawing it unsorted would connect points out of
+    sequence and draw a curve with spurious jumps.
 
     Parameters
     ----------
@@ -2607,7 +2627,7 @@ def plot_seasonal_parameters(curves, title='', save_path=None, filename=None):
     matplotlib.figure.Figure
     """
     fig, axes = plt.subplots(1, 2, figsize=viz.figsize(viz.FIGURE_WIDTH, 2.6))
-    yearly = curves[curves['component'] == 'yearly']
+    yearly = curves[curves['component'] == 'yearly'].sort_values('date')
     axes[0].plot(pd.DatetimeIndex(yearly['date']).dayofyear, yearly['value'],
                  color=viz.INC_COLOUR)
     axes[0].set_xlabel('Day of year')

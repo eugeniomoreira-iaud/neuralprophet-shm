@@ -2274,8 +2274,15 @@ def seasonal_parameters(model, dates, freq='20min', conditions=None,
     For each date one day is built on the grid, with condition columns from
     :func:`seasonal_weights` where the model was fitted with them, and every
     regressor set to zero; ``predict_seasonal_components`` then gives each
-    seasonal term over that day. The yearly term is evaluated over one
-    synthetic year at daily resolution. The notebook sets
+    seasonal term over that day. The yearly term is evaluated separately,
+    over one synthetic year at daily resolution: NeuralProphet reports the
+    ``'yearly'`` component on every prediction regardless of the horizon it
+    was asked for, so a per-day evaluation would otherwise also carry
+    ``'yearly'`` rows — one non-representative value per hour of that single
+    day, mixed in with the 365 actual daily values from the year sweep, on a
+    ``date`` that duplicates none of them. The per-day evaluation therefore
+    keeps only the components that are not ``'yearly'``, and the year sweep
+    below is the sole source of ``'yearly'`` rows. The notebook sets
     ``model.weight_curve_ = WEIGHT_CURVE`` after each fit so this function
     can rebuild the condition columns with the same seasonal-weight
     modulation the model was fitted under.
@@ -2321,7 +2328,7 @@ def seasonal_parameters(model, dates, freq='20min', conditions=None,
                 frame[column] = weights[column].to_numpy()
         df = _model_frame(frame, tuple(regressors) + tuple(conditions.values()))
         out = model.predict_seasonal_components(df)
-        for component in [c for c in out.columns if c not in ('ds', 'ID')]:
+        for component in [c for c in out.columns if c not in ('ds', 'ID', 'yearly')]:
             for stamp, value in zip(index, out[component].to_numpy()):
                 rows.append({'date': date_label, 'hour': stamp.hour + stamp.minute / 60.0,
                              'component': component, 'value': float(value)})

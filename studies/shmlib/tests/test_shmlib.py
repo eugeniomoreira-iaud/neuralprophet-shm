@@ -812,6 +812,29 @@ class TestFiguresStudy05(unittest.TestCase):
         self.assertEqual(len(fig.axes), 2)
         plt.close(fig)
 
+    def test_plot_trend_parameters_breaks_across_a_gap_when_freq_is_given(self):
+        # Regression test for the covered-time trap: a segmented fit's
+        # trend Series skips a missing timestamp outright rather than
+        # carrying it as NaN, so drawing it straight joins the line across
+        # a whole missing day as if the trend were known there. Passing
+        # freq must reindex onto the regular grid first, breaking the
+        # drawn line with a NaN at the gap.
+        import matplotlib.pyplot as plt
+        full_index = pd.date_range('2024-01-01', periods=240, freq='1h', tz='UTC')
+        missing_day = ((full_index >= pd.Timestamp('2024-01-05', tz='UTC'))
+                       & (full_index < pd.Timestamp('2024-01-06', tz='UTC')))
+        trend_index = full_index[~missing_day]
+        trend = pd.Series(np.linspace(0.0, 10.0, len(trend_index)), index=trend_index)
+        rates = pd.DataFrame({'start': [trend_index[0]], 'end': [trend_index[-1]],
+                              'rate_mdeg_per_year': [10.0]})
+        changepoints = pd.DatetimeIndex([])
+
+        fig = figures.plot_trend_parameters(trend, rates, changepoints, freq='1h')
+
+        line = fig.axes[0].lines[0]
+        self.assertTrue(np.isnan(line.get_ydata()).any())
+        plt.close(fig)
+
     def test_plot_seasonal_parameters_draws_two_panels(self):
         import matplotlib.pyplot as plt
         year = pd.date_range('2001-01-01', periods=365, freq='D')
