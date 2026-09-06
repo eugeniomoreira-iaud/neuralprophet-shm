@@ -11,8 +11,9 @@ This study characterises air temperature and solar radiation in each available s
 far apart the sources are, and calibrates them against the one stretch of on-structure radiation
 that study 1 certified as trustworthy.
 
-**Status: skeleton.** The folder, the parameters and the library scaffolding are in place; the
-analysis is not yet written. This file describes what the study is for and how it will be run.
+**Status: in progress.** The notebook runs and writes `PF_01` to `PF_14` and `PF_F01` to
+`PF_F18` into `outputs/`; the report's source characterisation sections are written, and its
+comparison, compatibility and conclusion sections are still to be written from those artefacts.
 
 ## The question, in three parts
 
