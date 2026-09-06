@@ -396,5 +396,31 @@ class TestLadder(unittest.TestCase):
         self.assertEqual(int(ladder.loc[0, 'rows']), expected_rows)
 
 
+class TestRollingAdditions(unittest.TestCase):
+
+    def test_rolling_conformal_covers_at_the_nominal_rate(self):
+        rng = np.random.default_rng(3)
+        ds = pd.date_range('2024-01-01', periods=24 * 400, freq='1h', tz='UTC')
+        y = rng.normal(0, 2.0, len(ds))
+        origins = ds.floor('30D')
+        predictions = pd.DataFrame({'ds': ds, 'horizon_h': 0.0, 'y': y, 'yhat': 0.0,
+                                    'q05': -1.0, 'q95': 1.0, 'origin': origins})
+        out = prediction.rolling_conformal(predictions, alpha=0.10, window='120d')
+        scored = out.dropna(subset=['q05', 'q95'])
+        covered = ((scored['y'] >= scored['q05']) & (scored['y'] <= scored['q95'])).mean()
+        self.assertAlmostEqual(covered, 0.90, delta=0.03)
+        self.assertIn('q05_model', out.columns)
+        self.assertTrue(out['qhat'].dropna().gt(0).all())
+
+    def test_train_window_and_per_window_changepoints_are_accepted(self):
+        frame = _frame(n=24 * 120)
+        out = prediction.rolling_nowcast(
+            frame, regressors=('tair',), refit_every='20d', min_train='40d',
+            train_window='60d', changepoints_per_window=True, freq='1h',
+            epochs=2, growth='linear', n_changepoints=2, quantiles=(0.05, 0.95))
+        self.assertIn('staleness_d', out.columns)
+        self.assertGreater(out['origin'].nunique(), 1)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

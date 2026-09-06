@@ -1173,7 +1173,8 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
 
 
 def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
-                    freq=None, **model_kwargs):
+                    freq=None, train_window=None, changepoints_per_window=False,
+                    **model_kwargs):
     """
     Walk-forward nowcast evaluation: keep every prediction as fresh as a
     deployed model would be, by refitting on a schedule rather than once.
@@ -1226,6 +1227,26 @@ def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
         Frequency handed to :func:`neuralprophet_backtest`. ``None`` infers
         it per window from that window's own training index. Default
         ``None``.
+    train_window : str or None, optional
+        Pandas offset alias bounding each window's training data to
+        ``[origin - train_window, origin)`` rather than all history back to
+        ``frame.index.min()``. ``None`` (the default) reproduces the
+        original expanding-window behaviour, training on everything strictly
+        before ``origin``. A bounded window keeps every refit at a
+        comparable size on a multi-year record, where an expanding window
+        would otherwise make the last fit an order of magnitude larger than
+        the first.
+    changepoints_per_window : bool, optional
+        When ``True``, each window computes its own trend changepoints
+        through :func:`covered_changepoints` on that window's training
+        index and ``model_kwargs['n_changepoints']`` (falling back to
+        :func:`neuralprophet_backtest`'s own default of ``10`` when
+        ``n_changepoints`` is not given), and passes them as
+        ``changepoints`` instead of leaving NeuralProphet to space
+        ``n_changepoints`` of them uniformly along the window — which, on a
+        gapped record, can place one inside an outage. Default ``False``,
+        which reproduces the original behaviour of letting
+        :func:`neuralprophet_backtest` place changepoints itself.
     **model_kwargs
         Forwarded unchanged to :func:`neuralprophet_backtest` for every
         window (e.g. ``n_lags``, ``epochs``, ``yearly``, ``quantiles``,
@@ -1236,8 +1257,10 @@ def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
     pd.DataFrame
         Long predictions in the same shape :func:`neuralprophet_backtest`
         returns, plus an ``origin`` column giving the fit origin each row was
-        predicted from. Chronological by ``ds``, with no duplicated
-        timestamps.
+        predicted from and a ``staleness_d`` column giving, for each row,
+        how many days its ``ds`` sits past that origin — ``0`` for a
+        same-day nowcast and up to ``refit_every`` at the far edge of a
+        window. Chronological by ``ds``, with no duplicated timestamps.
 
     Raises
     ------
@@ -1270,18 +1293,25 @@ def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
 
     windows = []
     while origin <= last:
-        train = ordered.loc[index < origin]
+        lower = (origin - pd.Timedelta(train_window)) if train_window else index.min()
+        train = ordered.loc[(index >= lower) & (index < origin)]
         test = ordered.loc[(index >= origin) & (index < origin + step)]
         eligible = not train.empty and not test.empty
         if eligible and 'segment_id' in train.columns:
             eligible = train['segment_id'].nunique(dropna=True) >= 2
         if eligible:
+            window_kwargs = dict(model_kwargs)
+            if changepoints_per_window:
+                window_kwargs['changepoints'] = covered_changepoints(
+                    train.index, int(window_kwargs.get('n_changepoints', 10)))
             _, predictions = neuralprophet_backtest(
                 train, test, regressors=regressors, task='nowcast',
-                freq=freq, **model_kwargs)
+                freq=freq, **window_kwargs)
             if not predictions.empty:
                 predictions = predictions.copy()
                 predictions['origin'] = origin
+                predictions['staleness_d'] = (
+                    pd.DatetimeIndex(predictions['ds']) - origin) / pd.Timedelta(days=1)
                 windows.append(predictions)
         origin += step
 
@@ -1290,6 +1320,69 @@ def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
 
     out = pd.concat(windows, ignore_index=True)
     return out.sort_values('ds', kind='stable').reset_index(drop=True)
+
+
+def rolling_conformal(predictions, alpha=0.10, window='180d', method='cqr'):
+    """
+    Conformal bounds calibrated on the walk-forward output's own recent past.
+
+    For each refit origin the calibration set is every row of ``predictions``
+    with ``ds`` in ``[origin - window, origin)``. Those rows were predicted by
+    earlier fits and are out of sample by construction, so the split
+    conformal guarantee holds while every fit stays as fresh as the refit
+    schedule allows (spec D8). The ``'cqr'`` method is conformalised quantile
+    regression on the model's own quantile columns; ``'naive'`` is the
+    symmetric absolute-residual interval about ``yhat``.
+
+    Parameters
+    ----------
+    predictions : pd.DataFrame
+        Output of :func:`rolling_nowcast` with ``ds``, ``y``, ``yhat``,
+        ``origin`` and, for ``'cqr'``, ``q05`` and ``q95``.
+    alpha : float, optional
+        Miscoverage. Default ``0.10``.
+    window : str, optional
+        Length of the calibration set behind each origin. Default ``'180d'``.
+    method : {'cqr', 'naive'}, optional
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy with ``q05_model``/``q95_model`` (when present), conformal
+        ``q05``/``q95``, ``qhat`` and ``n_cal``.
+    """
+    out = predictions.copy()
+    ds = pd.DatetimeIndex(out['ds'])
+    if method == 'cqr':
+        for column in ('q05', 'q95'):
+            out[f'{column}_model'] = out[column]
+        scores = np.maximum(out['q05_model'] - out['y'], out['y'] - out['q95_model'])
+    elif method == 'naive':
+        scores = (out['y'] - out['yhat']).abs()
+    else:
+        raise ValueError("method must be 'cqr' or 'naive'")
+    scores = pd.Series(scores.to_numpy(dtype=float), index=out.index)
+    span = pd.Timedelta(window)
+    qhat = pd.Series(np.nan, index=out.index)
+    n_cal = pd.Series(0, index=out.index, dtype=int)
+    for origin, rows in out.groupby('origin').groups.items():
+        origin = pd.Timestamp(origin)
+        calibration = scores[(ds >= origin - span) & (ds < origin)].dropna()
+        n = int(calibration.size)
+        n_cal.loc[rows] = n
+        if n == 0:
+            continue
+        level = min(1.0, np.ceil((n + 1) * (1 - alpha)) / n)
+        qhat.loc[rows] = float(np.quantile(calibration, level))
+    out['qhat'] = qhat
+    out['n_cal'] = n_cal
+    if method == 'cqr':
+        out['q05'] = out['q05_model'] - out['qhat']
+        out['q95'] = out['q95_model'] + out['qhat']
+    else:
+        out['q05'] = out['yhat'] - out['qhat']
+        out['q95'] = out['yhat'] + out['qhat']
+    return out
 
 
 def neuralprophet_predict(model, frame, regressors=(), horizons=(1,),
