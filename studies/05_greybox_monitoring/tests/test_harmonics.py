@@ -72,5 +72,24 @@ class TestCycleSurfaceRank(unittest.TestCase):
         self.assertEqual(out['annual_weights'].shape[0], 52)
 
 
+class TestSeasonalWeights(unittest.TestCase):
+
+    def test_weights_sum_to_one_and_peak_in_july_by_default(self):
+        index = pd.date_range('2024-01-01', periods=366, freq='D', tz='UTC')
+        out = prediction.seasonal_weights(index)
+        self.assertTrue(np.allclose(out['summer_w'] + out['winter_w'], 1.0))
+        self.assertEqual(out['summer_w'].idxmax().month, 7)
+        self.assertGreaterEqual(out['summer_w'].min(), 0.0)
+        self.assertLessEqual(out['summer_w'].max(), 1.0)
+
+    def test_a_measured_modulation_is_normalised_to_the_unit_interval(self):
+        fit = {'order': 1, 'coef': np.array([20.0, -8.0, 0.0]),
+               'period_days': 365.25, 'n': 1000}
+        index = pd.date_range('2024-01-01', periods=366, freq='D', tz='UTC')
+        out = prediction.seasonal_weights(index, modulation=fit)
+        self.assertAlmostEqual(out['summer_w'].max(), 1.0, places=6)
+        self.assertAlmostEqual(out['summer_w'].min(), 0.0, places=6)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

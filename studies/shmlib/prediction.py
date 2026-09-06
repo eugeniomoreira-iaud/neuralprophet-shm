@@ -13,6 +13,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from . import coupling
+
 
 def _as_series(values, index, name=None):
     """Return ``values`` as a Series aligned to ``index``."""
@@ -1830,3 +1832,42 @@ def period_scan(series, min_days=30.0, max_days=900.0, n_periods=4000, top=5):
         'n': int(values.size),
         'span_days': span_days,
     })
+
+
+def seasonal_weights(index, modulation=None, peak_doy=196):
+    """
+    Condition columns for the smoothly weighted daily seasonality (spec D7).
+
+    Two weights that sum to one at every timestamp and vary only with the
+    calendar. With a measured annual modulation the summer weight is that
+    curve min-max normalised over one year of days; without one it is a
+    cosine peaking at ``peak_doy``.
+
+    Parameters
+    ----------
+    index : pd.DatetimeIndex
+    modulation : dict or None, optional
+        ``fit`` from :func:`shmlib.coupling.annual_modulation`. Default
+        ``None`` (cosine fallback).
+    peak_doy : int, optional
+        Day of year of the fallback cosine's maximum. Default ``196``.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``summer_w`` and ``winter_w`` indexed by ``index``.
+    """
+    index = pd.DatetimeIndex(index)
+    if modulation is None:
+        doy = index.dayofyear.to_numpy(dtype=float)
+        summer = 0.5 * (1.0 - np.cos(2.0 * np.pi * (doy - (peak_doy - 182.625))
+                                     / 365.25))
+    else:
+        year = pd.date_range('2001-01-01', periods=365, freq='D')
+        curve = coupling.evaluate_modulation(modulation, year)
+        low, high = float(curve.min()), float(curve.max())
+        raw = coupling.evaluate_modulation(modulation, index).to_numpy()
+        summer = (raw - low) / (high - low) if high > low else np.full_like(raw, 0.5)
+    summer = np.clip(summer, 0.0, 1.0)
+    return pd.DataFrame({'summer_w': summer, 'winter_w': 1.0 - summer},
+                        index=index)
