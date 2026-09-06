@@ -43,7 +43,7 @@ passed to it.
 import numpy as np
 import pandas as pd
 
-from . import adc, meteo, site
+from . import adc, coupling, meteo, site
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -757,7 +757,6 @@ def to_native_grid(frame, freq='20min', accumulations=('sr',)):
         On ``pd.date_range(start.ceil(freq), end.floor(freq), freq=freq)``,
         index named ``'datetime'``.
     """
-    step = pd.Timedelta(freq)
     grid = pd.date_range(frame.index.min().ceil(freq),
                          frame.index.max().floor(freq), freq=freq,
                          tz=frame.index.tz)
@@ -779,6 +778,7 @@ def to_native_grid(frame, freq='20min', accumulations=('sr',)):
         following = stamps.reindex(union).bfill()
         bridged = (following - previous) > native * 1.5
         out[column] = dense.where(~bridged).reindex(grid)
+    out.attrs.update(frame.attrs)
     return out
 
 
@@ -823,6 +823,108 @@ def fill_short_gaps(frame, columns, max_gap='2h', flag=True):
         if flag:
             out[column + '_filled'] = short.fillna(False).astype(bool)
     return out
+
+
+def build_regressor_sets(record, mapping, target='y', roles=('tair', 'rh', 'sr'),
+                         fill_max_gap='2h', radiation_delay_h=1.0, freq='20min',
+                         delayed_role='sr'):
+    """
+    Assemble the regressor sets of one model specification from a joined record.
+
+    Each set names, for every role, the column of ``record`` that plays it.
+    The set's columns are renamed to the roles, regressor dropouts up to
+    ``fill_max_gap`` are filled and flagged with :func:`fill_short_gaps`, and
+    the delayed role (radiation) is passed through
+    :func:`shmlib.coupling.thermal_operator` as a pure transport delay of
+    ``radiation_delay_h`` with no inertia, so the driver enters the model
+    already shifted by the delay Study 03 measured. Its ``_filled`` flag is
+    shifted with it, so a flag keeps marking the value it belongs to. The
+    target is copied, never filled.
+
+    Parameters
+    ----------
+    record : pd.DataFrame
+        Datetime-indexed frame on the ``freq`` grid holding ``target`` and
+        every column any set names.
+    mapping : dict
+        ``{set_name: {role: column}}``.
+    target : str, optional
+        Column of the response in ``record``. Default ``'y'``.
+    roles : sequence of str, optional
+        Roles every set must map. Default ``('tair', 'rh', 'sr')``.
+    fill_max_gap : str or pd.Timedelta, optional
+        Longest regressor dropout bridged. Default ``'2h'``.
+    radiation_delay_h : float, optional
+        Transport delay applied to ``delayed_role``, in hours. Default ``1.0``.
+    freq : str, optional
+        Grid spacing of ``record``. Default ``'20min'``.
+    delayed_role : str, optional
+        Role that receives the delay. Default ``'sr'``.
+
+    Returns
+    -------
+    sets : dict
+        ``{set_name: DataFrame}`` with the role columns and one
+        ``<role>_filled`` flag per role, on ``record``'s index.
+    frame : pd.DataFrame
+        ``target`` plus every set's role columns suffixed ``_<set_name>`` and
+        their ``_filled`` flags, on ``record``'s index.
+    """
+    step_hours = pd.Timedelta(freq) / pd.Timedelta(hours=1)
+    slots = int(round(radiation_delay_h / step_hours))
+    roles = list(roles)
+    sets = {}
+    for name, columns in mapping.items():
+        block = record[[columns[role] for role in roles]].copy()
+        block.columns = roles
+        block = fill_short_gaps(block, roles, max_gap=fill_max_gap, flag=True)
+        block[delayed_role] = coupling.thermal_operator(
+            block[delayed_role], delay=slots, tau=0.0, dt_hours=step_hours)
+        block[f'{delayed_role}_filled'] = block[f'{delayed_role}_filled'].shift(
+            slots, fill_value=False)
+        sets[name] = block
+    frame = record[[target]].copy()
+    for name, block in sets.items():
+        for role in roles:
+            frame[f'{role}_{name}'] = block[role]
+            frame[f'{role}_{name}_filled'] = block[f'{role}_filled']
+    return sets, frame
+
+
+def regressor_set_coverage(sets, target, target_label, roles=('tair', 'rh', 'sr')):
+    """
+    Accepted, filled and covered slots per set and role, and for the target.
+
+    Parameters
+    ----------
+    sets : dict
+        ``{set_name: DataFrame}`` as returned by :func:`build_regressor_sets`.
+    target : pd.Series
+        The response on the same grid.
+    target_label : str
+        Name reported in the ``role`` column of the target's row.
+    roles : sequence of str, optional
+        Roles to report. Default ``('tair', 'rh', 'sr')``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``set``, ``role``, ``accepted`` (non-missing slots),
+        ``filled`` (slots filled by interpolation) and ``coverage`` (fraction
+        of the grid that is non-missing). The last row is the target, with
+        ``set='target'`` and ``filled=0``.
+    """
+    rows = []
+    for name, block in sets.items():
+        for role in roles:
+            rows.append({'set': name, 'role': role,
+                         'accepted': int(block[role].notna().sum()),
+                         'filled': int(block[f'{role}_filled'].sum()),
+                         'coverage': float(block[role].notna().mean())})
+    rows.append({'set': 'target', 'role': target_label,
+                 'accepted': int(target.notna().sum()), 'filled': 0,
+                 'coverage': float(target.notna().mean())})
+    return pd.DataFrame(rows)
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -2302,3 +2302,62 @@ def plot_detectability(curve, title='', save_path=None, filename=None):
         fig.suptitle(title)
     viz.finish(fig, save_path=save_path, filename=filename)
     return fig
+
+
+def plot_regressor_sets(frame, target, sets, target_channel='inc_comp', title='',
+                        tick_years=1, save_path=None, filename=None):
+    """
+    The record and the three regressor sets on one clock, gaps as gaps.
+
+    Four panels: the target, then one panel per role with every set's
+    version of it overlaid. Colour is the role's identity colour; the sets
+    are told apart by line style, since colour is already spent on identity,
+    and the legend is drawn once for the figure in black so that it asserts
+    no panel's colour.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        Datetime-indexed frame holding ``target`` and every set's columns.
+    target : str
+        Column of the response in ``frame``.
+    sets : dict
+        ``{set_name: {role: column}}``; roles are ``'tair'``, ``'rh'``, ``'sr'``.
+    target_channel : str, optional
+        Channel identity used for the target's colour and unit. Default
+        ``'inc_comp'``.
+    title : str, optional
+    tick_years : int, optional
+        Years between x ticks. Default ``1``.
+    save_path, filename : str or None, optional
+        Passed to ``viz.finish``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    roles = ['tair', 'rh', 'sr']
+    styles = {'str': '-', 'gs': '--', 'era5': ':'}
+    fig, axes = plt.subplots(1 + len(roles), 1, sharex=True,
+                             figsize=viz.figsize(viz.FIGURE_WIDTH,
+                                                 1.15 * (1 + len(roles))))
+    axes[0].plot(frame.index, frame[target],
+                 **viz.channel_style(target_channel, 0.6))
+    axes[0].set_ylabel(viz.channel_unit(target_channel))
+    for ax, role in zip(axes[1:], roles):
+        for name, mapping in sets.items():
+            ax.plot(frame.index, frame[mapping[role]],
+                    linestyle=styles.get(name, '-'),
+                    **viz.channel_style(role, 0.6))
+        ax.set_ylabel(viz.channel_unit(role))
+    for ax in axes:
+        viz.format_spines(ax)
+    axes[-1].xaxis.set_major_locator(mdates.YearLocator(tick_years))
+    handles = [Line2D([], [], color='#000000', linestyle=styles.get(name, '-'),
+                      label=name) for name in sets]
+    fig.legend(handles=handles, labels=list(sets), loc='upper center',
+               bbox_to_anchor=(0.5, -0.01), ncol=len(sets), frameon=False)
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig

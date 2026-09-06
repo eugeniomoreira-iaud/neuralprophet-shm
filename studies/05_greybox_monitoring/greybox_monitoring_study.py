@@ -178,9 +178,26 @@ WINDOW_END = None            # None: the archive's own end
 #
 # ### Parameter Tuning Guidance
 #
+# **`STR_MAP_CURRENT`** — the current-era (post-2025-02-21) block-to-quantity
+# map, copied verbatim from Study 04's own parameter cell
+# (`04_neuralprophet_inclination_prediction/neuralprophet_inclination_prediction_study.py`
+# lines 253-259); default maps `tair`, `sr`, `twall`, `rh` and `batt` to the
+# archive's current-era `_ok`/`_filtered` columns. Passed to
+# `shmlib.proxies.load_sensor_forcings` so this study's on-structure load is
+# the same choice Study 04 already validated, rather than a second,
+# independently drifting definition of "the current era's channels".
+#
+# **`STR_MAP_LEGACY`** — the legacy-era block-to-quantity map, copied
+# verbatim from the same lines (260-263) of Study 04; default maps `tair`,
+# `rh` and `batt` to the legacy block's station-prefixed `_ok` columns
+# (`site.TARGET_STATION` resolves the block). No `sr` or `twall` entry: the
+# legacy package carries neither channel, and `load_sensor_forcings` leaves
+# an unmapped role out of its output rather than inventing one.
+#
 # **`REGRESSOR_SETS`** — dict of set name to a role-to-column mapping. Three
-# keys, `'str'`, `'gs'`, `'era5'`. The `'str'` set reads `tair` and `rh`
-# directly from Study 1's archive, joined across the two instrument eras, and
+# keys, `'str'`, `'gs'`, `'era5'`. The `'str'` set reads `tair_str` and
+# `rh_str`, `load_sensor_forcings`' own column names for the on-structure
+# quantities joined across the two instrument eras by `join_eras`, and
 # borrows the station's own radiation column `sr_gs` because the wall's own
 # pyranometer does not exist before 2025-02-21 and Study 01 condemned 161 of
 # its days after that (D2); every table that reports the `'str'` set states
@@ -209,8 +226,20 @@ WINDOW_END = None            # None: the archive's own end
 # half-hour before interpolating onto the study's grid.
 
 # %%
+STR_MAP_CURRENT = {
+    'tair': 'tair',
+    'sr': 'n_sr_ok',
+    'twall': 'n_twall_filtered',
+    'rh': 'n_rh_ok',
+    'batt': 'n_batt_ok',
+}
+STR_MAP_LEGACY = {
+    'tair': 'tair',
+    'rh': f'{site.TARGET_STATION}_rh_ok',
+    'batt': f'{site.TARGET_STATION}_batt_ok',
+}
 REGRESSOR_SETS = {
-    'str': {'tair': 'tair', 'rh': 'rh', 'sr': 'sr_gs'},   # sr borrowed from the station (D2)
+    'str': {'tair': 'tair_str', 'rh': 'rh_str', 'sr': 'sr_gs'},   # sr borrowed from the station (D2)
     'gs': {'tair': 'tair_gs', 'rh': 'rh_gs', 'sr': 'sr_gs'},
     'era5': {'tair': 'tair_era5', 'rh': 'rh_era5', 'sr': 'sr_era5'},
 }
@@ -602,3 +631,97 @@ BRIDGE_SETS = ('gs', 'era5')
 # afterwards, never in this file. See
 # docs/superpowers/specs/2026-09-05-study05-greybox-monitoring-design.md §8
 # for the full phase and checkpoint sequence.
+
+# %% [markdown]
+# ## Movement 1 · The record and the three regressor sets
+#
+# Study 1's product is read at its native cadence, the two external sources
+# are brought onto the same grid, each source's clock is checked before
+# anything is joined, and the three regressor sets of the design (D2) are
+# assembled with Study 3's operator applied to radiation (D3). Nothing here
+# fills the target; regressor dropouts up to `REGRESSOR_FILL_MAX_GAP` are
+# filled and flagged (D13).
+
+# %%
+target, target_provenance = proxies.load_response(
+    ARCHIVE_CSV, column=TARGET_COLUMN, spike_column=SPIKE_COLUMN,
+    honour_spike=True, freq=NATIVE_FREQ, tz=site.SITE_TZ, min_count=1)
+target = target.loc[WINDOW_START:WINDOW_END]
+
+sensor_current, _ = proxies.load_sensor_forcings(
+    ARCHIVE_CSV, column_map=STR_MAP_CURRENT, freq=NATIVE_FREQ,
+    tz=site.SITE_TZ, honour_suspect=True, min_count=1)
+sensor_legacy, _ = proxies.load_sensor_forcings(
+    ARCHIVE_CSV, column_map=STR_MAP_LEGACY, freq=NATIVE_FREQ,
+    tz=site.SITE_TZ, honour_suspect=True, min_count=1)
+sensor = proxies.join_eras([sensor_current, sensor_legacy])
+
+station_hourly = proxies.load_ground_station(STATION_CSV)
+era5_hourly = proxies.load_era5(ERA5_CSV)
+print(f'target {target.notna().sum():,} accepted slots of {len(target):,}; '
+      f'station {len(station_hourly):,} h; ERA5 {len(era5_hourly):,} h')
+
+# %% [markdown]
+# ### The clock of each source
+#
+# Study 2's two-sided test: radiation against computed solar noon, and each
+# source against ERA5 by cross-correlation. Run on the hourly grid, where
+# the test was designed, before any upsampling.
+
+# %%
+hourly = proxies.harmonise(
+    [proxies.load_sensor_forcings(ARCHIVE_CSV, column_map=STR_MAP_CURRENT,
+                                  honour_suspect=True)[0],
+     station_hourly, era5_hourly], freq=site.ANALYSIS_FREQ)
+clock = quality.clock_check(hourly, 'sr')
+display(clock)
+clock.to_csv(OUTPUT_DIR / 'GM_03_clock_check.csv', index=False)
+tables.write_table(clock, str(OUTPUT_DIR / 'GM_03_body.tex'),
+                   [(c, tables.texttt if clock[c].dtype == object else '.2f')
+                    for c in clock.columns])
+
+# %% [markdown]
+# ### Onto the native grid, and the regressor sets
+
+# %%
+station = proxies.to_native_grid(station_hourly, freq=NATIVE_FREQ,
+                                 accumulations=())
+era5 = proxies.to_native_grid(
+    era5_hourly, freq=NATIVE_FREQ,
+    accumulations=('sr',) if ERA5_SR_IS_ACCUMULATION else ())
+record = proxies.harmonise([sensor, station, era5, target.to_frame('y')],
+                           freq=NATIVE_FREQ).loc[WINDOW_START:WINDOW_END]
+
+sets, frame = proxies.build_regressor_sets(
+    record, REGRESSOR_SETS, target='y', fill_max_gap=REGRESSOR_FILL_MAX_GAP,
+    radiation_delay_h=RADIATION_DELAY_H, freq=NATIVE_FREQ)
+
+# %% [markdown]
+# ### Coverage and the anatomy of the target's gaps
+
+# %%
+coverage = proxies.regressor_set_coverage(sets, frame['y'], TARGET_COLUMN)
+display(coverage)
+coverage.to_csv(OUTPUT_DIR / 'GM_01_window_coverage.csv', index=False)
+tables.write_table(coverage, str(OUTPUT_DIR / 'GM_01_body.tex'),
+                   [('set', tables.texttt), ('role', tables.texttt),
+                    ('accepted', ',d'), ('filled', ',d'),
+                    ('coverage', tables.percent)])
+
+gaps = prediction.gap_inventory(frame['y'], freq=NATIVE_FREQ)
+gap_classes = (gaps.groupby('gap_class', sort=False)
+               .agg(gaps=('n_slots', 'size'), hours=('duration_h', 'sum'))
+               .reset_index())
+display(gap_classes)
+gaps.to_csv(OUTPUT_DIR / 'GM_02_gap_inventory.csv', index=False)
+tables.write_table(gap_classes, str(OUTPUT_DIR / 'GM_02_body.tex'),
+                   [('gap_class', tables.texttt), ('gaps', ',d'),
+                    ('hours', ',.0f')])
+
+# %%
+figures.plot_regressor_sets(
+    frame, 'y', {n: {r: f'{r}_{n}' for r in ['tair', 'rh', 'sr']}
+                 for n in sets},
+    target_channel='inc_comp',
+    title='The record and the three regressor sets',
+    save_path=str(OUTPUT_DIR), filename='GM_F01_regressor_sets')
