@@ -2307,13 +2307,24 @@ def plot_detectability(curve, title='', save_path=None, filename=None):
 def plot_regressor_sets(frame, target, sets, target_channel='inc_comp', title='',
                         tick_years=1, save_path=None, filename=None):
     """
-    The record and the three regressor sets on one clock, gaps as gaps.
+    The target and every regressor set's own record, one panel each.
 
-    Four panels: the target, then one panel per role with every set's
-    version of it overlaid. Colour is the role's identity colour; the sets
-    are told apart by line style, since colour is already spent on identity,
-    and the legend is drawn once for the figure in black so that it asserts
-    no panel's colour.
+    Overlaying the three regressor sets in one panel per role — the
+    figure's first form — draws three lines of the same identity colour on
+    top of each other and is unreadable: a reader cannot tell the sets
+    apart, since colour here already carries the role and cannot also carry
+    the set. This layout instead gives every distinct record its own panel:
+    the target first, then one panel per ``(role, column)`` pair found
+    across ``sets``, in role order ``'tair'``, ``'rh'``, ``'sr'`` and then
+    set order as ``sets`` is given. A column reused by more than one set —
+    the on-structure set borrows the ground station's radiation, so
+    ``sr_gs`` may appear as both sets' ``'sr'`` column — is drawn once, in a
+    panel whose title names every set that reads it, rather than being drawn
+    twice from the same data. Every panel of one role shares its vertical
+    scale, fitted to the finite range of every column that role draws
+    (shared even where the columns differ), so that an amplitude difference
+    between two sets is a difference in the drawn shape rather than an
+    artefact of two independently chosen axes.
 
     Parameters
     ----------
@@ -2327,6 +2338,7 @@ def plot_regressor_sets(frame, target, sets, target_channel='inc_comp', title=''
         Channel identity used for the target's colour and unit. Default
         ``'inc_comp'``.
     title : str, optional
+        Figure title. Default ``''``, which draws no title.
     tick_years : int, optional
         Years between x ticks. Default ``1``.
     save_path, filename : str or None, optional
@@ -2335,28 +2347,68 @@ def plot_regressor_sets(frame, target, sets, target_channel='inc_comp', title=''
     Returns
     -------
     matplotlib.figure.Figure
+
+    Notes
+    -----
+    Writes two image files (PNG and SVG) when ``save_path`` and ``filename``
+    are both given. Every panel is titled with its role and the set names
+    that share it, so no legend is drawn.
     """
     roles = ['tair', 'rh', 'sr']
-    styles = {'str': '-', 'gs': '--', 'era5': ':'}
-    fig, axes = plt.subplots(1 + len(roles), 1, sharex=True,
-                             figsize=viz.figsize(viz.FIGURE_WIDTH,
-                                                 1.15 * (1 + len(roles))))
+
+    # The distinct (role, column) pairs, in role order then set order,
+    # remembering which set names share a column.
+    panels = []
+    index_of = {}
+    for role in roles:
+        for name, mapping in sets.items():
+            if role not in mapping:
+                continue
+            column = mapping[role]
+            key = (role, column)
+            if key in index_of:
+                panels[index_of[key]][2].append(name)
+            else:
+                index_of[key] = len(panels)
+                panels.append([role, column, [name]])
+
+    n_panels = len(panels)
+    fig, axes = plt.subplots(
+        1 + n_panels, 1, sharex=True,
+        figsize=viz.figsize(viz.FIGURE_WIDTH, 0.85 * n_panels + 0.4))
+    axes = np.atleast_1d(axes)
+
     axes[0].plot(frame.index, frame[target],
                  **viz.channel_style(target_channel, 0.6))
     axes[0].set_ylabel(viz.channel_unit(target_channel))
-    for ax, role in zip(axes[1:], roles):
-        for name, mapping in sets.items():
-            ax.plot(frame.index, frame[mapping[role]],
-                    linestyle=styles.get(name, '-'),
-                    **viz.channel_style(role, 0.6))
+    axes[0].set_title(target, loc='left', fontsize='small')
+
+    for ax, (role, column, set_names) in zip(axes[1:], panels):
+        ax.plot(frame.index, frame[column], **viz.channel_style(role, 0.6))
         ax.set_ylabel(viz.channel_unit(role))
+        ax.set_title(f"{role} · {' and '.join(set_names)}",
+                    loc='left', fontsize='small')
+
+    # One vertical scale per role, shared by every panel of that role.
+    role_panel_indices = {}
+    for index, (role, column, set_names) in enumerate(panels):
+        role_panel_indices.setdefault(role, []).append(index)
+
+    for role, indices in role_panel_indices.items():
+        columns = [panels[index][1] for index in indices]
+        values = frame[columns].to_numpy(dtype=float)
+        finite = values[np.isfinite(values)]
+        if not len(finite):
+            continue
+        low, high = float(finite.min()), float(finite.max())
+        pad = 0.05 * (high - low)
+        for index in indices:
+            axes[1 + index].set_ylim(low - pad, high + pad)
+
     for ax in axes:
         viz.format_spines(ax)
     axes[-1].xaxis.set_major_locator(mdates.YearLocator(tick_years))
-    handles = [Line2D([], [], color='#000000', linestyle=styles.get(name, '-'),
-                      label=name) for name in sets]
-    fig.legend(handles=handles, labels=list(sets), loc='upper center',
-               bbox_to_anchor=(0.5, -0.01), ncol=len(sets), frameon=False)
+
     if title:
         fig.suptitle(title)
     viz.finish(fig, save_path=save_path, filename=filename)

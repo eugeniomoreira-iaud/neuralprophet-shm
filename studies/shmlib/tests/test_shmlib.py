@@ -717,7 +717,7 @@ class TestTables(unittest.TestCase):
 
 class TestFiguresStudy05(unittest.TestCase):
 
-    def test_plot_regressor_sets_draws_four_panels(self):
+    def test_plot_regressor_sets_draws_one_panel_per_record(self):
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
@@ -730,7 +730,12 @@ class TestFiguresStudy05(unittest.TestCase):
                 'gs': {'tair': 'tair_gs', 'rh': 'rh_gs', 'sr': 'sr_gs'},
                 'era5': {'tair': 'tair_era5', 'rh': 'rh_era5', 'sr': 'sr_era5'}}
         fig = figures.plot_regressor_sets(frame, 'y', sets)
-        self.assertEqual(len(fig.axes), 4)
+        # Three sets, with `sr_gs` shared by `str` and `gs`: 1 target panel
+        # plus 8 distinct records (tair x3, rh x3, sr x2).
+        self.assertEqual(len(fig.axes), 9)
+        # The two `tair` panels are drawn from different columns but must
+        # share their vertical scale, which pins the per-role shared axis.
+        self.assertEqual(fig.axes[1].get_ylim(), fig.axes[2].get_ylim())
         plt.close(fig)
 
 
