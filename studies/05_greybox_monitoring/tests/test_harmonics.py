@@ -58,5 +58,19 @@ class TestAnnualModulation(unittest.TestCase):
         self.assertAlmostEqual(curve.max() - curve.min(), 16.0, delta=1.0)
 
 
+class TestCycleSurfaceRank(unittest.TestCase):
+
+    def test_a_single_modulated_shape_has_rank_one(self):
+        index = pd.date_range('2019-01-01', periods=72 * 365 * 3, freq='20min', tz='UTC')
+        hours = index.hour + index.minute / 60.0
+        doy = index.dayofyear.to_numpy()
+        envelope = 1.0 + 0.5 * np.cos(2 * np.pi * (doy - 200) / 365.25)
+        series = pd.Series(envelope * np.cos(2 * np.pi * (hours - 14) / 24.0), index=index)
+        out = coupling.cycle_surface_rank(series, doy_bins=52)
+        self.assertGreater(out['table']['variance_share'].iloc[0], 0.98)
+        self.assertEqual(out['daily_shapes'].shape[0], 72)
+        self.assertEqual(out['annual_weights'].shape[0], 52)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

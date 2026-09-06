@@ -1086,6 +1086,57 @@ def evaluate_modulation(fit, index):
     return pd.Series(design @ fit['coef'], index=pd.DatetimeIndex(index))
 
 
+def cycle_surface_rank(series, doy_bins=52, freq='20min'):
+    """
+    How many weighted daily shapes the daily-by-annual surface needs.
+
+    The series is averaged into a surface of day-of-year bin by slot of day
+    and decomposed by singular values. The share of variance the leading
+    components carry says whether one daily shape with a scalar envelope, or
+    two blended shapes, or more, reproduce how the daily cycle changes
+    through the year (spec D6).
+
+    Parameters
+    ----------
+    series : pd.Series
+        Signal on a regular sub-daily grid, UTC. Pass the diurnal band.
+    doy_bins : int, optional
+        Number of day-of-year bins. Default ``52``.
+    freq : str, optional
+        Grid spacing, used to count slots per day. Default ``'20min'``.
+
+    Returns
+    -------
+    dict
+        ``'table'``, ``'daily_shapes'``, ``'annual_weights'`` as documented in
+        the plan.
+    """
+    values = pd.to_numeric(series, errors='coerce')
+    index = pd.DatetimeIndex(values.index)
+    slots_per_day = int(pd.Timedelta('1D') / pd.Timedelta(freq))
+    slot = ((index.hour * 60 + index.minute) // (24 * 60 // slots_per_day)).to_numpy()
+    doy_bin = np.minimum((index.dayofyear.to_numpy() - 1) * doy_bins // 366,
+                         doy_bins - 1)
+    surface = (pd.DataFrame({'v': values.to_numpy(), 'bin': doy_bin, 'slot': slot})
+               .groupby(['bin', 'slot'])['v'].mean().unstack('slot')
+               .reindex(index=range(doy_bins), columns=range(slots_per_day)))
+    surface = surface.apply(lambda col: col.fillna(col.mean()), axis=0).fillna(0.0)
+    matrix = surface.to_numpy(dtype=float)
+    u, s, vt = np.linalg.svd(matrix, full_matrices=False)
+    share = s ** 2 / float((s ** 2).sum())
+    table = pd.DataFrame({'component': np.arange(1, len(s) + 1),
+                          'singular_value': s, 'variance_share': share,
+                          'cumulative_share': np.cumsum(share)})
+    hours = np.arange(slots_per_day) * 24.0 / slots_per_day
+    centres = (np.arange(doy_bins) + 0.5) * 366.0 / doy_bins
+    keep = min(3, len(s))
+    shapes = pd.DataFrame(vt[:keep].T, index=hours,
+                          columns=[f'component_{k + 1}' for k in range(keep)])
+    weights = pd.DataFrame(u[:, :keep] * s[:keep], index=centres,
+                           columns=[f'component_{k + 1}' for k in range(keep)])
+    return {'table': table, 'daily_shapes': shapes, 'annual_weights': weights}
+
+
 def shortlist(table, control, expected_sign='-', margin=0.0):
     """
     Which drivers clear the control, and which of those move the right way.
