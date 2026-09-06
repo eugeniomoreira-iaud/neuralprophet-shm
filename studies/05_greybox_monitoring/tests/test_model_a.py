@@ -92,6 +92,123 @@ class TestBacktestAdditions(unittest.TestCase):
         self.assertTrue(pd.DatetimeIndex(out['ds']).equals(frame.index[200:]))
 
 
+def _regressor_sets(n=24 * 60, seed=0):
+    """Two hand-built regressor sets sharing one target, for the Movement 2
+    (attribution-fit) helpers: `sets` mimics `proxies.build_regressor_sets`'s
+    first return, a dict of set name to a block already carrying the plain
+    role columns `tair`, `rh`, `sr` on the target's own index."""
+    base = _frame(n=n, seed=seed)
+    hours = np.arange(n)
+    rng = np.random.default_rng(seed + 1)
+    rh = 50.0 + 5.0 * np.sin(2 * np.pi * hours / 24.0 + 1.0) + rng.normal(0, 0.5, n)
+    sr = np.clip(200.0 * np.sin(2 * np.pi * (hours % 24) / 24.0), 0.0, None)
+    sets = {
+        'a': pd.DataFrame({'tair': base['tair'], 'rh': rh, 'sr': sr}, index=base.index),
+        'b': pd.DataFrame({'tair': base['tair'] + 1.0, 'rh': rh - 2.0, 'sr': sr * 0.9},
+                          index=base.index),
+    }
+    return sets, base['y']
+
+
+class TestMovementTwoHelpers(unittest.TestCase):
+
+    def test_regressor_set_frames_joins_and_drops_missing(self):
+        index = pd.date_range('2024-01-01', periods=10, freq='1h', tz='UTC')
+        target = pd.Series(np.arange(10.0), index=index, name='y')
+        target.iloc[0] = np.nan
+        block_a = pd.DataFrame({'tair': np.arange(10.0), 'rh': np.arange(10.0),
+                                'sr': np.arange(10.0)}, index=index)
+        block_a.loc[index[3], 'tair'] = np.nan
+        block_b = pd.DataFrame({'tair': np.arange(10.0), 'rh': np.arange(10.0),
+                                'sr': np.arange(10.0)}, index=index)
+        block_b.loc[index[7], 'sr'] = np.nan
+        sets = {'a': block_a, 'b': block_b}
+
+        out = prediction.regressor_set_frames(sets, target)
+
+        self.assertEqual(set(out), {'a', 'b'})
+        self.assertEqual(list(out['a'].columns),
+                         ['y', 'tair', 'rh', 'sr', 'summer_w', 'winter_w'])
+        self.assertEqual(list(out['b'].columns),
+                         ['y', 'tair', 'rh', 'sr', 'summer_w', 'winter_w'])
+        # The row missing in the target (index[0]) is dropped from both sets;
+        # each set additionally loses its own NaN row.
+        self.assertEqual(len(out['a']), 8)
+        self.assertEqual(len(out['b']), 8)
+        self.assertNotIn(index[0], out['a'].index)
+        self.assertNotIn(index[3], out['a'].index)
+        self.assertNotIn(index[0], out['b'].index)
+        self.assertNotIn(index[7], out['b'].index)
+
+    def test_sweep_trend_reg_flags_one_minimum(self):
+        frame = _frame()
+        train, valid = frame.iloc[:1000], frame.iloc[1000:]
+
+        sweep = prediction.sweep_trend_reg(
+            train, valid, (0.0, 1.0), ('tair',), epochs=2, freq='1h')
+
+        self.assertEqual(len(sweep), 2)
+        self.assertEqual(sweep['chosen'].sum(), 1)
+        self.assertEqual(sweep.loc[sweep['chosen'], 'trend_reg'].iloc[0],
+                         sweep.loc[sweep['mae_val'].idxmin(), 'trend_reg'])
+
+    def test_compare_daily_terms_reports_two_rows(self):
+        frame = _frame()
+        train, valid = frame.iloc[:1000], frame.iloc[1000:]
+        conditions = {'daily_summer': 'summer_w', 'daily_winter': 'winter_w'}
+
+        table, keep = prediction.compare_daily_terms(
+            train, valid, ('tair',), conditions, 0.01, epochs=2, freq='1h')
+
+        self.assertEqual(list(table['daily_term']), ['plain', 'conditional'])
+        self.assertIsInstance(keep, bool)
+        self.assertTrue((table['daily_share'] >= 0).all())
+        self.assertTrue((table['daily_share'] <= 1).all())
+
+    def test_attribution_fits_builds_fits_and_tables(self):
+        sets, target = _regressor_sets()
+        frames = prediction.regressor_set_frames(sets, target)
+        study03_gains = {('a', 'tair'): -2.5}
+
+        fits, shares, gains, diagnostics = prediction.attribution_fits(
+            frames, ('tair', 'rh', 'sr'), valid_p=0.2, n_changepoints=2,
+            study03_gains=study03_gains, diagnostic_lags=(1, 5),
+            weight_curve='sentinel', epochs=2, freq='1h')
+
+        self.assertEqual(set(fits), {'a', 'b'})
+        for fit in fits.values():
+            self.assertTrue(hasattr(fit['model'], 'fit_metrics_'))
+            self.assertEqual(fit['model'].weight_curve_, 'sentinel')
+        self.assertEqual(shares.columns[0], 'set')
+        self.assertEqual(set(shares['set']), {'a', 'b'})
+        self.assertEqual(gains.columns[0], 'set')
+        self.assertEqual(set(gains['set']), {'a', 'b'})
+        self.assertEqual(diagnostics.columns[0], 'set')
+        self.assertEqual(set(diagnostics['set']), {'a', 'b'})
+
+        known = gains[(gains['set'] == 'a') & (gains['regressor'] == 'tair')].iloc[0]
+        self.assertAlmostEqual(known['study03_gain'], -2.5)
+        unknown = gains[(gains['set'] == 'a') & (gains['regressor'] == 'rh')].iloc[0]
+        self.assertTrue(np.isnan(unknown['study03_gain']))
+
+    def test_fold_stability_returns_expected_rows(self):
+        sets, target = _regressor_sets()
+        frames = prediction.regressor_set_frames(sets, target)
+        fits, _, _, _ = prediction.attribution_fits(
+            frames, ('tair', 'rh', 'sr'), valid_p=0.2, n_changepoints=2,
+            epochs=2, freq='1h')
+
+        stability = prediction.fold_stability(
+            fits, frames, ('tair', 'rh', 'sr'), n_changepoints=2, k=2,
+            fold_pct=0.1, fold_overlap_pct=0.0, freq='1h', epochs=2)
+
+        self.assertEqual(len(stability), 4)
+        self.assertEqual(list(stability.columns),
+                         ['set', 'fold', 'tair_gain', 'yearly_peak_to_peak',
+                          'trend_rate', 'mae_val'])
+        self.assertFalse(stability['mae_val'].isna().any())
+
+
 class TestExtractors(unittest.TestCase):
 
     def test_regressor_gain_is_the_slope_of_the_component(self):
@@ -102,6 +219,28 @@ class TestExtractors(unittest.TestCase):
         gains = prediction.regressor_gains(components, frame, ('tair',))
         self.assertAlmostEqual(gains.loc[0, 'gain'], -2.5, places=6)
         self.assertAlmostEqual(gains.loc[0, 'r2'], 1.0, places=6)
+
+    def test_decompose_components_keeps_the_frame_s_own_timezone(self):
+        # Regression test: NeuralProphet's predict() always returns 'ds'
+        # tz-naive (see the tz_aware_index test above), and decompose_
+        # components used to leave that naive index uncorrected. The
+        # observed-value reindex a few lines later then aligned a tz-aware
+        # Series against a tz-naive one, which pandas does not raise on --
+        # it just matches nothing, so 'y' and 'residual' came back entirely
+        # NaN with no error to notice. This pins the fix: on a tz-aware
+        # frame, decompose_components' own index carries that same
+        # timezone, and 'y'/'residual' are populated exactly as they are on
+        # a tz-naive frame.
+        frame = _frame()  # tz='UTC'
+        model, _ = prediction.neuralprophet_backtest(
+            frame, frame, regressors=('tair',), task='nowcast', epochs=2,
+            freq='1h', quantiles=())
+        components = prediction.decompose_components(
+            model, frame, regressors=('tair',))
+        self.assertEqual(components.index.tz, frame.index.tz)
+        self.assertTrue(components.index.equals(frame.index))
+        self.assertFalse(components['y'].isna().any())
+        self.assertFalse(components['residual'].isna().any())
 
     def test_trend_rates_recover_a_linear_drift(self):
         frame = _frame(n=24 * 120)

@@ -1688,6 +1688,18 @@ def decompose_components(model, frame, regressors=(), freq=None):
     :func:`_frame_columns`, because NeuralProphet requires them again at
     predict time.
 
+    NeuralProphet's ``predict`` always returns its ``ds`` column tz-naive,
+    converted through UTC internally, exactly as documented on
+    :func:`_long_predictions`. Left uncorrected, the returned table's index
+    would be tz-naive even when ``frame`` is tz-aware, and the ``observed =
+    ... .reindex(out.index)`` step below would then align a tz-aware
+    ``Series`` against a tz-naive one: pandas raises no error there, it
+    silently matches nothing, so ``y`` and therefore ``residual`` would come
+    back entirely ``NaN`` with no warning. This restores ``ds`` to
+    ``frame``'s own zone by the same UTC-naive lookup :func:`_long_predictions`
+    uses, before that reindex ever runs, so the returned table lands on
+    exactly ``frame``'s index whether or not it carries a timezone.
+
     Parameters
     ----------
     model : object
@@ -1723,6 +1735,12 @@ def decompose_components(model, frame, regressors=(), freq=None):
     out['yhat1'] = wide['yhat1'] if 'yhat1' in wide.columns else np.nan
     if 'ID' in wide.columns:
         out['ID'] = wide['ID']
+
+    frame_index = pd.DatetimeIndex(frame.index)
+    if frame_index.tz is not None:
+        lookup = dict(zip(frame_index.tz_convert('UTC').tz_localize(None),
+                          frame_index))
+        out['ds'] = pd.DatetimeIndex(out['ds']).map(lookup)
     out = out.set_index('ds')
     out.index.name = frame.index.name
 
@@ -2327,3 +2345,380 @@ def seasonal_parameters(model, dates, freq='20min', conditions=None,
             rows.append({'date': stamp.tz_localize(None), 'hour': 0.0,
                          'component': 'yearly', 'value': float(value)})
     return pd.DataFrame(rows, columns=['date', 'hour', 'component', 'value'])
+
+
+def regressor_set_frames(sets, target, roles=('tair', 'rh', 'sr'), weight_curve=None):
+    """
+    Model-ready frames for Model A, one per regressor set (spec D7).
+
+    Each regressor set produced by ``proxies.build_regressor_sets`` already
+    carries the study's three roles under plain names on the record's index;
+    this joins the shared target onto each set in turn, attaches the
+    conditional-seasonality weight columns every Model A fit needs whether or
+    not it ends up using them, and drops whatever a set cannot cover. Rows
+    are dropped rather than filled, because a regressor set's whole purpose
+    is to say what that combination of sources can support, and imputing a
+    gap here would blur that comparison between sets.
+
+    Parameters
+    ----------
+    sets : dict
+        ``{set_name: DataFrame}``, the first return of
+        :func:`shmlib.proxies.build_regressor_sets`: each block carries the
+        columns named in ``roles`` (and, unused here, a ``<role>_filled``
+        flag per role) on the record's index.
+    target : pd.Series
+        The response, on an index compatible with every set in ``sets``.
+        Renamed ``'y'`` in the output regardless of its own name.
+    roles : sequence of str, optional
+        Role columns to carry from each set. Default ``('tair', 'rh', 'sr')``.
+    weight_curve : dict or None, optional
+        Annual modulation passed to :func:`seasonal_weights` as
+        ``modulation``, evaluated on each set's own index. ``None`` (the
+        default) uses that function's cosine fallback.
+
+    Returns
+    -------
+    dict
+        ``{set_name: DataFrame}``, each with columns ``'y'``, the roles (in
+        the order of ``roles``), then ``'summer_w'`` and ``'winter_w'``. Rows
+        where the target or any role is missing are dropped; the sets'
+        ``_filled`` flags are not carried through.
+    """
+    roles = list(roles)
+    target = pd.Series(target).rename('y')
+    frames = {}
+    for name, block in sets.items():
+        weights = seasonal_weights(block.index, modulation=weight_curve)
+        joined = pd.concat([target, block.loc[:, roles], weights], axis=1)
+        joined = joined.dropna(subset=['y'] + roles)
+        frames[name] = joined.loc[:, ['y'] + roles + ['summer_w', 'winter_w']]
+    return frames
+
+
+def sweep_trend_reg(train, valid, candidates, regressors, **model_kwargs):
+    """
+    Score a nowcast fit at each candidate trend regularisation (spec D7).
+
+    One :func:`neuralprophet_backtest` fit per candidate, all else held
+    fixed, scored on the same held-out tail by the mean absolute error of
+    its long predictions. Reporting every candidate's score, rather than
+    only the winner, is what lets the study show that the choice is not
+    close, or admit it when it is.
+
+    Parameters
+    ----------
+    train, valid : pd.DataFrame
+        Training and held-out frames, as accepted by
+        :func:`neuralprophet_backtest`.
+    candidates : sequence of float
+        Trend regularisation values to try, in the wrapper's user-facing
+        scale (see :func:`neuralprophet_backtest`'s ``trend_reg``).
+    regressors : sequence of str
+        Regressor columns registered on every fit.
+    **model_kwargs
+        Passed unchanged to every :func:`neuralprophet_backtest` call beside
+        ``train``, ``valid``, ``regressors``, ``task`` and ``trend_reg``,
+        which this function already supplies.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per candidate, columns ``trend_reg``, ``mae_val`` and
+        ``chosen`` — ``True`` on the row of lowest ``mae_val``, the first
+        such row on a tie, ``False`` everywhere else.
+    """
+    rows = []
+    for candidate in candidates:
+        _, out = neuralprophet_backtest(
+            train, valid, regressors=regressors, task='nowcast',
+            trend_reg=candidate, **model_kwargs)
+        rows.append({'trend_reg': float(candidate),
+                     'mae_val': float((out['y'] - out['yhat']).abs().mean())})
+    table = pd.DataFrame(rows, columns=['trend_reg', 'mae_val'])
+    table['chosen'] = False
+    table.loc[table['mae_val'].idxmin(), 'chosen'] = True
+    return table
+
+
+def compare_daily_terms(train, valid, regressors, conditions, keep_min_share,
+                        **model_kwargs):
+    """
+    Whether the conditional daily term earns its place over the plain one
+    (spec D7).
+
+    Two otherwise identical nowcast fits, one with no conditional
+    seasonality and one with ``conditions`` registered as
+    ``conditional_seasonality``. For each, the held-out mean absolute error
+    and the share of the fitted variance the daily term(s) carry — the sum
+    of :func:`component_variance_shares`' shares over every component whose
+    name starts with ``'season_daily'``, which covers both the plain fit's
+    single ``season_daily`` column and the conditional fit's per-condition
+    columns (``season_daily_summer``, ``season_daily_winter``, ...), so the
+    two fits' daily shares are directly comparable even though they are
+    spread over a different number of columns.
+
+    Parameters
+    ----------
+    train, valid : pd.DataFrame
+        Training and held-out frames, as accepted by
+        :func:`neuralprophet_backtest`.
+    regressors : sequence of str
+        Regressor columns registered on both fits.
+    conditions : dict
+        ``conditional_seasonality`` mapping used by the ``'conditional'``
+        fit; the ``'plain'`` fit is run with ``None`` instead.
+    keep_min_share : float
+        Minimum daily variance share the conditional fit must clear to be
+        preferred when its held-out error is not already lower.
+    **model_kwargs
+        Passed unchanged to both :func:`neuralprophet_backtest` calls beside
+        ``train``, ``valid``, ``regressors``, ``task`` and
+        ``conditional_seasonality``, which this function already supplies.
+
+    Returns
+    -------
+    table : pd.DataFrame
+        Two rows, ``daily_term`` (``'plain'`` then ``'conditional'``),
+        ``mae_val`` and ``daily_share``.
+    keep : bool
+        ``True`` when the conditional fit's ``mae_val`` is lower than the
+        plain fit's, or its ``daily_share`` exceeds ``keep_min_share``.
+    """
+    rows = []
+    for label, spec in (('plain', None), ('conditional', dict(conditions))):
+        model, out = neuralprophet_backtest(
+            train, valid, regressors=regressors, task='nowcast',
+            conditional_seasonality=spec, **model_kwargs)
+        components = decompose_components(model, train, regressors=regressors)
+        shares = component_variance_shares(components)
+        daily_share = float(
+            shares.loc[shares['component'].str.startswith('season_daily'),
+                       'share'].sum())
+        rows.append({'daily_term': label,
+                     'mae_val': float((out['y'] - out['yhat']).abs().mean()),
+                     'daily_share': daily_share})
+    table = pd.DataFrame(rows, columns=['daily_term', 'mae_val', 'daily_share'])
+    keep = bool(table.loc[1, 'mae_val'] < table.loc[0, 'mae_val']
+               or table.loc[1, 'daily_share'] > keep_min_share)
+    return table, keep
+
+
+def attribution_fits(frames, regressors, valid_p, n_changepoints,
+                     study03_gains=None, diagnostic_lags=(1, 72, 216),
+                     weight_curve=None, **model_kwargs):
+    """
+    Fit Model A once per regressor set, for attribution (spec D7).
+
+    Each set's frame is split into a training head and a held-out tail,
+    changepoints are placed on the training head's own covered time, and a
+    single nowcast fit is scored against the held-out tail — the same fit a
+    caller then reads shares, gains and residual diagnostics from, rather
+    than a second, silently different model. The fitted model carries
+    ``weight_curve_``, so :func:`seasonal_parameters` can later rebuild the
+    same conditional-seasonality weights this fit was trained under.
+
+    Parameters
+    ----------
+    frames : dict
+        ``{set_name: DataFrame}``, normally :func:`regressor_set_frames`'s
+        return: each frame carries ``'y'`` and every column ``regressors``
+        names.
+    regressors : sequence of str
+        Regressor columns registered on every fit.
+    valid_p : float
+        Fraction of each set's frame held out as the tail scored by
+        ``mae_val`` and passed as ``validation`` to
+        :func:`neuralprophet_backtest`.
+    n_changepoints : int
+        Passed to :func:`covered_changepoints` for each set's training head,
+        and to :func:`neuralprophet_backtest` as ``n_changepoints``.
+    study03_gains : dict or None, optional
+        ``{(set_name, regressor): gain}`` lookup placed beside every learned
+        gain as ``study03_gain``. ``None`` (the default), or a lookup
+        lacking a given ``(set_name, regressor)`` key, reports ``NaN`` for
+        that row rather than raising.
+    diagnostic_lags : sequence of int, optional
+        Lags passed to :func:`residual_diagnostics`. Default ``(1, 72,
+        216)``.
+    weight_curve : dict or None, optional
+        Stored on every fitted model as ``weight_curve_``. Default ``None``.
+    **model_kwargs
+        Passed unchanged to every :func:`neuralprophet_backtest` call beside
+        ``train``, ``valid``, ``regressors``, ``task``, ``changepoints``,
+        ``n_changepoints`` and ``validation``, which this function already
+        supplies.
+
+    Returns
+    -------
+    fits : dict
+        ``{set_name: {'model', 'train', 'valid', 'changepoints',
+        'components'}}``, the fitted model, its training and held-out
+        frames, its changepoints, and its :func:`decompose_components`
+        output.
+    shares : pd.DataFrame
+        :func:`component_variance_shares` for every set, concatenated, with
+        ``'set'`` as the first column.
+    gains : pd.DataFrame
+        :func:`regressor_gains` for every set, concatenated, with ``'set'``
+        as the first column and ``study03_gain`` appended.
+    diagnostics : pd.DataFrame
+        :func:`residual_diagnostics` of each set's residual, concatenated,
+        with ``'set'`` as the first column.
+    """
+    study03_gains = study03_gains or {}
+    fits = {}
+    shares_rows, gain_rows, diag_rows = [], [], []
+    for name, block in frames.items():
+        split_at = int(len(block) * (1 - valid_p))
+        train, valid = block.iloc[:split_at], block.iloc[split_at:]
+        changepoints = covered_changepoints(train.index, n_changepoints)
+        model, _ = neuralprophet_backtest(
+            train, valid, regressors=regressors, task='nowcast',
+            changepoints=changepoints, n_changepoints=n_changepoints,
+            validation=valid, **model_kwargs)
+        model.weight_curve_ = weight_curve
+        components = decompose_components(model, train, regressors=regressors)
+        fits[name] = {'model': model, 'train': train, 'valid': valid,
+                      'changepoints': changepoints, 'components': components}
+
+        share_table = component_variance_shares(components)
+        share_table.insert(0, 'set', name)
+        shares_rows.append(share_table)
+
+        gain_table = regressor_gains(components, train, regressors)
+        gain_table.insert(0, 'set', name)
+        gain_table['study03_gain'] = [study03_gains.get((name, regressor), np.nan)
+                                      for regressor in gain_table['regressor']]
+        gain_rows.append(gain_table)
+
+        diag_table = residual_diagnostics(components['residual'], lags=diagnostic_lags)
+        diag_table.insert(0, 'set', name)
+        diag_rows.append(diag_table)
+
+    shares = pd.concat(shares_rows, ignore_index=True)
+    gains = pd.concat(gain_rows, ignore_index=True)
+    diagnostics = pd.concat(diag_rows, ignore_index=True)
+    return fits, shares, gains, diagnostics
+
+
+def _select_by_ds(block, ds):
+    """
+    Rows of ``block`` whose index appears in ``ds``, a fold boundary column
+    from ``crossvalidation_split_df``.
+
+    NeuralProphet's ``crossvalidation_split_df`` returns its ``ds`` column
+    tz-naive regardless of whether the frame it split carried a tz-aware
+    index, so a tz-aware ``block`` is matched by first localising ``ds`` to
+    the block's own zone; a tz-naive ``block`` is matched as given.
+
+    Parameters
+    ----------
+    block : pd.DataFrame
+        Datetime-indexed frame, one of Model A's regressor-set frames.
+    ds : pd.Series
+        The ``'ds'`` column of one side of one fold.
+
+    Returns
+    -------
+    pd.DataFrame
+        The subset of ``block`` whose index timestamps appear in ``ds``.
+    """
+    if ds.dt.tz is None and block.index.tz is not None:
+        ds = ds.dt.tz_localize(block.index.tz)
+    return block.loc[block.index.isin(ds)]
+
+
+def fold_stability(fits, frames, regressors, n_changepoints, k, fold_pct,
+                   fold_overlap_pct, freq, gain_regressor='tair',
+                   **model_kwargs):
+    """
+    Component stability across NeuralProphet's own chronological folds
+    (spec §4.1).
+
+    A learned gain, trend rate or yearly amplitude that changes sign or
+    order of magnitude between folds is not a finding about the wall, it is
+    noise the single full-window fit happened to land on. Each set's
+    already-fitted model (from :func:`attribution_fits`) supplies the fold
+    boundaries through its own ``crossvalidation_split_df``, so the folds
+    match the same chronological scheme NeuralProphet itself uses for
+    walk-forward validation; each fold is then refit from scratch on its own
+    training slice, because a fold's stability is about repeated fitting,
+    not about reusing one fit's parameters.
+
+    Parameters
+    ----------
+    fits : dict
+        ``{set_name: {'model', ...}}``, :func:`attribution_fits`'s first
+        return; only ``fits[name]['model']`` is used, to call
+        ``crossvalidation_split_df``.
+    frames : dict
+        ``{set_name: DataFrame}``, normally the same
+        :func:`regressor_set_frames` mapping ``attribution_fits`` was given.
+    regressors : sequence of str
+        Regressor columns registered on every fold's fit.
+    n_changepoints : int
+        Passed to :func:`covered_changepoints` for each fold's training
+        slice, and to :func:`neuralprophet_backtest` as ``n_changepoints``.
+    k : int
+        Number of folds, passed to ``crossvalidation_split_df``.
+    fold_pct, fold_overlap_pct : float
+        Fold size and overlap, as fractions of the frame, passed to
+        ``crossvalidation_split_df``.
+    freq : str
+        Sampling frequency, passed to ``crossvalidation_split_df`` and, as
+        ``freq``, to every fold's :func:`neuralprophet_backtest` call.
+    gain_regressor : str, optional
+        The regressor whose learned gain is reported per fold. Default
+        ``'tair'``.
+    **model_kwargs
+        Passed unchanged to every fold's :func:`neuralprophet_backtest` call
+        beside ``fold_train``, ``fold_test``, ``regressors``, ``task``,
+        ``changepoints``, ``n_changepoints``, ``freq`` and ``quantiles``,
+        which this function already supplies — folds are always fitted
+        without quantiles, so ``model_kwargs`` must not also carry
+        ``quantiles``.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per set and fold: ``set``, ``fold``,
+        ``'<gain_regressor>_gain'``, ``yearly_peak_to_peak`` (``NaN`` when
+        the model has no ``season_yearly`` component), ``trend_rate`` (the
+        mean of that fold's :func:`trend_parameters` rates), and the fold's
+        held-out ``mae_val``.
+    """
+    conditions = dict(model_kwargs.get('conditional_seasonality') or {})
+    passthrough = tuple(regressors) + tuple(conditions.values())
+    gain_column = f'{gain_regressor}_gain'
+    rows = []
+    for name, block in frames.items():
+        model0 = fits[name]['model']
+        folds = model0.crossvalidation_split_df(
+            _model_frame(block, passthrough), freq=freq, k=k,
+            fold_pct=fold_pct, fold_overlap_pct=fold_overlap_pct)
+        for fold_index, (fold_train_df, fold_test_df) in enumerate(folds, start=1):
+            fold_train = _select_by_ds(block, fold_train_df['ds'])
+            fold_test = _select_by_ds(block, fold_test_df['ds'])
+            changepoints = covered_changepoints(fold_train.index, n_changepoints)
+            model, out = neuralprophet_backtest(
+                fold_train, fold_test, regressors=regressors, task='nowcast',
+                changepoints=changepoints, n_changepoints=n_changepoints,
+                freq=freq, quantiles=(), **model_kwargs)
+            components = decompose_components(model, fold_train, regressors=regressors)
+            gain = float(regressor_gains(components, fold_train, (gain_regressor,))
+                        .loc[0, 'gain'])
+            _, rates = trend_parameters(model, fold_train, changepoints,
+                                        regressors=regressors)
+            yearly = (components['season_yearly']
+                     if 'season_yearly' in components.columns else None)
+            rows.append({
+                'set': name, 'fold': fold_index, gain_column: gain,
+                'yearly_peak_to_peak': (float(yearly.max() - yearly.min())
+                                       if yearly is not None else np.nan),
+                'trend_rate': float(rates['rate_mdeg_per_year'].mean()),
+                'mae_val': float((out['y'] - out['yhat']).abs().mean()),
+            })
+    return pd.DataFrame(rows, columns=['set', 'fold', gain_column,
+                                       'yearly_peak_to_peak', 'trend_rate',
+                                       'mae_val'])
