@@ -3053,7 +3053,7 @@ def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
     return ladder, errors
 
 
-def lagged_regressor_weights(model):
+def lagged_regressor_weights(model, physical=False):
     """
     The weight a fitted model attaches to every past lag of every lagged
     regressor, one row per lag.
@@ -3075,21 +3075,49 @@ def lagged_regressor_weights(model):
     ----------
     model : neuralprophet.NeuralProphet
         A fitted model carrying at least one lagged regressor.
+    physical : bool, optional
+        The raw weight NeuralProphet stores acts on whatever normalised
+        representation of ``y`` and of the regressor the model actually
+        trained on — every column normalised by its own affine map
+        ``value = shift + scale * value_norm``, with a per-column
+        ``norm_type`` (``'standardize'``, ``'soft'``, ``'minmax'``, ...)
+        that this wrapper's constructor does not fix, so the raw weight is
+        in units of a standard deviation of ``y`` per unit of whatever the
+        regressor's own normalisation happens to be, not in the regressor's
+        physical units. When ``physical=True``, every regressor's weight is
+        rescaled by ``scale_y / scale_regressor``, the two scales the
+        fitted model recorded for itself in
+        ``model.config_normalization.global_data_params`` (a dict of column
+        name to a ``neuralprophet.df_utils.ShiftScale`` carrying ``.shift``
+        and ``.scale``). Because every normalisation type NeuralProphet
+        supports is one affine map per column, this rescaling is exact
+        regardless of which type either column was actually given — it is
+        not a re-derivation from the raw series (a ``'soft'`` column's
+        ``scale`` is a quantile width, not a standard deviation, and
+        recomputing ``std()`` from the data would silently use the wrong
+        number). Default ``False``, which returns exactly the weight
+        NeuralProphet's own tensor carries, unchanged from this function's
+        original behaviour.
 
     Returns
     -------
     pd.DataFrame
         ``regressor``, ``lag`` (``1`` is the most recent past sample),
-        ``weight``, sorted by regressor and then by lag.
+        ``weight`` — in the target's units per unit of the regressor when
+        ``physical=True``, otherwise in the model's own normalised units —
+        sorted by regressor and then by lag.
     """
+    scales = model.config_normalization.global_data_params if physical else None
+    scale_y = scales['y'].scale if physical else None
     rows = []
     for name, tensor in model.model.get_covar_weights().items():
         values = np.asarray(tensor.detach().cpu().numpy(), dtype=float)
         values = values.reshape(values.shape[0], -1)[0]
         n_lags = values.size
+        factor = (scale_y / scales[name].scale) if physical else 1.0
         for i, weight in enumerate(values):
             rows.append({'regressor': name, 'lag': n_lags - i,
-                        'weight': float(weight)})
+                        'weight': float(weight) * factor})
     out = pd.DataFrame(rows, columns=['regressor', 'lag', 'weight'])
     return out.sort_values(['regressor', 'lag']).reset_index(drop=True)
 

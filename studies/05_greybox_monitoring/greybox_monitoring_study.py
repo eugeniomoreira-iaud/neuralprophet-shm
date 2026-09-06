@@ -1405,10 +1405,18 @@ else:
 # slots of their own recent history into the fit, while relative humidity
 # stays a contemporaneous regressor exactly as in Model A.
 # `prediction.lagged_regressor_weights` reads the fitted weight at every
-# lag straight back from the model, and `prediction.
-# impulse_response_summary` reduces that table to one row per driver —
-# gain, delay and time constant — with Study 03's own operator attached
-# alongside for the comparison the movement exists to make.
+# lag straight back from the model, called with `physical=True` so that
+# every weight is rescaled from the model's own internal normalisation
+# into millidegrees per unit of the driver — the units `STUDY03_GAINS`
+# and Study 03's operator are both stated in — rather than left in
+# standard deviations of the (also normalised) target per unit of
+# whatever normalisation the driver itself happened to receive.
+# `prediction.impulse_response_summary` reduces that physical-units table
+# to one row per driver — gain, delay and time constant — with Study 03's
+# own operator attached alongside for the comparison the movement exists
+# to make; delay and time constant are shape quantities read off the
+# response's own timing, not its scale, so they are identical whichever
+# units the weights themselves are read in.
 
 # %%
 block_b = def_frames['str']
@@ -1422,7 +1430,7 @@ model_b, _ = prediction.neuralprophet_backtest(
     conditional_seasonality=CONDITIONS, quantiles=(), seed=SEED,
     learning_rate=LEARNING_RATE, lagged_regressors=LAGGED_REGRESSORS,
     lagged_n_lags=LAGGED_N_LAGS, lagged_regularization=LAGGED_REG)
-weights_b = prediction.lagged_regressor_weights(model_b)
+weights_b = prediction.lagged_regressor_weights(model_b, physical=True)
 summary_b = prediction.impulse_response_summary(weights_b, dt_hours=1.0 / slots_per_hour)
 summary_b['study03_delay_h'] = [STUDY03_OPERATOR[r]['delay_h'] for r in summary_b['regressor']]
 summary_b['study03_tau_h'] = [STUDY03_OPERATOR[r]['tau_h'] for r in summary_b['regressor']]
@@ -1447,17 +1455,21 @@ tables.write_table(summary_b, str(OUTPUT_DIR / 'GM_10_body.tex'),
 # %% [markdown]
 # ### `GM_F07` and the native diagnostic
 #
-# The learned weight per lag, one panel per driver, with Study 03's
-# operator overlaid as a gain-matched one-pole response. Beside it,
-# NeuralProphet's own lagged-regressor parameter plot runs once as a
-# diagnostic counterpart (D14), requested in the plain `'plotly'` backend
-# and rendered to PNG inline through `viz.show_static` rather than
-# embedded as SVG; if that backend returns no figure, the diagnostic is
-# skipped and said so in print rather than falling back to SVG.
+# The learned weight per lag in millidegrees per unit of the driver, one
+# panel per driver, with Study 03's operator overlaid as a gain-matched
+# one-pole response. Beside it, NeuralProphet's own lagged-regressor
+# parameter plot runs once as a diagnostic counterpart (D14) — in the
+# model's own internal normalisation rather than physical units, since
+# that plot reads the raw tensor directly — requested in the plain
+# `'plotly'` backend and rendered to PNG inline through `viz.show_static`
+# rather than embedded as SVG; if that backend returns no figure, the
+# diagnostic is skipped and said so in print rather than falling back to
+# SVG.
 
 # %%
 figures.plot_impulse_response(weights_b, summary_b, reference=STUDY03_OPERATOR,
                               dt_hours=1.0 / slots_per_hour,
+                              unit_label='Weight [mdeg per unit]',
                               title='Learned impulse response, on-structure set',
                               save_path=str(OUTPUT_DIR), filename='GM_F07_impulse_response')
 native_params = model_b.plot_parameters(components=['lagged_regressors'],

@@ -2740,7 +2740,8 @@ def plot_ladder(ladder, title='', save_path=None, filename=None):
 
 
 def plot_impulse_response(weights, summary, reference=None, dt_hours=1.0 / 3.0,
-                          title='', save_path=None, filename=None):
+                          unit_label='Weight', title='', save_path=None,
+                          filename=None):
     """
     One panel per lagged regressor: the weight Model B learned at every past
     lag, with Study 03's imposed operator drawn beside it for comparison.
@@ -2784,6 +2785,13 @@ def plot_impulse_response(weights, summary, reference=None, dt_hours=1.0 / 3.0,
     dt_hours : float, optional
         Duration of one lag slot, in hours. Default ``1/3``, the native
         20-minute grid.
+    unit_label : str, optional
+        Y-axis label shared by every panel. Default ``'Weight'``, the
+        model's own normalised units — a caller drawing
+        :func:`shmlib.prediction.lagged_regressor_weights`' ``physical=True``
+        output passes a unit-bearing label instead (e.g.
+        ``'Weight [mdeg per unit]'``), since the axis then no longer reads
+        in the model's internal, unit-free normalisation.
     title : str, optional
         Figure title. Default ``''``, which draws none.
     save_path, filename : optional
@@ -2820,7 +2828,7 @@ def plot_impulse_response(weights, summary, reference=None, dt_hours=1.0 / 3.0,
             drew_reference = True
         ax.set_title(name, fontsize='small')
         ax.set_xlabel('Lag [h]')
-        ax.set_ylabel('Weight')
+        ax.set_ylabel(unit_label)
         viz.format_spines(ax)
     if drew_reference:
         handle = Line2D([], [], color=viz.MARK_COLOUR, linewidth=1.2,
