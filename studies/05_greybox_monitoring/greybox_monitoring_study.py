@@ -402,6 +402,15 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 # -0.035, ('era5', 'sr'): -0.026, ('str', 'rh'): np.nan, ('gs', 'rh'):
 # np.nan, ('era5', 'rh'): np.nan}`. Relative humidity carries no Study 03
 # measurement, hence `np.nan` on every set for that driver.
+#
+# **`SEASONAL_CURVE_DATES`** — calendar dates the daily term is drawn on in
+# `GM_F05`/`GM_05d`; default `('2024-03-20', '2024-06-21', '2024-09-22',
+# '2024-12-21')`, the equinoxes and solstices, the four points of the year
+# at which a conditionally-weighted daily shape is most informatively
+# compared. Only meaningful when the conditional term is kept
+# (`CONDITIONS` is not `None`): when it is not, the plain daily term is the
+# same shape on every day of the year, so drawing it four times would show
+# four identical curves, and only the first date is evaluated instead.
 
 # %%
 N_CHANGEPOINTS = 12
@@ -430,6 +439,7 @@ CONDITIONAL_KEEP_MIN_SHARE = 0.01
 STUDY03_GAINS = {('str', 'tair'): -2.79, ('gs', 'tair'): -2.23, ('era5', 'tair'): -2.04,
                  ('str', 'sr'): -0.035, ('gs', 'sr'): -0.035, ('era5', 'sr'): -0.026,
                  ('str', 'rh'): np.nan, ('gs', 'rh'): np.nan, ('era5', 'rh'): np.nan}
+SEASONAL_CURVE_DATES = ('2024-03-20', '2024-06-21', '2024-09-22', '2024-12-21')
 
 # %% [markdown]
 # ## Parameters · Uncertainty and validation
@@ -882,7 +892,8 @@ for name in fits:
 # only if it earns its place. Every native NeuralProphet plot runs here as a
 # diagnostic, rendered to PNG rather than shown as inline SVG; the report's
 # figures are the same content redrawn (D14). The movement writes the tables
-# `GM_04d`, `GM_05`, `GM_05b`, `GM_05c`, `GM_06`, `GM_07` and `GM_08`, and the
+# `GM_04d`, `GM_05`, `GM_05b`, `GM_05c`, `GM_06`, `GM_07`, `GM_08` and
+# `GM_08b`, the fitted seasonal curves themselves in `GM_05d`, and the
 # figures `GM_F03` to `GM_F06b`.
 
 # %% [markdown]
@@ -959,7 +970,7 @@ print('conditional daily term kept:', keep_conditional)
 conditional_test.to_csv(OUTPUT_DIR / 'GM_05b_conditional_test.csv', index=False)
 tables.write_table(conditional_test, str(OUTPUT_DIR / 'GM_05b_body.tex'),
                    [('daily_term', tables.texttt), ('mae_val', '.3f'),
-                    ('daily_share', tables.percent)])
+                    ('daily_share', lambda v: tables.percent(v, decimals=2))])
 
 # %% [markdown]
 # ### Attribution fit per set
@@ -969,6 +980,10 @@ tables.write_table(conditional_test, str(OUTPUT_DIR / 'GM_05b_body.tex'),
 # now fixed; each fit's component variance shares, learned regressor gains
 # (beside Study 03's own measurements) and residual Ljung-Box diagnostics
 # are concatenated across sets and written to `GM_05`, `GM_06` and `GM_08`.
+# `GM_06`'s report body omits the `r2` column NeuralProphet's own linear
+# additive future regressor carries in the CSV: the fit of a learned gain
+# against the component it produces is one by construction, so nine
+# identical `1.000`s would say nothing the CSV does not already record.
 
 # %%
 fits, shares, gains, diagnostics = prediction.attribution_fits(
@@ -992,7 +1007,7 @@ tables.write_table(shares, str(OUTPUT_DIR / 'GM_05_body.tex'),
                     ('share', tables.percent), ('peak_to_peak', ',.1f')])
 tables.write_table(gains, str(OUTPUT_DIR / 'GM_06_body.tex'),
                    [('set', tables.texttt), ('regressor', tables.texttt),
-                    ('gain', '.3f'), ('study03_gain', '.3f'), ('r2', '.3f')])
+                    ('gain', '.3f'), ('study03_gain', '.3f')])
 tables.write_table(diagnostics, str(OUTPUT_DIR / 'GM_08_body.tex'),
                    [('set', tables.texttt), ('lag', 'd'), ('lb_pvalue', '.3g'),
                     ('std', '.2f'), ('mad', '.2f')])
@@ -1047,14 +1062,40 @@ tables.write_table(stability, str(OUTPUT_DIR / 'GM_07_body.tex'),
                     ('mae_val', '.2f')])
 
 # %% [markdown]
+# ### What periodic structure the residual still carries
+#
+# Model A's specification is additive and does not include autoregression
+# (§2.4), so whatever the trend, the annual term and the three regressors
+# left unexplained is free to carry its own periodic structure — the
+# spec's §4.1 asks this question of the fitted residual the same way
+# `GM_04` already asked it of the raw target and the plain-regression
+# residual in Movement 1b: a `prediction.period_scan` per regressor set,
+# over the same short and long bands of `PERIOD_SCAN_BANDS`, ranked and
+# written to `GM_08b`.
+
+# %%
+residual_scans = pd.concat(
+    [prediction.period_scan(components_a[name]['residual'], min_days=lo, max_days=hi,
+                            n_periods=PERIOD_SCAN_N, spacing='log', top=5)
+     .assign(set=name, band=band_name)
+     for name in components_a for band_name, (lo, hi) in PERIOD_SCAN_BANDS.items()],
+    ignore_index=True)
+display(residual_scans)
+residual_scans.to_csv(OUTPUT_DIR / 'GM_08b_residual_periods.csv', index=False)
+tables.write_table(residual_scans, str(OUTPUT_DIR / 'GM_08b_body.tex'),
+                   [('set', tables.texttt), ('band', tables.texttt), ('rank', 'd'),
+                    ('period_days', ',.4f'), ('power', '.4f')])
+
+# %% [markdown]
 # ### Trend rates and the report's own figures
 #
 # The on-structure fit's own trend, segment rates and seasonal curves,
 # redrawn in the project's figure style rather than NeuralProphet's native
 # one: fit metrics (`GM_F03`), the trend and its per-segment rates
-# (`GM_04d`, `GM_F04`), the yearly and daily curves (`GM_F05`), the full
-# decomposition stack (`GM_F06`), and the learned gains beside Study 03's
-# own measurements (`GM_F06b`).
+# (`GM_04d`, `GM_F04`, broken across any gap longer than one native step),
+# the yearly and daily curves (`GM_F05`, backed by the fitted values
+# themselves in `GM_05d`), the full decomposition stack (`GM_F06`), and the
+# learned gains beside Study 03's own measurements (`GM_F06b`).
 
 # %%
 model_str, train_str_fit, changepoints_str = models_a['str']
@@ -1066,11 +1107,13 @@ rates.to_csv(OUTPUT_DIR / 'GM_04d_trend_rates.csv', index=False)
 tables.write_table(rates, str(OUTPUT_DIR / 'GM_04d_body.tex'),
                    [(tables.date_cell('start'), None), (tables.date_cell('end'), None),
                     ('rate_mdeg_per_year', '.2f')])
-figures.plot_trend_parameters(trend, rates, changepoints_str, title='Trend on covered time',
+figures.plot_trend_parameters(trend, rates, changepoints_str, freq=NATIVE_FREQ,
+                              title='Trend on covered time',
                               save_path=str(OUTPUT_DIR), filename='GM_F04_trend')
 curves = prediction.seasonal_parameters(
-    model_str, ['2024-03-20', '2024-06-21', '2024-09-22', '2024-12-21'],
+    model_str, list(SEASONAL_CURVE_DATES) if CONDITIONS else [SEASONAL_CURVE_DATES[0]],
     freq=NATIVE_FREQ, conditions=CONDITIONS, regressors=('tair', 'rh', 'sr'))
+curves.to_csv(OUTPUT_DIR / 'GM_05d_seasonal_curves.csv', index=False)
 figures.plot_seasonal_parameters(curves, title='Yearly and daily terms',
                                  save_path=str(OUTPUT_DIR), filename='GM_F05_seasonality')
 figures.plot_decomposition_stack(components_a['str'], freq=NATIVE_FREQ,
