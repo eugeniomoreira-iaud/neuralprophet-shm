@@ -307,5 +307,63 @@ class TestExtractors(unittest.TestCase):
         self.assertEqual(yearly['date'].nunique(), 365)
 
 
+class TestLadder(unittest.TestCase):
+    """`prediction.ladder_frame` and `prediction.channel_ladder`, the current-era
+    channel ladder Movement 2b of Study 05 orchestrates (D4)."""
+
+    def test_ladder_frame_adds_six_columns_treating_radiation_and_lead_correctly(self):
+        index = pd.date_range('2024-01-01', periods=48, freq='1h')
+        frame = pd.DataFrame({'y': np.arange(48.0)}, index=index)
+        sensor = pd.DataFrame({
+            'twall_str': np.linspace(10.0, 20.0, 48),
+            'sr_str': np.linspace(0.0, 100.0, 48),
+        }, index=index)
+
+        out = prediction.ladder_frame(
+            frame, sensor, index[0], twall_tau_h=4.0, twall_lead_h=-2.0,
+            radiation_delay_h=1.0, freq='1h')
+
+        for column in ('twall', 'sr_wall', 'twall_tau', 'twall_lead',
+                      'summer_w', 'winter_w'):
+            self.assertIn(column, out.columns)
+
+        # A one-hour delay on a one-hour grid is a shift of one slot, with
+        # no inertia (tau=0), exactly as build_regressor_sets treats every
+        # radiation source.
+        expected_sr_wall = sensor['sr_str'].reindex(out.index).shift(1)
+        pd.testing.assert_series_equal(out['sr_wall'], expected_sr_wall,
+                                       check_names=False)
+
+        # A lead of -2 hours means the probe at time t already shows the
+        # value the deformation will see two hours later, so the lead
+        # column at t must carry the probe's own reading at t + 2h.
+        self.assertAlmostEqual(out['twall_lead'].iloc[10], out['twall'].iloc[12])
+
+    def test_channel_ladder_two_rungs_report_skill_only_from_the_second(self):
+        frame = _frame()
+        rng = np.random.default_rng(2)
+        hours = np.arange(len(frame))
+        frame = frame.copy()
+        frame['sr'] = (np.clip(200.0 * np.sin(2 * np.pi * (hours % 24) / 24.0), 0.0, None)
+                      + rng.normal(0, 5.0, len(frame)))
+        rungs = [
+            ('1 base', ['tair'], None),
+            ('2 + sr', ['tair', 'sr'], 'sr'),
+        ]
+
+        ladder, errors = prediction.channel_ladder(
+            frame, rungs, valid_p=0.2, n_changepoints=2, block_hours=24,
+            repetitions=50, seed=0, epochs=2, freq='1h')
+
+        self.assertEqual(list(ladder['rung']), ['1 base', '2 + sr'])
+        self.assertTrue(np.isnan(ladder['skill'].iloc[0]))
+        self.assertTrue(np.isnan(ladder['skill_q05'].iloc[0]))
+        self.assertTrue(np.isnan(ladder['skill_q95'].iloc[0]))
+        self.assertFalse(np.isnan(ladder['skill'].iloc[1]))
+        self.assertFalse(np.isnan(ladder['skill_q05'].iloc[1]))
+        self.assertFalse(np.isnan(ladder['skill_q95'].iloc[1]))
+        self.assertEqual(set(errors), {'1 base', '2 + sr'})
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

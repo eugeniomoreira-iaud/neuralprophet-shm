@@ -2689,3 +2689,51 @@ def plot_regressor_gains(gains, title='', save_path=None, filename=None):
         fig.suptitle(title)
     viz.finish(fig, save_path=save_path, filename=filename)
     return fig
+
+
+def plot_ladder(ladder, title='', save_path=None, filename=None):
+    """
+    Held-out MAE per rung above, its paired bootstrap skill below.
+
+    The first rung has no rung below it to be scored against, so its
+    ``skill`` column and interval are ``NaN`` there; the lower panel's
+    error bar is simply undrawn at that position rather than shown at zero,
+    since zero would misreport "no improvement" where the true statement is
+    "not applicable".
+
+    Parameters
+    ----------
+    ladder : pd.DataFrame
+        ``rung``, ``mae_val``, ``skill``, ``skill_q05``, ``skill_q95``, one
+        row per rung in fitting order, as returned by
+        :func:`shmlib.prediction.channel_ladder`.
+    title : str, optional
+        Figure title. Default ``''``, which draws none.
+    save_path, filename : optional
+        Passed to :func:`shmlib.viz.finish`. Default ``None``, no save.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, axes = plt.subplots(2, 1, sharex=True,
+                             figsize=viz.figsize(viz.FIGURE_WIDTH, 3.4))
+    positions = np.arange(len(ladder))
+    axes[0].bar(positions, ladder['mae_val'], color=viz.INC_COLOUR, width=0.6)
+    axes[0].set_ylabel('Held-out MAE [mdeg]')
+    axes[1].errorbar(
+        positions, ladder['skill'],
+        yerr=[ladder['skill'] - ladder['skill_q05'],
+              ladder['skill_q95'] - ladder['skill']],
+        fmt='o', color=viz.INC_COLOUR, capsize=3)
+    axes[1].axhline(0.0, color='black', linewidth=0.5)
+    axes[1].set_ylabel('Skill over rung below')
+    axes[1].set_xticks(positions)
+    axes[1].set_xticklabels(ladder['rung'], rotation=20, ha='right',
+                            fontsize='small')
+    for ax in axes:
+        viz.format_spines(ax)
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig

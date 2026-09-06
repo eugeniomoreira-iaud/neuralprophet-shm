@@ -860,6 +860,20 @@ class TestFiguresStudy05(unittest.TestCase):
         self.assertEqual(len(fig.axes), 1)
         plt.close(fig)
 
+    def test_plot_ladder_draws_two_panels(self):
+        import matplotlib.pyplot as plt
+        ladder = pd.DataFrame({
+            'rung': ['1 on-structure set', '2 on-structure radiation',
+                    '3 + twall, tau 4 h', '4 twall at its lead (diagnostic)'],
+            'mae_val': [1.20, 1.10, 1.05, 0.90],
+            'skill': [np.nan, 0.08, 0.05, 0.14],
+            'skill_q05': [np.nan, 0.02, -0.01, 0.06],
+            'skill_q95': [np.nan, 0.15, 0.11, 0.22],
+        })
+        fig = figures.plot_ladder(ladder)
+        self.assertEqual(len(fig.axes), 2)
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -2737,3 +2737,197 @@ def fold_stability(fits, frames, regressors, n_changepoints, k, fold_pct,
     return pd.DataFrame(rows, columns=['set', 'fold', gain_column,
                                        'yearly_peak_to_peak', 'trend_rate',
                                        'mae_val'])
+
+
+def ladder_frame(frame, sensor, start, twall_tau_h, twall_lead_h,
+                 radiation_delay_h, freq, weight_curve=None,
+                 twall_column='twall_str', sr_column='sr_str'):
+    """
+    The current-era window plus the wall probe and the on-structure
+    pyranometer, ready for the channel ladder (D4).
+
+    Wall temperature and the on-structure pyranometer exist only from the
+    instrument change at ``start`` onward, so neither ever enters the main
+    line's three regressor sets; this assembles the matched window and the
+    handful of derived columns the ladder's rungs need in one call, rather
+    than repeating the same reindex-and-filter steps in the notebook. The
+    on-structure radiation is put through the same pure transport delay
+    :func:`shmlib.proxies.build_regressor_sets` already applies to every
+    radiation source in the main line (D3), so a rung that swaps ``frame``'s
+    borrowed station radiation for the wall's own pyranometer differs from
+    the rung below it in source alone, never in treatment.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        The study's main-line record: ``y`` plus every regressor set's
+        ``<role>_<set>`` columns, as returned by
+        :func:`shmlib.proxies.build_regressor_sets`. Its index is zone-naive
+        UTC clock time, the same convention ``sensor`` is expected to share.
+    sensor : pd.DataFrame
+        The on-structure sensor package joined across instrument eras, as
+        returned by :func:`shmlib.proxies.join_eras`, carrying at least
+        ``twall_column`` and ``sr_column``.
+    start : str or pd.Timestamp
+        First instant of the ladder's window. ``frame`` is cut to
+        ``frame.loc[start:]`` before any derived column is computed, so
+        every rung fits on exactly this window.
+    twall_tau_h : float
+        Thermal time constant applied to the wall probe at the ladder's
+        deployable rung, in hours, passed to
+        :func:`shmlib.coupling.thermal_operator` as ``tau``.
+    twall_lead_h : float
+        The wall probe's measured lead over the deformation, in hours,
+        negative when the probe leads. Used only to build the diagnostic
+        rung's ``twall_lead`` column; this function does not clamp a
+        positive value to zero; a caller that reports a lag rather than a
+        lead is expected to say so, since a leading probe is the entire
+        reason that rung exists as a diagnostic rather than a candidate.
+    radiation_delay_h : float
+        Transport delay applied to the on-structure radiation, in hours;
+        normally the same value the main line applies to every radiation
+        source (D3), so that the ladder's radiation rung differs from the
+        main line's `'str'` set in source alone.
+    freq : str
+        Sampling frequency of ``frame`` and ``sensor``, used to convert
+        ``radiation_delay_h`` and ``twall_lead_h`` from hours into grid
+        slots.
+    weight_curve : dict or None, optional
+        Passed to :func:`seasonal_weights` as ``modulation``. Default
+        ``None``, the cosine fallback.
+    twall_column, sr_column : str, optional
+        Columns of ``sensor`` holding the wall probe and the pyranometer.
+        Defaults ``'twall_str'`` and ``'sr_str'``, :func:`shmlib.proxies.\
+load_sensor_forcings`'s own names for those quantities.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``frame.loc[start:]`` with six columns added: ``twall`` (the probe,
+        reindexed as given), ``sr_wall`` (the pyranometer, delayed),
+        ``twall_tau`` (the probe through the thermal-inertia filter),
+        ``twall_lead`` (the probe at its measured lead), ``summer_w`` and
+        ``winter_w`` (the conditional-seasonality weights).
+    """
+    current = frame.loc[start:].copy()
+    step_hours = pd.Timedelta(freq) / pd.Timedelta(hours=1)
+    slots_per_hour = 1.0 / step_hours
+    delay_slots = int(round(radiation_delay_h / step_hours))
+
+    current['twall'] = sensor[twall_column].reindex(current.index)
+    current['sr_wall'] = coupling.thermal_operator(
+        sensor[sr_column].reindex(current.index), delay=delay_slots, tau=0.0,
+        dt_hours=step_hours)
+    current['twall_tau'] = coupling.thermal_operator(
+        current['twall'], delay=0, tau=twall_tau_h, dt_hours=step_hours)
+    current['twall_lead'] = current['twall'].shift(
+        int(round(twall_lead_h * slots_per_hour)))
+
+    weights = seasonal_weights(current.index, modulation=weight_curve)
+    return pd.concat([current, weights], axis=1)
+
+
+def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
+                   repetitions, seed, **model_kwargs):
+    """
+    Refit one specification rung by rung on a matched window (D4).
+
+    Each rung adds one on-structure channel to the specification before it,
+    fitted on the same held-out split and the same window as every other
+    rung, so an improvement in held-out error is attributable to what the
+    rung added rather than to a different fit window or regressor count.
+    The ladder's last rung conventionally uses the wall probe's own future
+    values (a negative ``twall_lead_h`` in :func:`ladder_frame`) to bound
+    what the probe could buy under a lead nobody can exploit at prediction
+    time; this function scores it exactly like every other rung, on the
+    understanding that the caller reports it as a diagnostic ceiling, never
+    as a candidate specification.
+
+    Parameters
+    ----------
+    current : pd.DataFrame
+        The ladder's window, as returned by :func:`ladder_frame`, carrying
+        ``y`` and every column any rung names.
+    rungs : sequence of (str, sequence of str, str or None)
+        ``(label, columns, gate)`` triples, in the order they are fitted and
+        reported. ``columns`` are the regressor columns of that rung's
+        specification. ``gate`` is the column, if any, whose presence
+        further restricts the rung's matched window; every rung on record
+        as of this writing names a ``gate`` already present in ``columns``,
+        which makes the restriction a no-op there, but the argument is kept
+        general for a rung whose gate is not itself a regressor.
+    valid_p : float
+        Fraction of each rung's matched block held out at its tail for
+        scoring, mirroring the main line's own held-out split.
+    n_changepoints : int
+        Passed to :func:`covered_changepoints` for each rung's training
+        head, and to :func:`neuralprophet_backtest` as ``n_changepoints``.
+    block_hours, repetitions : int or float
+        Passed to :func:`paired_mae_skill` as ``block_hours`` and
+        ``repetitions``.
+    seed : int
+        Passed to every rung's :func:`neuralprophet_backtest` call and to
+        :func:`paired_mae_skill`.
+    **model_kwargs
+        Passed unchanged to every rung's :func:`neuralprophet_backtest` call
+        beside ``regressors``, ``task``, ``changepoints``, ``n_changepoints``
+        and ``seed``, which this function already supplies.
+
+    Returns
+    -------
+    ladder : pd.DataFrame
+        One row per rung, in the order ``rungs`` was given: ``rung``,
+        ``rows`` (the matched block's length), ``mae_val`` (held-out mean
+        absolute error), ``coverage`` (the fraction of held-out rows inside
+        ``[q05, q95]``, ``NaN`` when the fit carries no interval),
+        ``gain_last`` (the last-named regressor's learned gain),
+        ``residual_r1`` (lag-1 autocorrelation of the fit's own residual,
+        computed on its training window), and ``skill``, ``skill_q05``,
+        ``skill_q95`` (:func:`paired_mae_skill`'s paired block-bootstrap
+        skill of this rung's held-out error over the rung immediately
+        below's, evaluated on their shared timestamps; the first rung has no
+        rung below it, so its three skill columns are ``NaN``).
+    errors : dict
+        Rung label to its held-out absolute-error series, indexed by
+        prediction timestamp, so a caller can re-inspect a pairing the
+        ``skill`` columns already summarised.
+    """
+    ladder_rows = []
+    errors = {}
+    for label, columns, gate in rungs:
+        columns = list(columns)
+        block = current.dropna(subset=['y'] + columns)
+        if gate is not None:
+            block = block.loc[block[gate].notna()]
+        split = int(len(block) * (1 - valid_p))
+        train, valid = block.iloc[:split], block.iloc[split:]
+        changepoints = covered_changepoints(train.index, n_changepoints)
+        model, out = neuralprophet_backtest(
+            train, valid, regressors=tuple(columns), task='nowcast',
+            changepoints=changepoints, n_changepoints=n_changepoints,
+            seed=seed, **model_kwargs)
+        components = decompose_components(model, train, regressors=tuple(columns))
+        gains = regressor_gains(components, train, tuple(columns))
+        abs_error = (out['y'] - out['yhat']).abs()
+        abs_error.index = pd.DatetimeIndex(out['ds'])
+        errors[label] = abs_error
+        coverage = (float(((out['y'] >= out['q05']) & (out['y'] <= out['q95'])).mean())
+                   if 'q05' in out else np.nan)
+        ladder_rows.append({
+            'rung': label, 'rows': len(block), 'mae_val': float(abs_error.mean()),
+            'coverage': coverage, 'gain_last': float(gains['gain'].iloc[-1]),
+            'residual_r1': float(components['residual'].autocorr(1)),
+        })
+
+    ladder = pd.DataFrame(ladder_rows)
+    labels = [label for label, _, _ in rungs]
+    skills = [{'skill': np.nan, 'skill_q05': np.nan, 'skill_q95': np.nan}]
+    for below, above in zip(labels[:-1], labels[1:]):
+        shared = errors[below].index.intersection(errors[above].index)
+        result = paired_mae_skill(
+            errors[below].loc[shared], errors[above].loc[shared],
+            block_hours=block_hours, repetitions=repetitions, seed=seed)
+        skills.append({'skill': result['skill'], 'skill_q05': result['skill_q05'],
+                       'skill_q95': result['skill_q95']})
+    ladder = pd.concat([ladder, pd.DataFrame(skills)], axis=1)
+    return ladder, errors
