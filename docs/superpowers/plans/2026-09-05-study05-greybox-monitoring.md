@@ -12,14 +12,14 @@
 
 ## Progress
 
-Updated 2026-09-06 · 16:00 UTC. This block is the summary a reader needs to follow the
+Updated 2026-09-06 · 16:40 UTC. This block is the summary a reader needs to follow the
 implementation; the checkboxes under each task below are ticked as the work lands, and the
 detailed execution ledger (rulings, fix rounds, commits) lives in
 `.superpowers/sdd/2026-09-05-study05-greybox-monitoring/progress.md`, which is gitignored.
 
 | Measure | Progress |
 |---|---|
-| Tasks complete (of 41, Tasks 0.1 to 7.3) | `[██████████░░░░░░░░░░]` **21 of 41** (51 %) |
+| Tasks complete (of 41, Tasks 0.1 to 7.3) | `[███████████░░░░░░░░░]` **22 of 41** (53 %) |
 | Report sections written (of 14) | `[█████████░░░░░░░░░░░]` **6 of 14** (42 %) |
 
 | Phase | Tasks | State | Result and commits |
@@ -27,7 +27,7 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 | 0 · Smoke tests, housekeeping, report skeleton | 0.1–0.4 | ✅ complete | 8a5b32c…bea9ef1. All five NeuralProphet 0.8.0 capabilities confirmed (no design fallback needed). Checkpoint 0 approved. |
 | 1 · Data and regressor sets | 1.1–1.4 | ✅ complete | bc76907…5c73f6d (+02a9bf2, c8da472). `GM_01`–`GM_03`, `GM_F01`; report §1–§3. Checkpoint 1 approved. |
 | 1b · Harmonic diagnostics | 1b.1–1b.6 | ✅ complete | 12043f6…6176256. `GM_04`, `GM_F02`; `YEARLY_ORDER = 1`, `DAILY_ORDER = 2`, weight curve from the residual's order-two fit; report §5.1. Checkpoint 1b approved. |
-| 2 · Model A attribution on three sets | 2.1–2.6, 2.4b, 2.4c | ✅ complete · 2.6 in review | a4652cf…2853c8a, 16f3cb1. `GM_04d`, `GM_05`–`GM_08b`, `GM_F03`–`GM_F06b`; `TREND_REG = 0.0`; conditional daily term rejected. **Checkpoint 2 passed:** on-structure air-temperature gain −2.64 mdeg/°C against Study 03's −2.79, inside its interval. Report §4, §5.2, §6. |
+| 2 · Model A attribution on three sets | 2.1–2.6, 2.4b, 2.4c | ✅ complete | a4652cf…2853c8a, 16f3cb1, 442f5d6. `GM_04d`, `GM_05`–`GM_08b`, `GM_F03`–`GM_F06b`; `TREND_REG = 0.0`; conditional daily term rejected. **Checkpoint 2 passed:** on-structure air-temperature gain −2.64 mdeg/°C against Study 03's −2.79, inside its interval. Report §4, §5.2, §6. |
 | 2b · Current-era ladder | 2b.1–2b.2 | 🔄 in progress | 2b.1 implementer running (library + Movement 2b + run). Then report §9. |
 | 3 · Expectation and interval | 3.1–3.3 | ⬜ pending | `GM_09`, `GM_F08`; report §8. |
 | 4 · Model B impulse response | 4.1–4.3 | ⬜ pending | `GM_10`, `GM_F07`; report §7. |

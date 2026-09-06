@@ -505,9 +505,11 @@ not a stable quantity: in the chronological folds of
 Table~\ref{tab:stability} it changes sign between folds on the on-structure
 and station sets, and on ERA5, where it stays positive, it runs from 4.4 to
 20.2\,mdeg per year, because each fold's training window ends at a different
-point of the same reversing record. By the rule of Section~\ref{sec:method} it
-is not reported as a finding on any set. The segment rates of
-Table~\ref{tab:trend-rates} are.
+point of the same reversing record. On the first two sets the rule of
+Section~\ref{sec:method} excludes it as a finding; on ERA5 it is reported for
+what it is, the mean of a reversing record over whatever stretch a fold
+happens to cover, not a rate of the wall. The segment rates of
+Table~\ref{tab:trend-rates} are findings.
 
 \begin{figure}[H]
 \centering
@@ -873,10 +875,11 @@ gain keeps its sign in every fold and stays within $-2.45$ to $-2.70$ on the
 on-structure set, $-2.28$ to $-2.50$ on the station set and $-2.21$ to
 $-2.34$ on ERA5; the yearly peak-to-peak stays within 39 to 45, 44 to 52 and
 45 to 50\,mdeg. Both are findings by the rule of Section~\ref{sec:method}. The
-mean trend rate is not: it changes sign between folds on the on-structure and
-station sets and, on ERA5, runs from 4.4 to 20.2\,mdeg per year without
-changing sign, because each fold's window ends at a different point of a
-record whose slow movement reverses. The held-out error of the folds, from
+mean trend rate is not a finding about the wall: it changes sign between
+folds on the on-structure and station sets and, on ERA5, where it keeps its
+sign, runs from 4.4 to 20.2\,mdeg per year, because each fold's window ends
+at a different point of a record whose slow movement reverses; it is the mean
+of that record over the stretch a fold covers, not a rate of the structure. The held-out error of the folds, from
 7.8 to 100.7\,mdeg on the on-structure set, measures how far a trend
 extrapolated over a tenth of the set's rows, 13,657 slots of twenty minutes
 or about 190 days, wanders from the level the wall actually reached.
