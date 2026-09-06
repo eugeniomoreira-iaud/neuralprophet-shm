@@ -326,6 +326,13 @@ class TestViz(unittest.TestCase):
             plt.close(fig)
             self.assertEqual(os.listdir(tmp), [])
 
+    def test_show_static_returns_png_bytes_without_displaying(self):
+        import plotly.graph_objects as go
+        fig = go.Figure(data=[go.Scatter(x=[0, 1, 2], y=[0, 1, 0])])
+        png = viz.show_static(fig, width=300, height=200, show=False)
+        self.assertTrue(png.startswith(b'\x89PNG'))
+        self.assertGreater(len(png), 500)
+
     def test_de_lib_diurnal_cycle_helpers_are_aliases_of_viz(self):
         """
         Study 1's `_complete_days` and `_draw_cycle` moved here as

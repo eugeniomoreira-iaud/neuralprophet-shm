@@ -760,3 +760,64 @@ def finish(fig, save_path=None, filename=None):
         fig.savefig(os.path.join(save_path, filename + '.svg'),
                     bbox_inches='tight')
     return fig
+
+
+def show_static(fig, width=1100, height=None, scale=1.0, show=True):
+    """
+    Render a Plotly figure to PNG bytes through kaleido and display it inline.
+
+    NeuralProphet's own ``plotly-static`` plotting backend renders every native
+    diagnostic figure (the forecast, the components, the parameters) as inline
+    SVG, and an SVG of a multi-year record at native cadence traces every one
+    of its hundreds of thousands of points as vector geometry rather than
+    pixels: a single such figure runs to tens of megabytes, and a notebook
+    holding a handful of them balloons to tens of megabytes more, which is
+    slow to open, slow to diff, and far heavier than the picture it draws
+    warrants. Converting the same figure to PNG through kaleido keeps the
+    picture — pixels do not care how many points went into them — while
+    shrinking a multi-megabyte SVG to a few hundred kilobytes. This function
+    is the one place that conversion happens, so every native-diagnostic cell
+    calls it rather than each re-implementing the same
+    ``to_image``-then-``Image`` sequence.
+
+    Parameters
+    ----------
+    fig : plotly.graph_objects.Figure
+        The figure to render. Typically what a NeuralProphet ``plot*`` method
+        returns when called with ``plotting_backend='plotly'`` — that
+        backend, unlike ``'plotly-static'``, returns the figure object
+        instead of showing it itself, so it never reaches the notebook as
+        SVG on its own.
+    width : int, optional
+        Rendered width in pixels. Default ``1100``.
+    height : int or None, optional
+        Rendered height in pixels. ``None`` (the default) uses the figure's
+        own layout height.
+    scale : float, optional
+        Resolution multiplier passed to kaleido; values above ``1.0``
+        render a sharper (and larger) PNG at the same pixel dimensions.
+        Default ``1.0``.
+    show : bool, optional
+        Whether to display the rendered PNG inline via IPython's
+        ``display``. Default ``True``, which is what a notebook diagnostic
+        cell wants; ``False`` is for a caller — such as this function's own
+        test — that only needs the bytes, without an IPython display context
+        available. ``IPython.display`` is imported inside this function
+        rather than at module level, so importing ``shmlib.viz`` does not
+        require IPython to be installed.
+
+    Returns
+    -------
+    bytes
+        The rendered image, in PNG format.
+
+    Notes
+    -----
+    Displays the image inline when ``show`` is true; otherwise has no side
+    effect beyond the kaleido rendering itself.
+    """
+    png = fig.to_image(format='png', width=width, height=height, scale=scale)
+    if show:
+        from IPython.display import Image, display
+        display(Image(png))
+    return png
