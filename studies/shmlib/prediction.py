@@ -2609,8 +2609,16 @@ def _select_by_ds(block, ds):
 
     NeuralProphet's ``crossvalidation_split_df`` returns its ``ds`` column
     tz-naive regardless of whether the frame it split carried a tz-aware
-    index, so a tz-aware ``block`` is matched by first localising ``ds`` to
-    the block's own zone; a tz-naive ``block`` is matched as given.
+    index — NeuralProphet 0.8.0's own preprocessing strips any zone through
+    UTC (``df_utils.py``: ``pd.to_datetime(ds, utc=True).dt.tz_convert(None)``),
+    so a naive ``ds`` it returns is a UTC wall-clock reading, not a reading
+    already expressed in the block's own zone. A tz-aware ``block`` is
+    therefore matched by first attaching UTC to ``ds`` and only then
+    converting to the block's zone; localising ``ds`` directly to the
+    block's zone, as an earlier version of this function did, would treat a
+    UTC instant as if it were already local wall time and silently
+    mis-select rows for any zone other than UTC itself. A tz-naive ``block``
+    is matched as given, unchanged.
 
     Parameters
     ----------
@@ -2625,7 +2633,7 @@ def _select_by_ds(block, ds):
         The subset of ``block`` whose index timestamps appear in ``ds``.
     """
     if ds.dt.tz is None and block.index.tz is not None:
-        ds = ds.dt.tz_localize(block.index.tz)
+        ds = ds.dt.tz_localize('UTC').dt.tz_convert(block.index.tz)
     return block.loc[block.index.isin(ds)]
 
 

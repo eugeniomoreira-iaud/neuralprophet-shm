@@ -208,6 +208,29 @@ class TestMovementTwoHelpers(unittest.TestCase):
                           'trend_rate', 'mae_val'])
         self.assertFalse(stability['mae_val'].isna().any())
 
+    def test_select_by_ds_localises_naive_ds_through_utc(self):
+        # Regression test for the Task 2.4 fix round 1: crossvalidation_
+        # split_df's naive 'ds' is a UTC wall-clock reading (NeuralProphet
+        # 0.8.0 strips any zone through UTC), not a reading already in the
+        # block's own zone. Localising it straight to 'Europe/Rome' (the
+        # bug) would shift every row by the zone's UTC offset and select
+        # the wrong instants; going through UTC first must select exactly
+        # the block rows at the instants 'ds' actually denotes. The
+        # expected rows are built independently of the function under
+        # test, through the same UTC-naive membership check
+        # decompose_components uses.
+        index = pd.date_range('2024-01-01', periods=48, freq='1h',
+                              tz='Europe/Rome')
+        block = pd.DataFrame({'y': np.arange(48.0)}, index=index)
+        chosen = index[[3, 10, 25, 40]]
+        ds = pd.Series(chosen.tz_convert('UTC').tz_localize(None))
+
+        selected = prediction._select_by_ds(block, ds)
+
+        naive_utc = index.tz_convert('UTC').tz_localize(None)
+        expected = block.loc[naive_utc.isin(ds)]
+        pd.testing.assert_frame_equal(selected, expected)
+
 
 class TestExtractors(unittest.TestCase):
 
@@ -231,7 +254,7 @@ class TestExtractors(unittest.TestCase):
         # frame, decompose_components' own index carries that same
         # timezone, and 'y'/'residual' are populated exactly as they are on
         # a tz-naive frame.
-        frame = _frame()  # tz='UTC'
+        frame = _frame().tz_convert('Europe/Rome')  # exercise a real UTC offset
         model, _ = prediction.neuralprophet_backtest(
             frame, frame, regressors=('tair',), task='nowcast', epochs=2,
             freq='1h', quantiles=())
