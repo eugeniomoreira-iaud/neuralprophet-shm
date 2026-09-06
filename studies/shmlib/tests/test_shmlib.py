@@ -874,6 +874,26 @@ class TestFiguresStudy05(unittest.TestCase):
         self.assertEqual(len(fig.axes), 2)
         plt.close(fig)
 
+    def test_plot_impulse_response_draws_one_panel_per_regressor(self):
+        import matplotlib.pyplot as plt
+        lags = np.arange(1, 25)
+        weights = pd.concat([
+            pd.DataFrame({'regressor': 'tair', 'lag': lags,
+                         'weight': np.exp(-(lags - 1) / 3.0)}),
+            pd.DataFrame({'regressor': 'sr', 'lag': lags,
+                         'weight': 0.5 * np.exp(-(lags - 3) / 2.0) * (lags >= 3)}),
+        ], ignore_index=True)
+        summary = pd.DataFrame({
+            'regressor': ['tair', 'sr'], 'gain': [1.0, 0.5],
+            'delay_h': [0.2, 1.1], 'tau_h': [3.0, 2.0], 'r2_onepole': [0.98, 0.95],
+        })
+        reference = {'tair': {'delay_h': 0.0, 'tau_h': 0.0},
+                    'sr': {'delay_h': 1.0, 'tau_h': 0.0}}
+        fig = figures.plot_impulse_response(weights, summary, reference=reference,
+                                            dt_hours=1.0)
+        self.assertEqual(len(fig.axes), 2)
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -3051,3 +3051,103 @@ def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
     ladder = pd.concat(
         [ladder, pd.DataFrame(skills), pd.DataFrame(skills_vs_first)], axis=1)
     return ladder, errors
+
+
+def lagged_regressor_weights(model):
+    """
+    The weight a fitted model attaches to every past lag of every lagged
+    regressor, one row per lag.
+
+    Read straight from ``model.model.get_covar_weights()``, the dict a
+    fitted NeuralProphet model exposes from lagged-regressor name to a
+    tensor of shape ``(n_forecasts, n_lags)``. Only the first forecast row
+    is read — Model B is always a one-step nowcast, so ``n_forecasts`` is
+    always 1 — and NeuralProphet stores that row's lags oldest first, so
+    its last entry is the most recent past sample; this function reverses
+    that order into ``lag = 1`` for the most recent sample and
+    ``lag = n_lags`` for the oldest, the convention every other quantity in
+    this module (``lagged_n_lags``, the study's `LAGGED_N_LAGS` parameter)
+    already uses. This is the same data
+    ``model.plot_parameters(components=['lagged_regressors'])`` draws, read
+    back as a table rather than a native plot.
+
+    Parameters
+    ----------
+    model : neuralprophet.NeuralProphet
+        A fitted model carrying at least one lagged regressor.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``regressor``, ``lag`` (``1`` is the most recent past sample),
+        ``weight``, sorted by regressor and then by lag.
+    """
+    rows = []
+    for name, tensor in model.model.get_covar_weights().items():
+        values = np.asarray(tensor.detach().cpu().numpy(), dtype=float)
+        values = values.reshape(values.shape[0], -1)[0]
+        n_lags = values.size
+        for i, weight in enumerate(values):
+            rows.append({'regressor': name, 'lag': n_lags - i,
+                        'weight': float(weight)})
+    out = pd.DataFrame(rows, columns=['regressor', 'lag', 'weight'])
+    return out.sort_values(['regressor', 'lag']).reset_index(drop=True)
+
+
+def impulse_response_summary(weights, dt_hours):
+    """
+    The effective delay and time constant a learned impulse response
+    implies, read the same way Study 03 measured them by scanning.
+
+    The gain is the response's total weight, the sum over every lag. The
+    delay is the response's first moment in hours — the weighted mean lag,
+    weighted by the weight itself — which is the discrete analogue of the
+    transport delay :func:`shmlib.coupling.thermal_operator` applies as a
+    whole-sample shift. The time constant is found by fitting the one-pole
+    step response ``G * (1 - exp(-t / tau))`` to the impulse response's own
+    cumulative sum by grid search over ``tau`` from 0.1 to 48 hours in the
+    same two-stage resolution (0.1 h steps below 2 h, 0.5 h steps above) a
+    coarse-to-fine scan would use, since the cumulative sum of a one-pole
+    impulse response is exactly that step response. Reporting these two
+    numbers beside Study 03's own delay-and-time-constant scan is the
+    whole point of Model B (D9): the same physical quantities, this time
+    read from what the model learned rather than imposed on it.
+
+    Parameters
+    ----------
+    weights : pd.DataFrame
+        ``regressor``, ``lag``, ``weight``, as returned by
+        :func:`lagged_regressor_weights`.
+    dt_hours : float
+        Duration of one lag slot, in hours.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per regressor, with ``regressor``, ``gain`` (the summed
+        weight), ``delay_h`` (the weight-weighted mean lag in hours),
+        ``tau_h`` (the grid-searched one-pole time constant) and
+        ``r2_onepole`` (how well that one-pole step response explains the
+        response's own cumulative sum).
+    """
+    rows = []
+    taus = np.concatenate([np.arange(0.1, 2.0, 0.1), np.arange(2.0, 48.5, 0.5)])
+    for name, group in weights.groupby('regressor'):
+        group = group.sort_values('lag')
+        w = group['weight'].to_numpy(dtype=float)
+        t = group['lag'].to_numpy(dtype=float) * float(dt_hours)
+        gain = float(w.sum())
+        delay = float((w * t).sum() / w.sum()) if w.sum() != 0 else np.nan
+        cumulative = np.cumsum(w)
+        best_tau, best_sse = np.nan, np.inf
+        for tau in taus:
+            fitted = gain * (1.0 - np.exp(-t / tau))
+            sse = float(((cumulative - fitted) ** 2).sum())
+            if sse < best_sse:
+                best_tau, best_sse = float(tau), sse
+        total = float(((cumulative - cumulative.mean()) ** 2).sum())
+        rows.append({'regressor': name, 'gain': gain, 'delay_h': delay,
+                    'tau_h': best_tau,
+                    'r2_onepole': 1.0 - best_sse / total if total > 0 else np.nan})
+    return pd.DataFrame(
+        rows, columns=['regressor', 'gain', 'delay_h', 'tau_h', 'r2_onepole'])

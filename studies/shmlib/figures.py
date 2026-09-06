@@ -2737,3 +2737,97 @@ def plot_ladder(ladder, title='', save_path=None, filename=None):
         fig.suptitle(title)
     viz.finish(fig, save_path=save_path, filename=filename)
     return fig
+
+
+def plot_impulse_response(weights, summary, reference=None, dt_hours=1.0 / 3.0,
+                          title='', save_path=None, filename=None):
+    """
+    One panel per lagged regressor: the weight Model B learned at every past
+    lag, with Study 03's imposed operator drawn beside it for comparison.
+
+    Each panel draws the learned weights as a bar per lag, in the driver's
+    own identity colour. When ``reference`` names that regressor, its entry
+    is put through :func:`shmlib.coupling.thermal_operator` on a unit
+    impulse — a synthetic one followed by zeros, on a throwaway
+    ``DatetimeIndex`` built only because :func:`shmlib.coupling.
+    thermal_lag_filter` interpolates with ``method='time'`` and therefore
+    needs one — and the resulting normalised one-pole response, rescaled to
+    the learned response's own total weight, is overlaid in the accent
+    colour reserved for reference annotations. The comparison is a shape
+    comparison, not a magnitude one: rescaling by gain means the overlay
+    answers only "does the timing look like this", the "how strong" question
+    already being answered by ``summary``'s own ``gain`` column. Because the
+    figure has one legend entry shared by every panel that carries a
+    reference curve, that legend is drawn once at the figure level rather
+    than once per axes.
+
+    Parameters
+    ----------
+    weights : pd.DataFrame
+        ``regressor``, ``lag``, ``weight``, as returned by
+        :func:`shmlib.prediction.lagged_regressor_weights`. One panel is
+        drawn per distinct value of ``regressor``, in the order the values
+        first appear.
+    summary : pd.DataFrame
+        ``regressor``, ``gain``, ``delay_h``, ``tau_h``, ``r2_onepole``, as
+        returned by :func:`shmlib.prediction.impulse_response_summary`.
+        Accepted for interface symmetry with that function and for a
+        caller that wants the two kept together; not currently read by the
+        drawing itself, since every quantity the figure needs (the gain
+        used to rescale the reference overlay) is available from ``weights``
+        directly.
+    reference : dict or None, optional
+        Maps a regressor name to ``{'delay_h': ..., 'tau_h': ...}``, Study
+        03's own measured operator for that driver (D3). A name present in
+        ``weights`` but absent from ``reference`` is drawn without an
+        overlay. Default ``None``, which draws no overlay on any panel.
+    dt_hours : float, optional
+        Duration of one lag slot, in hours. Default ``1/3``, the native
+        20-minute grid.
+    title : str, optional
+        Figure title. Default ``''``, which draws none.
+    save_path, filename : optional
+        Passed to :func:`shmlib.viz.finish`. Default ``None``, no save.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    names = list(pd.unique(weights['regressor']))
+    fig, axes = plt.subplots(1, len(names), figsize=viz.figsize(viz.FIGURE_WIDTH, 2.6),
+                             squeeze=False)
+    drew_reference = False
+    for ax, name in zip(axes[0], names):
+        group = weights[weights['regressor'] == name].sort_values('lag')
+        hours = group['lag'].to_numpy(dtype=float) * dt_hours
+        ax.bar(hours, group['weight'], width=dt_hours * 0.9,
+              color=viz.driver_colour(name))
+        if reference and name in reference:
+            # A throwaway DatetimeIndex exists only because thermal_lag_
+            # filter interpolates with method='time' and therefore needs
+            # one; its calendar dates carry no meaning of their own.
+            index = pd.date_range('2000-01-01', periods=len(group) + 1,
+                                  freq=pd.Timedelta(hours=dt_hours))
+            impulse = pd.Series(0.0, index=index)
+            impulse.iloc[0] = 1.0
+            response = coupling.thermal_operator(
+                impulse, delay=int(round(reference[name]['delay_h'] / dt_hours)),
+                tau=reference[name]['tau_h'], dt_hours=dt_hours).iloc[1:]
+            scale = (group['weight'].sum() / response.sum()
+                    if response.sum() else 1.0)
+            ax.plot(hours, response.to_numpy() * scale, color=viz.MARK_COLOUR,
+                   linewidth=1.2)
+            drew_reference = True
+        ax.set_title(name, fontsize='small')
+        ax.set_xlabel('Lag [h]')
+        ax.set_ylabel('Weight')
+        viz.format_spines(ax)
+    if drew_reference:
+        handle = Line2D([], [], color=viz.MARK_COLOUR, linewidth=1.2,
+                        label='Study 03 operator')
+        fig.legend(handles=[handle], fontsize='small', loc='upper center',
+                  bbox_to_anchor=(0.5, -0.01), frameon=False)
+    if title:
+        fig.suptitle(title)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
