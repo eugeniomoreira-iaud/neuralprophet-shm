@@ -1677,8 +1677,8 @@ of the rolling expectation over the days before each origin, and inside a
 gap there are no residuals to calibrate on, so the band a bridge can carry is
 the quantile band of the single fit made before the outage. That band is the
 raw interval of Sections~\ref{sec:uncertainty} and~\ref{sec:ladder}, which
-under-covers: between 4 and 17\,mdeg wide on the first six bridges of
-Table~\ref{tab:bridges}, against the 39\,mdeg (station) and 46\,mdeg (ERA5)
+under-covers: between 4 and 17\,mdeg wide on every bridge of
+Table~\ref{tab:bridges} but the 2026 one, against the 39\,mdeg (station) and 46\,mdeg (ERA5)
 the calibrated interval of Table~\ref{tab:nowcast} needs to hold 90\,\% of
 the readings in the first week after a refit. A verdict of outside against
 the band therefore says less than it seems, and the shift is read against the
@@ -1710,7 +1710,7 @@ throughout the week. Section~\ref{sec:monitor}'s charts found the same
 stretch from the other side: the fast, daily and slow charts all raised
 episodes between five and seventeen days after this resumption, and the slow
 chart's first episode of the record begins there. The two proxy sets, fed
-the same readings, expect levels 8.8\,mdeg apart, which is the size of the
+the same readings, expect levels 8.7\,mdeg apart, which is the size of the
 disagreement between them where the history before the gap is longest.
 
 The outage of May to June 2024 is the one bridge on which nothing happened:
@@ -1731,13 +1731,13 @@ The outage of March to June 2026 is the one on which the sets disagree, and
 the disagreement is not to be read as a finding about the wall. The station
 set expected 92.3\,mdeg and finds the observed 69.4 outside, a shift of
 $-22.9$; ERA5 expected 83.7 and finds 69.3 inside, a shift of $-14.4$; the
-two bands are 46 and 36\,mdeg wide, three to ten times any other bridge's,
+two bands are 46 and 36\,mdeg wide, two to eleven times any other bridge's,
 because the fit that carries them was made on a history that ends in the
 first year of the new instrument. And the resumption window, 18 to 25~June
 2026, is the opening week of the stretch Section~\ref{sec:monitor} attributed
 to the instrument through the supply-voltage channel: the bottom panel of
 Figure~\ref{fig:bridges} shows the readings falling to between 20 and
-40\,mdeg on six of the seven afternoons where the expectation stays above
+40\,mdeg on six of the seven mornings where the expectation stays above
 70. The observed mean is the instrument's, and the verdict on this outage is
 left open until the record after August 2026 is read.
 
@@ -1780,7 +1780,8 @@ Set & \# & Start & End & Expected & Observed & Shift & Lower & Upper & Verdict \
 \caption{The outage bridges on the station set, one panel per outage that
 could be bridged: the accepted readings over the settle day and the seven
 days after resumption, the expectation of the fit made before the outage,
-and that fit's own quantile band; the scored week is shaded. The expectation
+and that fit's own quantile band; the settle day and the scored week are
+shaded. The expectation
 is drawn from resumption onward, since the modelling frame keeps no row
 whose target is missing.}
 \label{fig:bridges}
