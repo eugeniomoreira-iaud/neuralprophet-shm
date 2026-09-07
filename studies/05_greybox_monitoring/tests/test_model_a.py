@@ -486,6 +486,57 @@ class TestParallelFits(unittest.TestCase):
         pd.testing.assert_frame_equal(serial, parallel, check_exact=False,
                                       rtol=1e-5)
 
+    def test_detached_model_pickles_small_and_predicts_the_same_once_restored(self):
+        # A fitted NeuralProphet drags its whole Lightning Trainer graph
+        # (loops, connectors, dataloaders with the training set) through
+        # any pickle, and that graph grows far faster than the record: at
+        # the notebook's scale one worker's return payload exhausted 143 GB.
+        # The worker must ship the model without its trainer and the parent
+        # must rebuild one before predicting.
+        import cloudpickle
+        frame = _frame(n=24 * 40)
+        train, valid = frame.iloc[:800], frame.iloc[800:]
+        model, _ = prediction.neuralprophet_backtest(
+            train, valid, regressors=('tair',), task='nowcast', epochs=2, freq='1h')
+        df_valid = valid.reset_index().rename(columns={'index': 'ds'})
+        df_valid['ds'] = pd.DatetimeIndex(df_valid['ds']).tz_convert(None)
+        before = model.predict(df_valid[['ds', 'y', 'tair']])['yhat1'].to_numpy()
+        attached = len(cloudpickle.dumps(model, protocol=4))
+
+        prediction._detach_trainer(model)
+        detached = len(cloudpickle.dumps(model, protocol=4))
+        self.assertIsNone(model.trainer)
+        self.assertLess(detached * 10, attached)
+
+        restored = cloudpickle.loads(cloudpickle.dumps(model, protocol=4))
+        prediction._restore_trainer(restored)
+        self.assertIsNotNone(restored.trainer)
+        after = restored.predict(df_valid[['ds', 'y', 'tair']])['yhat1'].to_numpy()
+        np.testing.assert_allclose(after, before, rtol=0, atol=0)
+
+    def test_attribution_fits_parallel_returns_models_that_still_predict(self):
+        sets, target = _regressor_sets(n=24 * 40)
+        frames = prediction.regressor_set_frames(sets, target)
+        kwargs = dict(valid_p=0.2, n_changepoints=2, diagnostic_lags=(1, 5),
+                      epochs=2, freq='1h')
+        serial_fits, serial_shares, *_ = prediction.attribution_fits(
+            frames, ('tair', 'rh', 'sr'), n_jobs=1, **kwargs)
+        parallel_fits, parallel_shares, *_ = prediction.attribution_fits(
+            frames, ('tair', 'rh', 'sr'), n_jobs=2, **kwargs)
+        self.assertEqual(list(parallel_fits), list(serial_fits))
+        pd.testing.assert_frame_equal(serial_shares, parallel_shares,
+                                      check_exact=False, rtol=1e-5)
+        for name in serial_fits:
+            self.assertIsNotNone(parallel_fits[name]['model'].trainer)
+            valid = serial_fits[name]['valid']
+            df_valid = valid.reset_index().rename(columns={'index': 'ds'})
+            df_valid['ds'] = pd.DatetimeIndex(df_valid['ds']).tz_convert(None)
+            columns = ['ds', 'y', 'tair', 'rh', 'sr']
+            np.testing.assert_allclose(
+                parallel_fits[name]['model'].predict(df_valid[columns])['yhat1'].to_numpy(),
+                serial_fits[name]['model'].predict(df_valid[columns])['yhat1'].to_numpy(),
+                rtol=1e-5)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

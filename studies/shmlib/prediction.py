@@ -1207,7 +1207,12 @@ def _parallel_map(function, items, n_jobs=1):
     n_jobs : int, optional
         Number of worker processes. ``1`` (the default) never leaves the
         calling process, so a caller with no need for parallelism pays no
-        cost for this function's existence. Default ``1``.
+        cost for this function's existence. Any larger value is an upper
+        bound rather than an exact count: the pool is sized at the smaller
+        of ``n_jobs`` and the number of items, because a worker is spawned
+        rather than forked and so re-imports torch before it can do
+        anything, which a worker with no item to take never repays.
+        Default ``1``.
 
     Returns
     -------
@@ -1224,14 +1229,124 @@ def _parallel_map(function, items, n_jobs=1):
         import logging
         import warnings
         import torch
+        _isolate_worker_directory()
         warnings.filterwarnings('ignore')
         logging.getLogger('NP').setLevel(logging.ERROR)
         logging.getLogger('pytorch_lightning').setLevel(logging.ERROR)
         torch.set_num_threads(1)
         return function(item)
 
-    return joblib.Parallel(n_jobs=n_jobs, backend='loky')(
+    workers = max(1, min(int(n_jobs), len(items)))
+    return joblib.Parallel(n_jobs=workers, backend='loky')(
         joblib.delayed(_in_worker)(item) for item in items)
+
+
+_WORKER_DIRECTORY = None
+
+
+def _isolate_worker_directory():
+    """
+    Move a worker process, once, into a private temporary working directory.
+
+    NeuralProphet binds its metrics logger to the working directory at
+    construction (``MetricsLogger(save_dir=os.getcwd())``), and Lightning's
+    TensorBoard logger numbers its run folder by counting the
+    ``version_*`` folders already present, so two workers fitting at the
+    same time in one directory choose the same folder and write the same
+    ``hparams.yaml``. On a Google Drive folder that collision surfaces as
+    ``OSError: [Errno 22] Invalid argument`` from the second writer and
+    kills its fit. A directory of the worker's own removes the collision,
+    and keeps the event files Lightning writes on local disk rather than
+    on the synchronised tree. The directory is created on the worker's
+    first item and kept for the life of the process, since ``loky`` reuses
+    workers across calls. It is removed by an ``atexit`` hook that first
+    steps out of it, because Windows refuses to delete a process's current
+    directory and ``tempfile.TemporaryDirectory``'s own cleanup answers
+    that refusal by recursing until the interpreter dies without a
+    traceback (the failure ``verify_env.py`` guards against); a worker
+    that is killed rather than exited leaves a few kilobytes of event
+    files in the system temporary folder. The calling process is never
+    moved: the serial path writes its logs where it always did.
+    """
+    global _WORKER_DIRECTORY
+    if _WORKER_DIRECTORY is None:
+        import atexit
+        import os
+        import shutil
+        import tempfile
+        _WORKER_DIRECTORY = tempfile.mkdtemp(prefix='shmlib-worker-')
+        os.chdir(_WORKER_DIRECTORY)
+
+        def _remove_worker_directory():
+            os.chdir(tempfile.gettempdir())
+            shutil.rmtree(_WORKER_DIRECTORY, ignore_errors=True)
+
+        atexit.register(_remove_worker_directory)
+
+
+def _detach_trainer(model):
+    """
+    Drop a fitted NeuralProphet's Lightning trainer so the model can cross a
+    process boundary.
+
+    A fitted ``NeuralProphet`` keeps its ``pytorch_lightning.Trainer`` on
+    ``model.trainer``, and its ``TimeNet`` module keeps a back-reference to
+    the same trainer. Pickling the model therefore pickles the trainer's
+    whole object graph — fit, validation and prediction loops, every
+    connector, the callbacks and the dataloaders with the training set
+    inside them — and that graph grows far faster than the record: measured
+    on this study's environment, a one-epoch fit on 20,000 rows pickled to
+    710 MB with the trainer attached and 22 kB without it, and at the
+    notebook's 210,000 rows a single worker returning one such model
+    exhausted 143 GB of memory before ``MemoryError``. Nothing in that graph
+    is needed to read or use the fitted model: the weights live on
+    ``model.model``, the normalisation, seasonality and trend configuration
+    on the forecaster itself, and ``fit_metrics_`` on the forecaster too.
+    ``model.model.trainer`` is set to ``None`` through Lightning's own setter
+    as well as ``model.trainer``, because the module's back-reference alone
+    keeps the trainer alive through a pickle.
+
+    Parameters
+    ----------
+    model : neuralprophet.NeuralProphet
+        A fitted forecaster. Modified in place and returned for convenience.
+
+    Returns
+    -------
+    neuralprophet.NeuralProphet
+        The same object, without a trainer; ``predict`` raises until
+        :func:`_restore_trainer` has been called on it.
+    """
+    model.trainer = None
+    model.model.trainer = None
+    return model
+
+
+def _restore_trainer(model):
+    """
+    Rebuild the trainer :func:`_detach_trainer` dropped, from the model's
+    own stored configuration.
+
+    NeuralProphet's ``restore_trainer`` reconstructs a ``Trainer`` from the
+    training configuration, the trainer configuration, the metrics logger
+    and the accelerator the forecaster already carries — the same call the
+    library makes for itself when a model is loaded from disk — so a
+    prediction after this call is identical to one made before the trainer
+    was dropped (verified to zero difference on this study's environment).
+
+    Parameters
+    ----------
+    model : neuralprophet.NeuralProphet
+        A fitted forecaster whose trainer was dropped. Modified in place and
+        returned for convenience.
+
+    Returns
+    -------
+    neuralprophet.NeuralProphet
+        The same object, able to ``predict`` again.
+    """
+    model.restore_trainer()
+    return model
 
 
 def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
@@ -2738,8 +2853,15 @@ def attribution_fits(frames, regressors, valid_p, n_changepoints,
         derived tables are returned from the worker rather than mutated
         onto a shared dict, so the ``fits`` mapping this function builds
         keeps the same insertion order — ``frames``' own order — under
-        parallel execution as it does serially. Default ``1``, which
-        reproduces the original serial loop and never imports ``joblib``.
+        parallel execution as it does serially. The fitted model crosses
+        the process boundary without its Lightning trainer, whose object
+        graph would otherwise make the worker's return payload hundreds of
+        gigabytes at this study's scale, and the trainer is rebuilt here
+        from the model's own configuration (:func:`_detach_trainer`,
+        :func:`_restore_trainer`), so the model a caller receives predicts
+        exactly as the worker's did. Default ``1``, which reproduces the
+        original serial loop, never imports ``joblib`` and never touches
+        the trainer.
     **model_kwargs
         Passed unchanged to every :func:`neuralprophet_backtest` call beside
         ``train``, ``valid``, ``regressors``, ``task``, ``changepoints``,
@@ -2782,6 +2904,12 @@ def attribution_fits(frames, regressors, valid_p, n_changepoints,
             validation=valid, **model_kwargs)
         model.weight_curve_ = weight_curve
         components = decompose_components(model, train, regressors=regressors)
+        if n_jobs != 1:
+            # The model is about to be pickled back to the caller; its
+            # trainer graph would make that payload hundreds of gigabytes
+            # at the study's scale (see _detach_trainer). The caller
+            # restores a trainer before handing the model on.
+            _detach_trainer(model)
         fit = {'model': model, 'train': train, 'valid': valid,
               'changepoints': changepoints, 'components': components}
 
@@ -2803,6 +2931,8 @@ def attribution_fits(frames, regressors, valid_p, n_changepoints,
     fits = {}
     shares_rows, gain_rows, diag_rows = [], [], []
     for name, fit, share_table, gain_table, diag_table in results:
+        if n_jobs != 1:
+            _restore_trainer(fit['model'])
         fits[name] = fit
         shares_rows.append(share_table)
         gain_rows.append(gain_table)
