@@ -26,6 +26,12 @@ def _ar1(n=20000, phi=0.99, seed=0, freq='20min'):
     return pd.Series(r, index=index)
 
 
+def _quiet(n=2000, seed=0, freq='20min'):
+    rng = np.random.default_rng(seed)
+    index = pd.date_range('2024-01-01', periods=n, freq=freq)
+    return pd.Series(rng.normal(0.0, 1.0, n), index=index)
+
+
 class TestPrewhiten(unittest.TestCase):
 
     def test_innovations_of_an_ar1_are_white_and_phi_is_recovered(self):
@@ -86,6 +92,113 @@ class TestStatisticAwareDetectability(unittest.TestCase):
             durations=('168h',), kind='amplitude', statistic='daily_amplitude',
             injection_starts=('2019-09-01', '2019-11-01'))
         self.assertIn(curve.loc[0, 'detected'], (0.5, 1.0, True))
+
+
+class TestChartSeries(unittest.TestCase):
+
+    def test_returns_the_four_names_and_a_finite_phi(self):
+        residual = _ar1(n=72 * 60, phi=0.9)
+        series, phi = monitoring.chart_series(
+            residual, '20min', 60, residual.index[0], residual.index[-1])
+        self.assertEqual(set(series), {'fast', 'daily_amplitude', 'daily_phase', 'slow'})
+        self.assertTrue(np.isfinite(phi))
+
+    def test_a_day_too_short_to_fit_is_a_gap_not_a_dropped_row(self):
+        # daily_harmonic silently drops a day below min_slots rather than
+        # carrying it as missing, which leaves its own output on an
+        # irregular grid the moment the window holds one short day --
+        # exactly what alarm_episodes and average_run_length refuse to
+        # chart downstream, in tune_limit_to_budget and run_chart.
+        residual = _ar1(n=72 * 30, phi=0.9)
+        residual.iloc[72 * 10:72 * 10 + 40] = np.nan  # day 10 drops below min_slots=60
+        series, _ = monitoring.chart_series(
+            residual, '20min', 60, residual.index[0], residual.index[-1])
+        for name in ('daily_amplitude', 'daily_phase'):
+            diffs = np.unique(np.diff(series[name].index.to_numpy()))
+            self.assertEqual(len(diffs), 1, f'{name} is not on a regular grid')
+        self.assertTrue(np.isnan(series['daily_amplitude'].iloc[10]))
+
+
+class TestTuneLimitToBudget(unittest.TestCase):
+
+    def test_a_low_budget_returns_the_smallest_candidate_and_a_table(self):
+        series = _quiet(3000)
+        L, sweep = monitoring.tune_limit_to_budget(
+            series, series.index[0], series.index[-1], budget_days=0.1,
+            candidates=np.arange(2.0, 6.01, 0.5), lam=0.2, k=0.5, h=5.0,
+            joint_window='6h', freq='20min')
+        self.assertEqual(L, 2.0)
+        self.assertIn('arl_days', sweep.columns)
+
+    def test_an_impossible_budget_raises(self):
+        # A single, tight candidate alarms often enough on plain noise (a
+        # finite average run length of about ten days), so a budget far
+        # beyond what any candidate in the grid can reach is genuinely
+        # unreachable rather than trivially satisfied by an all-quiet run.
+        series = _quiet(3000)
+        with self.assertRaises(RuntimeError):
+            monitoring.tune_limit_to_budget(
+                series, series.index[0], series.index[-1], budget_days=1e9,
+                candidates=(2.0,), lam=0.2, k=0.5, h=5.0,
+                joint_window='6h', freq='20min')
+
+
+class TestRunChart(unittest.TestCase):
+
+    def test_returns_the_four_keys_with_the_episodes_frame_columns(self):
+        series = _quiet(3000)
+        reference = monitoring.reference_stats(
+            series, start=series.index[0], end=series.index[1500])
+        out = monitoring.run_chart(
+            series, reference, L=3.0, lam=0.2, k=0.5, h=5.0, joint_window='6h',
+            monitored_start=series.index[1500], freq='20min')
+        self.assertEqual(set(out), {'ewma', 'cusum', 'joint', 'episodes'})
+        self.assertEqual(list(out['episodes'].columns),
+                         ['start', 'end', 'duration_h', 'n_slots', 'mean_z', 'peak_abs_z'])
+
+
+class TestAttributeEpisodes(unittest.TestCase):
+
+    def test_one_episode_by_the_mode_and_another_by_the_default(self):
+        index = pd.date_range('2024-01-01', periods=100, freq='20min')
+        episodes = pd.DataFrame({'start': [index[10], index[60]],
+                                 'end': [index[12], index[62]]})
+        labels = pd.Series(['instrument', 'instrument', 'environment'],
+                           index=[index[10], index[11], index[12]])
+        out = monitoring.attribute_episodes(episodes, labels)
+        self.assertEqual(out['attribution'].iloc[0], 'instrument')
+        self.assertEqual(out['attribution'].iloc[1], 'unattributed')
+
+
+class TestDailyResponseAmplitude(unittest.TestCase):
+
+    def test_recovers_the_amplitude_of_a_synthetic_daily_sinusoid(self):
+        index = pd.date_range('2020-01-01', periods=72 * 30, freq='20min')
+        hours = index.hour + index.minute / 60.0
+        components = pd.DataFrame({
+            'future_regressor_tair': 5.0 * np.cos(2 * np.pi * (hours - 14) / 24.0),
+            'season_daily': 0.0}, index=index)
+        amplitude = monitoring.daily_response_amplitude(
+            components, ('2020-01-05', '2020-01-10'), window=72, min_slots=60)
+        self.assertAlmostEqual(amplitude, 5.0, delta=0.2)
+
+
+class TestDetectabilityByMechanism(unittest.TestCase):
+
+    def test_two_mechanisms_return_both_labels(self):
+        residual = _quiet(6000)
+        reference = monitoring.reference_stats(
+            residual, start=residual.index[0], end=residual.index[-1])
+        tuned = {'fast': {'reference': reference, 'L': 3.0},
+                'slow': {'reference': reference, 'L': 3.0}}
+        specs = {'fast': {'lam': 0.2}, 'slow': {'lam': 0.1}}
+        mechanisms = {'step': ('fast', 'residual'), 'drift': ('slow', 'residual')}
+        magnitudes = {'step': (5.0,), 'drift': (5.0,)}
+        out = monitoring.detectability_by_mechanism(
+            residual, tuned, specs, mechanisms, magnitudes, durations=('24h',),
+            freq='20min', k=0.5, h=5.0, phi=None, response_window='24h',
+            injection_starts=None, min_slots=60)
+        self.assertEqual(set(out['mechanism']), {'step', 'drift'})
 
 
 if __name__ == '__main__':

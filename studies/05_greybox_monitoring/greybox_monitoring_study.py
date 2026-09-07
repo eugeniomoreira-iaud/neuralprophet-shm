@@ -640,30 +640,54 @@ LADDER_RUNGS = [
 #
 # ### Parameter Tuning Guidance
 #
-# **`REFERENCE_START`, `REFERENCE_END`** — the in-control window the
-# charts' statistics are calibrated on; default `'2019-01-01'` to
-# `'2021-12-31'`, three complete years with no outage longer than eleven
-# days, before the 2022 outages and before the 2025 instrument change (D10).
-# Must stay in control: widening it to include a departure would calibrate
-# the detector against the thing it is meant to find.
+# **`REFERENCE_START`** — first instant of the in-control window the
+# charts' statistics are calibrated on; default `'2020-11-21'`. The rolling
+# residual Movement 3 produces exists only from its first refit origin
+# onward — the on-structure set's first row plus `MIN_TRAIN`, printed by
+# Movement 3 as 2020-11-20 10:40 — so a reference window starting in 2019,
+# before any rolling residual is defined, would calibrate the charts on
+# rows that do not exist. `REFERENCE_START` is instead the first full day
+# the rolling residual covers.
 #
-# **`MONITORED_START`** — first instant scored by the charts; default
-# `'2022-01-01'`, immediately after the reference window (D10).
+# **`REFERENCE_END`, `MONITORED_START`** — the window's other bound and the
+# first instant scored by the charts; default `'2021-12-31'` and
+# `'2022-01-01'`, unchanged from the original design: the last full year
+# before the 2022 outages and before the 2025 instrument change, with no
+# outage longer than eleven days inside it (D10). Together with
+# `REFERENCE_START` the reference window is 406 days, about thirteen
+# months rather than the three full years first planned — the earliest the
+# rolling residual allows — and the slow chart's one-year false-alarm
+# budget therefore admits at most one false episode inside a window that
+# short, so its tuning is necessarily coarse. Must stay in control:
+# widening it to include a departure would calibrate the detector against
+# the thing it is meant to find.
 #
-# **`EWMA_LAMBDA`** — EWMA smoothing constant; default `0.05`, Study 04's
-# value. Smaller reacts more slowly and finds smaller sustained shifts.
+# **`EWMA_LAMBDA`, `EWMA_LAMBDA_DAILY`, `EWMA_LAMBDA_SLOW`** — EWMA
+# smoothing constants for the fast, daily and slow charts; default `0.05`
+# (Study 04's value), `0.2` and `0.1`. Smaller reacts more slowly and finds
+# smaller sustained shifts; the daily and slow statistics already average
+# over a day, so they carry less of their own noise and can afford a
+# larger constant than the twenty-minute fast chart.
 #
 # **`CUSUM_K`, `CUSUM_H`** — CUSUM slack and decision interval, in standard
-# deviations; default `0.5` and `5.0`, Study 04's values.
+# deviations; default `0.5` and `5.0`, Study 04's values, shared by every
+# chart.
 #
-# **`JOINT_WINDOW`** — coincidence window for the joint EWMA/CUSUM alarm;
-# default `'6h'`.
+# **`JOINT_WINDOW`, `JOINT_WINDOW_DAILY`** — coincidence window for the
+# joint EWMA/CUSUM alarm; default `'6h'` for the fast chart and `'1D'` for
+# the daily and slow charts, one native slot of their own daily grid.
 #
 # **`BUDGET_FAST_DAYS`, `BUDGET_DAILY_DAYS`, `BUDGET_SLOW_DAYS`** — the
 # false-alarm budget each chart is tuned to, in watched days per false
 # alarm on the in-control reference stretch; default `90.0`, `90.0` and
 # `365.0` (D10's table). Fixed before any sweep; every detectability figure
 # this study reports is only comparable at its chart's stated budget.
+#
+# **`LIMIT_CANDIDATES`** — control limits swept, in standard deviations, to
+# find the smallest one meeting each chart's budget; default
+# `tuple(np.arange(2.0, 15.01, 0.25))`, a quarter-standard-deviation grid
+# wide enough that the slow chart's coarse, thirteen-month-limited tuning
+# still has room to land on a genuine minimum rather than the grid's edge.
 #
 # **`DETECT_MAGNITUDES`, `DETECT_DURATIONS`** — injected amplitude-growth
 # magnitudes (millidegrees) and durations swept for detectability; default
@@ -684,9 +708,20 @@ LADDER_RUNGS = [
 # still counts as having found it; default `'24h'`.
 #
 # **`DETECT_INJECTION_DATES`** — calendar dates injections are placed at;
-# default `None`. Several dates across seasons are chosen in Phase 5 so the
-# detectability field is monotone rather than an artefact of one injection
-# point (D11); this parameter is fixed once those dates are chosen.
+# default `('2020-12-15', '2021-03-15', '2021-06-15', '2021-09-15')`, one
+# per season, each chosen to fall inside the reference window fixed above
+# with at least fourteen days of record ahead of it plus
+# `DETECT_RESPONSE_WINDOW` before the window's own end, so a sweep never
+# runs off the edge of the only stretch known to be in control (D11).
+#
+# **`MECHANISM_CHARTS`** — the chart and the statistic each damage
+# mechanism is scored on; default `{'amplitude': ('daily_amplitude',
+# 'daily_amplitude'), 'phase': ('daily_phase', 'daily_phase'), 'drift':
+# ('slow', 'daily_mean'), 'step': ('fast', 'innovation')}` (D11): an
+# amplitude growth and a phase shift are properties of the daily cycle and
+# are read off the daily chart's two statistics, a drift is read off the
+# slow chart's daily mean, and a sudden step is read off the fast chart's
+# prewhitened innovations.
 #
 # **`ATTRIBUTION_CHANNELS`** — channels a fast alarm is cross-checked
 # against before it is called a structural departure; default `('tair',
@@ -694,22 +729,30 @@ LADDER_RUNGS = [
 # attributed to the environment or the instrument rather than to the wall.
 
 # %%
-REFERENCE_START = '2019-01-01'
+REFERENCE_START = '2020-11-21'
 REFERENCE_END = '2021-12-31'
 MONITORED_START = '2022-01-01'
 EWMA_LAMBDA = 0.05
+EWMA_LAMBDA_DAILY = 0.2
+EWMA_LAMBDA_SLOW = 0.1
 CUSUM_K = 0.5
 CUSUM_H = 5.0
 JOINT_WINDOW = '6h'
+JOINT_WINDOW_DAILY = '1D'
 BUDGET_FAST_DAYS = 90.0
 BUDGET_DAILY_DAYS = 90.0
 BUDGET_SLOW_DAYS = 365.0
+LIMIT_CANDIDATES = tuple(np.arange(2.0, 15.01, 0.25))
 DETECT_MAGNITUDES = (0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
 DETECT_DURATIONS = ('6h', '24h', '72h', '168h', '336h')
 DETECT_PHASE_SHIFTS_H = (0.25, 0.5, 1.0, 2.0)
 DETECT_DRIFT_RATES = (1.0, 2.0, 5.0, 10.0, 20.0)
 DETECT_RESPONSE_WINDOW = '24h'
-DETECT_INJECTION_DATES = None   # several dates across seasons, chosen in Phase 5
+DETECT_INJECTION_DATES = ('2020-12-15', '2021-03-15', '2021-06-15', '2021-09-15')
+MECHANISM_CHARTS = {'amplitude': ('daily_amplitude', 'daily_amplitude'),
+                    'phase': ('daily_phase', 'daily_phase'),
+                    'drift': ('slow', 'daily_mean'),
+                    'step': ('fast', 'innovation')}
 ATTRIBUTION_CHANNELS = ('tair', 'rh', 'batt')
 
 # %% [markdown]
@@ -1479,3 +1522,207 @@ if native_params is not None:
 else:
     print('plot_parameters returned None under the plotly backend; '
          'native diagnostic skipped rather than embedding SVG.')
+
+# %% [markdown]
+# ## Movement 5 · What departure does each chart catch?
+#
+# The rolling residual of the on-structure set (`rolling_sets['str']`) is
+# charted three ways (D10): prewhitened innovations at twenty minutes,
+# built for a sudden departure; the amplitude and phase of its daily
+# cycle, built for a changed daily response; and its daily mean, built for
+# drift. Reference statistics are estimated on the fixed window
+# `REFERENCE_START` to `REFERENCE_END` — the rolling residual's own
+# history begins partway through the record, so this window is shorter
+# than first planned, and the report states why. Each chart's control
+# limit is swept to its own false-alarm budget; the fast chart's alarms
+# are cross-checked against the on-structure environment and supply
+# channels; and detectability is measured per damage mechanism on the
+# chart and statistic each one is actually scored on, with injections
+# sized by the wall's own measured daily response (D11). Writes `GM_11`
+# and `GM_12` (the alarm episodes and the tuned run lengths), `GM_13` (the
+# detectability sweep), and `GM_F09`–`GM_F11` and `GM_F13_amplitude`,
+# `GM_F13_phase`, `GM_F13_drift`.
+
+# %% [markdown]
+# ### The charted series
+#
+# `monitoring.chart_series` reduces the on-structure rolling residual to
+# the four series the fast, daily and slow charts are actually built on —
+# prewhitened innovations, the daily harmonic's amplitude and phase, and
+# the daily mean. The per-chart budget, smoothing constant and coincidence
+# window each carries come from the parameter cell, attached alongside its
+# series so that `charts` states everything one chart needs in one place.
+
+# %%
+rolling_str = rolling_sets['str'].set_index('ds').sort_index()
+residual = (rolling_str['y'] - rolling_str['yhat']).asfreq(NATIVE_FREQ)
+
+series_by_name, phi = monitoring.chart_series(
+    residual, NATIVE_FREQ, DAILY_HARMONIC_MIN_SLOTS, REFERENCE_START, REFERENCE_END)
+chart_specs = {
+    'fast': dict(freq=NATIVE_FREQ, budget=BUDGET_FAST_DAYS, lam=EWMA_LAMBDA,
+                joint=JOINT_WINDOW),
+    'daily_amplitude': dict(freq='1D', budget=BUDGET_DAILY_DAYS,
+                            lam=EWMA_LAMBDA_DAILY, joint=JOINT_WINDOW_DAILY),
+    'daily_phase': dict(freq='1D', budget=BUDGET_DAILY_DAYS,
+                        lam=EWMA_LAMBDA_DAILY, joint=JOINT_WINDOW_DAILY),
+    'slow': dict(freq='1D', budget=BUDGET_SLOW_DAYS, lam=EWMA_LAMBDA_SLOW,
+                joint=JOINT_WINDOW_DAILY),
+}
+charts = {name: {**spec, 'series': series_by_name[name]}
+         for name, spec in chart_specs.items()}
+print(f'phi = {phi:.4f}; reference-window residual sd '
+     f'{residual.loc[REFERENCE_START:REFERENCE_END].std():.2f}, '
+     f'innovation sd {series_by_name["fast"].loc[REFERENCE_START:REFERENCE_END].std():.2f}')
+
+# %% [markdown]
+# ### Tuning each chart to its false-alarm budget, and running it
+#
+# `monitoring.tune_limit_to_budget` sweeps `LIMIT_CANDIDATES` on the
+# reference stretch alone and returns the smallest control limit whose
+# average run length meets that chart's budget, with the full sweep table
+# alongside it; `monitoring.run_chart` then runs the EWMA and CUSUM charts
+# and their joint alarm on the monitored stretch at that limit and
+# collapses the alarm into episodes. `GM_12` records, for every chart, the
+# limit chosen and the run length it actually achieves against the budget
+# it was tuned to.
+
+# %%
+tuned = {}
+for name, spec in charts.items():
+    reference = monitoring.reference_stats(
+        spec['series'], start=REFERENCE_START, end=REFERENCE_END)
+    L, sweep = monitoring.tune_limit_to_budget(
+        spec['series'], REFERENCE_START, REFERENCE_END, spec['budget'],
+        LIMIT_CANDIDATES, spec['lam'], CUSUM_K, CUSUM_H, spec['joint'], spec['freq'])
+    run = monitoring.run_chart(
+        spec['series'], reference, L, spec['lam'], CUSUM_K, CUSUM_H,
+        spec['joint'], MONITORED_START, spec['freq'])
+    tuned[name] = {'reference': reference, 'L': L, 'sweep': sweep, **run}
+
+runs = pd.DataFrame([
+    {'chart': name, 'L': tuned[name]['L'], 'budget_days': charts[name]['budget'],
+     'achieved_arl_days': tuned[name]['sweep'].loc[
+         tuned[name]['sweep']['L'] == tuned[name]['L'], 'arl_days'].item(),
+     'episodes_in_reference': tuned[name]['sweep'].loc[
+         tuned[name]['sweep']['L'] == tuned[name]['L'], 'n_episodes'].item()}
+    for name in charts])
+display(runs)
+runs.to_csv(OUTPUT_DIR / 'GM_12_run_lengths.csv', index=False)
+tables.write_table(runs, str(OUTPUT_DIR / 'GM_12_body.tex'),
+                   [('chart', tables.texttt), ('L', '.2f'), ('budget_days', '.0f'),
+                    ('achieved_arl_days', '.0f'), ('episodes_in_reference', ',d')])
+
+# %% [markdown]
+# ### Attribution of the fast chart's alarms
+#
+# `monitoring.channel_coincidence` reduces air temperature, relative
+# humidity and supply voltage — the raw on-structure channels, from
+# `sensor`, before any dust-gap filling — to their departure from a
+# centred rolling median, scaled on the reference window, and labels every
+# fast-chart alarm slot by whichever of them was also in excursion.
+# `monitoring.attribute_episodes` reduces those slot labels to one
+# attribution per episode: the mode of the labels falling inside its
+# span. `GM_11` carries every chart's episodes, with the attribution
+# filled in for the fast chart and the table's missing marker elsewhere —
+# the daily and slow charts are not cross-checked against these channels,
+# since a swing over a day or a year is not what a twenty-minute
+# coincidence test is built to catch.
+
+# %%
+attribution_channels = sensor[[f'{c}_str' for c in ATTRIBUTION_CHANNELS]].rename(
+    columns={f'{c}_str': c for c in ATTRIBUTION_CHANNELS}).reindex(residual.index)
+labels = monitoring.channel_coincidence(
+    tuned['fast']['joint'], attribution_channels,
+    scale_start=REFERENCE_START, scale_end=REFERENCE_END)
+fast_episodes = monitoring.attribute_episodes(
+    tuned['fast']['episodes'], labels).assign(chart='fast')
+other_episodes = pd.concat(
+    [tuned[name]['episodes'].assign(chart=name) for name in charts if name != 'fast'],
+    ignore_index=True)
+episodes = pd.concat([fast_episodes, other_episodes], ignore_index=True)
+display(episodes)
+episodes.to_csv(OUTPUT_DIR / 'GM_11_alarm_episodes.csv', index=False)
+tables.write_table(episodes, str(OUTPUT_DIR / 'GM_11_body.tex'),
+                   [('chart', tables.texttt), (tables.date_cell('start'), None),
+                    (tables.date_cell('end'), None), ('duration_h', ',.0f'),
+                    ('mean_z', '.2f'), ('attribution', tables.texttt)])
+
+# %% [markdown]
+# ### `GM_F09`–`GM_F11`: the three charts
+#
+# The fast and slow charts reuse `figures.plot_control_chart`, drawing the
+# EWMA and CUSUM statistics respectively against their tuned limits with
+# every alarm episode shaded; the daily chart reuses the same colours and
+# shading through `figures.plot_daily_harmonic_chart`, stacking the
+# amplitude and phase EWMA panels on one clock.
+
+# %%
+figures.plot_control_chart(
+    tuned['fast']['ewma'], statistic='ewma', episodes=tuned['fast']['episodes'],
+    freq=NATIVE_FREQ, title='Fast chart: prewhitened innovations',
+    save_path=str(OUTPUT_DIR), filename='GM_F09_fast_chart')
+figures.plot_daily_harmonic_chart(
+    tuned['daily_amplitude']['ewma'], tuned['daily_phase']['ewma'],
+    episodes=pd.concat([tuned['daily_amplitude']['episodes'],
+                        tuned['daily_phase']['episodes']], ignore_index=True),
+    title='Daily chart: amplitude and phase of the daily cycle',
+    save_path=str(OUTPUT_DIR), filename='GM_F10_daily_chart')
+figures.plot_control_chart(
+    tuned['slow']['cusum'], statistic='cusum_high', episodes=tuned['slow']['episodes'],
+    freq='1D', title='Slow chart: daily-mean residual',
+    save_path=str(OUTPUT_DIR), filename='GM_F11_slow_chart')
+
+# %% [markdown]
+# ### Detectability per mechanism, on the chart built for it
+#
+# `monitoring.daily_response_amplitude` reads the wall's own fitted daily
+# response — the air-temperature component plus every daily seasonal term
+# — on the injection dates, so the phase mechanism's timing shifts
+# (`DETECT_PHASE_SHIFTS_H`) are converted to a residual amplitude by
+# `monitoring.phase_shift_amplitude` against a response the model actually
+# learned rather than an arbitrary figure. `monitoring.
+# detectability_by_mechanism` then sweeps each mechanism once, on the
+# chart and statistic `MECHANISM_CHARTS` names for it, over the reference
+# window's own residual — the only stretch known to be in control. Before
+# the sweep, the notebook prints, for each injection date, how much of the
+# following twenty days the reference residual actually covers, since a
+# date sitting against a gap would understate what the sweep could find.
+
+# %%
+for date in DETECT_INJECTION_DATES:
+    window = residual.loc[pd.Timestamp(date):pd.Timestamp(date) + pd.Timedelta(days=20)]
+    print(f'{date}: {window.notna().mean():.1%} of the following 20 days covered')
+
+response_amplitude = monitoring.daily_response_amplitude(
+    components_a['str'], DETECT_INJECTION_DATES, window=72,
+    min_slots=DAILY_HARMONIC_MIN_SLOTS, driver='future_regressor_tair')
+phase_magnitudes = tuple(
+    monitoring.phase_shift_amplitude(response_amplitude, h) for h in DETECT_PHASE_SHIFTS_H)
+detect_magnitudes = {'amplitude': DETECT_MAGNITUDES, 'phase': phase_magnitudes,
+                     'drift': DETECT_DRIFT_RATES, 'step': DETECT_MAGNITUDES}
+injection_starts = [d for d in DETECT_INJECTION_DATES
+                    if REFERENCE_START <= d <= REFERENCE_END] or None
+
+detectability = monitoring.detectability_by_mechanism(
+    residual.loc[REFERENCE_START:REFERENCE_END], tuned, charts, MECHANISM_CHARTS,
+    detect_magnitudes, DETECT_DURATIONS, NATIVE_FREQ, CUSUM_K, CUSUM_H, phi,
+    DETECT_RESPONSE_WINDOW, injection_starts, DAILY_HARMONIC_MIN_SLOTS, seed=SEED)
+display(detectability)
+detectability.to_csv(OUTPUT_DIR / 'GM_13_detectability.csv', index=False)
+tables.write_table(detectability, str(OUTPUT_DIR / 'GM_13_body.tex'),
+                   [('mechanism', tables.texttt), ('chart', tables.texttt),
+                    ('magnitude', '.2f'), ('duration_h', '.0f'), ('detected', '.2f'),
+                    ('delay_h', '.1f')])
+figures.plot_detectability(
+    detectability[detectability['mechanism'] == 'amplitude'],
+    title='Amplitude growth on the daily chart',
+    save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_amplitude')
+figures.plot_detectability(
+    detectability[detectability['mechanism'] == 'phase'],
+    title='Phase change on the daily chart',
+    save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_phase')
+figures.plot_detectability(
+    detectability[detectability['mechanism'] == 'drift'],
+    title='Drift on the slow chart',
+    save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_drift')

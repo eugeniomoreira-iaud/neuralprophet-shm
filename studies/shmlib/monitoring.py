@@ -12,6 +12,8 @@ is an argument so that the study which chose it states its value.
 import numpy as np
 import pandas as pd
 
+from . import coupling
+
 # A normal distribution's median absolute deviation is this fraction of its
 # standard deviation; dividing by it turns a MAD into a comparable sigma.
 MAD_TO_SIGMA = 0.6744897501960817
@@ -817,3 +819,306 @@ def channel_coincidence(alarm, channels, scale_start=None, scale_end=None,
     labels[env.reindex(labels.index).fillna(False).to_numpy()] = 'environment'
     labels[ins.reindex(labels.index).fillna(False).to_numpy()] = 'instrument'
     return labels
+
+
+def chart_series(residual, freq, min_slots, start, end):
+    """
+    The four series Study 05's monitor charts are actually built on.
+
+    One rolling residual feeds three time scales: the fast chart's
+    prewhitened innovations, the daily chart's amplitude and phase of the
+    daily cycle, and the slow chart's daily mean. Building all four here,
+    from one call, keeps the notebook's tuning loop free of the choice of
+    which transform belongs to which chart (spec D10).
+
+    Parameters
+    ----------
+    residual : pd.Series
+        The rolling residual, on its native grid.
+    freq : str
+        Spacing of ``residual``, passed to ``prewhiten``.
+    min_slots : int
+        Fewest samples a day needs, passed to ``daily_harmonic``.
+    start, end : str or pd.Timestamp
+        Reference window ``prewhiten`` estimates its AR(1) coefficient over.
+
+    Returns
+    -------
+    (dict, float)
+        ``{'fast', 'daily_amplitude', 'daily_phase', 'slow'}`` mapped to
+        their series, and the ``phi`` the fast chart's innovations were
+        computed with. The daily and slow series are on a complete,
+        regular one-day grid spanning ``residual``'s own extent: a day
+        ``daily_harmonic`` could not fit is carried as a missing value at
+        its place, never as an absent row.
+
+    Notes
+    -----
+    ``daily_harmonic`` omits a calendar day outright when it holds fewer
+    than ``min_slots`` finite samples, which leaves its own output on an
+    irregular grid the moment the window contains one such day. Every
+    downstream chart function tolerates a missing value in the middle of
+    a regular grid, but ``alarm_episodes`` and ``average_run_length`` —
+    which ``tune_limit_to_budget`` and ``run_chart`` both call — refuse an
+    irregular one outright, so the two daily series are reindexed onto a
+    full calendar range here before being handed on.
+    """
+    innovations, phi = prewhiten(residual, start=start, end=end, freq=freq)
+    daily_index = pd.date_range(residual.index.min().floor('D'),
+                                residual.index.max().floor('D'), freq='1D')
+    daily = daily_harmonic(residual, min_slots=min_slots).reindex(daily_index)
+    series = {
+        'fast': innovations,
+        'daily_amplitude': daily['amplitude'],
+        'daily_phase': daily['phase_h'],
+        'slow': residual.resample('1D').mean(),
+    }
+    return series, phi
+
+
+def tune_limit_to_budget(series, start, end, budget_days, candidates,
+                         lam, k, h, joint_window, freq):
+    """
+    The smallest control limit whose joint alarm meets a false-alarm budget.
+
+    Every candidate ``L`` is charted on the in-control reference stretch
+    alone; the smallest one whose average run length reaches the budget is
+    the limit a chart is deployed at, so that every chart's sensitivity is
+    stated at the same false-alarm cost rather than chosen by eye (spec D10).
+
+    Parameters
+    ----------
+    series : pd.Series
+        The statistic one chart is built on (e.g. one of
+        ``chart_series``'s outputs).
+    start, end : str or pd.Timestamp
+        Bounds of the in-control reference window.
+    budget_days : float
+        Watched days per false alarm the chosen limit must reach.
+    candidates : sequence of float
+        Control limits to sweep, in standard deviations, smallest first.
+    lam, k, h : float
+        EWMA smoothing constant and CUSUM slack and decision interval, as in
+        ``ewma_chart`` and ``cusum_chart``.
+    joint_window : str
+        Coincidence window passed to ``joint_alarm``.
+    freq : str
+        Spacing of ``series``, passed to ``average_run_length``.
+
+    Returns
+    -------
+    (float, pd.DataFrame)
+        The smallest ``L`` meeting the budget, and the sweep table: one row
+        per candidate, its ``L`` and everything ``average_run_length``
+        returns.
+
+    Raises
+    ------
+    RuntimeError
+        When no candidate's average run length reaches ``budget_days`` — the
+        reference window is not as quiet as the budget assumes, and widening
+        the candidate grid would not fix that.
+    """
+    reference = reference_stats(series, start=start, end=end)
+    in_control = series.loc[start:end]
+    rows = []
+    for candidate in candidates:
+        ewma = ewma_chart(in_control, reference['mu'], reference['sigma'],
+                          lam=lam, L=candidate)
+        cusum = cusum_chart(in_control, reference['mu'], reference['sigma'],
+                            k=k, h=h)
+        joint = joint_alarm(ewma['alarm'], cusum['alarm'], window=joint_window)
+        rows.append({'L': float(candidate), **average_run_length(joint, freq=freq)})
+    sweep = pd.DataFrame(rows)
+
+    meeting = sweep.loc[sweep['arl_days'] >= budget_days, 'L']
+    if meeting.empty:
+        raise RuntimeError(
+            f'no candidate limit reaches the {budget_days:.1f}-day budget on '
+            f'this reference window; widest achieved is '
+            f'{sweep["arl_days"].max():.1f} days')
+    return float(meeting.min()), sweep
+
+
+def run_chart(series, reference, L, lam, k, h, joint_window, monitored_start, freq):
+    """
+    The tuned EWMA and CUSUM charts, their joint alarm and its episodes.
+
+    Parameters
+    ----------
+    series : pd.Series
+        The statistic one chart is built on.
+    reference : dict
+        Output of ``reference_stats``: ``mu`` and ``sigma`` the charts are
+        standardised against.
+    L : float
+        Control limit, in standard deviations, normally from
+        ``tune_limit_to_budget``.
+    lam, k, h : float
+        EWMA smoothing constant and CUSUM slack and decision interval.
+    joint_window : str
+        Coincidence window passed to ``joint_alarm``.
+    monitored_start : str or pd.Timestamp
+        First instant scored; ``series`` before it is the reference window
+        and is not charted here.
+    freq : str
+        Spacing of ``series``. Accepted for interface symmetry with the
+        other monitor functions; not read directly, since neither
+        ``ewma_chart``, ``cusum_chart`` nor ``joint_alarm`` needs it.
+
+    Returns
+    -------
+    dict
+        ``ewma``, ``cusum``, ``joint`` and ``episodes`` — the last from
+        ``alarm_episodes(joint, watched)``.
+    """
+    watched = series.loc[monitored_start:]
+    ewma = ewma_chart(watched, reference['mu'], reference['sigma'], lam=lam, L=L)
+    cusum = cusum_chart(watched, reference['mu'], reference['sigma'], k=k, h=h)
+    joint = joint_alarm(ewma['alarm'], cusum['alarm'], window=joint_window)
+    episodes = alarm_episodes(joint, watched)
+    return {'ewma': ewma, 'cusum': cusum, 'joint': joint, 'episodes': episodes}
+
+
+def attribute_episodes(episodes, labels, default='unattributed'):
+    """
+    Every alarm episode's attribution: the mode of ``labels`` inside its span.
+
+    Parameters
+    ----------
+    episodes : pd.DataFrame
+        Output of ``alarm_episodes``: at least ``start`` and ``end`` columns.
+    labels : pd.Series
+        Per-slot attribution, normally ``channel_coincidence``'s output —
+        indexed only where an alarm fired, so an episode with no matching
+        index entry is exactly an episode ``channel_coincidence`` was never
+        asked about.
+    default : str, optional
+        Attribution used where no label falls inside an episode's span.
+        Default ``'unattributed'``.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``episodes`` with an added ``attribution`` column.
+    """
+    out = episodes.copy()
+    attributions = []
+    for start, end in zip(out['start'], out['end']):
+        window = labels.loc[start:end]
+        attributions.append(window.mode().iloc[0] if not window.empty else default)
+    out['attribution'] = attributions
+    return out
+
+
+def daily_response_amplitude(components, dates, window=72, min_slots=60,
+                             driver='future_regressor_tair'):
+    """
+    The size of the wall's own daily response, averaged over a set of dates.
+
+    A phase-shift injection must be sized against something the wall
+    actually does, not against an arbitrary millidegree figure: the driver's
+    fitted component plus every conditional or plain daily-seasonal
+    component it decomposes into is the model's own account of the daily
+    response, and its diurnal band's daily harmonic amplitude on the named
+    dates is what a timing change of that response would look like (spec
+    D11).
+
+    Parameters
+    ----------
+    components : pd.DataFrame
+        A decomposition frame such as ``components_a['str']``, carrying
+        ``driver`` and every column starting with ``'season_daily'``.
+    dates : sequence of str or pd.Timestamp
+        Calendar dates the amplitude is averaged over.
+    window : int, optional
+        Rolling-mean width, in samples, passed to
+        ``shmlib.coupling.diurnal_band``. Default ``72``, one day at twenty
+        minutes.
+    min_slots : int, optional
+        Passed to ``daily_harmonic``. Default ``60``.
+    driver : str, optional
+        Column carrying the driver's fitted component. Default
+        ``'future_regressor_tair'``.
+
+    Returns
+    -------
+    float
+        The daily response's harmonic amplitude, averaged over the days
+        named by ``dates``.
+    """
+    seasonal_columns = [c for c in components.columns if c.startswith('season_daily')]
+    response = components[driver] + components[seasonal_columns].sum(axis=1)
+    band = coupling.diurnal_band(response, window=window)
+    amplitude = daily_harmonic(band, min_slots=min_slots)['amplitude']
+    days = pd.DatetimeIndex([pd.Timestamp(d).floor('D') for d in dates])
+    return float(amplitude.reindex(days).mean())
+
+
+def detectability_by_mechanism(reference_residual, tuned, specs, mechanisms,
+                               magnitudes, durations, freq, k, h, phi,
+                               response_window, injection_starts, min_slots,
+                               seed=0):
+    """
+    Detectability swept once per damage mechanism, on its own chart.
+
+    Each mechanism has one chart and one statistic it is scored on — an
+    amplitude growth and a phase shift on the daily chart, a drift on the
+    slow chart, a step on the fast chart (spec D11) — and this calls
+    ``detectability_curve`` once per mechanism with that chart's tuned limit
+    and smoothing constant, so the notebook's detectability cell is a single
+    call rather than a hand-written loop over the four mechanisms.
+
+    Parameters
+    ----------
+    reference_residual : pd.Series
+        The uncontaminated residual, restricted to the in-control reference
+        window: what every mechanism's sweep injects into.
+    tuned : dict of dict
+        Keyed by chart name; each entry carries at least ``reference``
+        (``reference_stats``' output) and ``L``, normally from
+        ``tune_limit_to_budget``.
+    specs : dict of dict
+        Keyed by chart name; each entry carries at least ``lam``.
+    mechanisms : dict
+        Mechanism name to ``(chart_name, statistic)``, e.g.
+        ``{'step': ('fast', 'innovation')}``.
+    magnitudes : dict
+        Mechanism name to the sequence of magnitudes swept for it.
+    durations : sequence of str or pd.Timedelta
+        Durations swept, shared by every mechanism.
+    freq : str
+        Spacing of ``reference_residual``.
+    k, h : float
+        CUSUM slack and decision interval, shared by every mechanism.
+    phi : float
+        AR(1) coefficient, passed through for the ``'innovation'`` statistic.
+    response_window : str
+        How long after a departure ends an alarm still counts as having
+        found it.
+    injection_starts : sequence of str or pd.Timestamp or None
+        Injection dates, shared by every mechanism. ``None`` keeps the
+        single mid-record injection.
+    min_slots : int
+        Passed through for the daily statistics.
+    seed : int, optional
+        Passed through to ``detectability_curve``. Default ``0``.
+
+    Returns
+    -------
+    pd.DataFrame
+        The concatenation of every mechanism's ``detectability_curve``, each
+        with its own ``mechanism`` and ``chart`` columns.
+    """
+    rows = []
+    for mechanism, (chart_name, statistic) in mechanisms.items():
+        fit = tuned[chart_name]
+        curve = detectability_curve(
+            reference_residual, fit['reference']['mu'], fit['reference']['sigma'],
+            magnitudes=magnitudes[mechanism], durations=durations, freq=freq,
+            lam=specs[chart_name]['lam'], L=fit['L'], k=k, h=h, seed=seed,
+            kind=mechanism, statistic=statistic, phi=phi,
+            response_window=response_window, injection_starts=injection_starts,
+            min_slots=min_slots)
+        rows.append(curve.assign(mechanism=mechanism, chart=chart_name))
+    return pd.concat(rows, ignore_index=True)
