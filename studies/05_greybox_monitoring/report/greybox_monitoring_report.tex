@@ -1424,8 +1424,8 @@ The five unattributed episodes, the ones the monitor leaves to the wall to
 answer for, fall on four dates: two on 8~July 2023, the second of them twelve
 hours long and the largest standardised excursion of the record at a peak of
 95.7, and one each on 3~April 2024, 2~July 2024 and 30~October 2024. Three of
-the four dates fall 17 to 22 days after a resumption: 21~June 2023 after the
-437-day gap, 13~June 2024 and 8~October 2024 after the two outages of that
+the four dates fall 17 to 21 days after a resumption: 21~June 2023 after the
+437-day gap, 14~June 2024 and 9~October 2024 after the two outages of that
 year. The two environment labels are one and two slots at the onset of the
 July 2023 and July 2024 episodes, where the air temperature or humidity also
 jumped.
@@ -1434,13 +1434,13 @@ The daily charts see the same stretches at their own scale. The amplitude
 chart's longest episodes are the 33 days from 8~July 2023, at a mean of 3.8
 standard deviations, the 48 days from 23~August to 9~October 2024, which
 span the outage of 28~August to 8~October so that most of their days are the
-gap itself, and the 55 days from 19~June to 12~August 2026 at a mean of 4.4,
+gap itself, held in alarm by the average's last value before it, and the 55 days from 19~June to 12~August 2026 at a mean of 4.4,
 the summer-2026 stretch again, whose daily amplitude peaks at 8.0 standard
 deviations in the top panel of Figure~\ref{fig:daily-chart}. The phase chart
 raises three episodes, two in October 2023 and one of 44 days in the same
 summer of 2026. The slow chart raises three: 26~June to 12~July 2023 at a mean
 of $+4.8$ standard deviations and 23 to 31~October 2024 at $+3.9$, beginning
-five and fifteen days after a resumption, and 10 to 12~August 2026 at $-4.3$,
+five and fourteen days after a resumption, and 10 to 12~August 2026 at $-4.3$,
 at the archive's end. What the wall did across each of those outages,
 and whether the level the model expected at resumption is the one observed,
 is the question Section~\ref{sec:outages} puts to the proxies that kept
@@ -1453,8 +1453,9 @@ scale at once.
 \includegraphics[width=\textwidth]{GM_F09_fast_chart.png}
 \caption{The fast chart over the monitored record: the exponentially weighted
 moving average of the prewhitened innovations, standardised on the reference
-window, with the tuned limit; alarming episodes shaded. The line breaks across
-gaps rather than interpolating through them.}
+window, with the tuned limit; alarming episodes shaded. The average keeps its
+last value where the residual is missing, so the line runs flat across a gap
+and an alarm raised before a gap persists through it.}
 \label{fig:fast-chart}
 \end{figure}
 
@@ -1509,8 +1510,9 @@ corrections of D11, and a step. Amplitude growth is injected at 0.5 to 16~mdeg.
 The phase change is injected as a timing shift of a quarter, half, one and two
 hours, converted to a residual amplitude by the wall's own fitted daily
 response on each injection date, the air-temperature component plus the daily
-seasonal terms: 0.69, 1.39, 2.77 and 5.49~mdeg, against the 1.07 Study~04
-injected for a two-hour shift on the leftover daily term alone. The drift is
+seasonal terms: 0.69, 1.39, 2.77 and 5.49~mdeg, against the 5.6 the design
+estimated for the two-hour shift from the numbers it had and the 1.07
+Study~04 injected for it on the leftover daily term alone. The drift is
 injected as a rate of 1 to 200~mdeg per year and, unlike the other mechanisms,
 scored over horizons of 30, 60 and 90 days rather than of 6 to 336 hours,
 because a rate accumulated over fourteen days never amounts to anything a
@@ -1565,8 +1567,9 @@ retains a twentieth of that spike and the CUSUM accumulates it for one slot.
 The chart finds spikes and instrument faults, which is what the record's
 episodes are, and leaves a sustained level shift to the slow chart, which
 does see the 16~mdeg step on one date. Across charts, drift reaches the fast
-chart from 20~mdeg per year and the daily charts from 100, on one date each,
-and amplitude growth reaches the fast chart only at 16~mdeg.
+chart from 20~mdeg per year and the daily-phase chart from 100, on one date
+each, and the daily-amplitude chart from 100 on three dates in four; amplitude
+growth reaches the fast chart only at 16~mdeg, where it is found on every date.
 
 The blind spots, stated at the budgets of Table~\ref{tab:run-lengths}: a
 level step below 16~mdeg, a timing shift of two hours or less on the phase
