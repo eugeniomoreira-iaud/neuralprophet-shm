@@ -1834,3 +1834,76 @@ tables.write_table(thresholds, str(OUTPUT_DIR / 'GM_13b_body.tex'),
                     ('horizon_h', '.0f'), ('smallest_any', '.2f'),
                     ('smallest_all', '.2f'), ('delay_h_at_smallest_all', '.1f'),
                     ('primary', lambda value: tables.texttt('yes' if value else 'no'))])
+
+# %% [markdown]
+# ## Movement 6 · What happened across each outage?
+#
+# `prediction.outage_bridge` asks the question an outage cannot answer on
+# its own: whether the missing days hid a real movement of the wall, or
+# were simply a gap in an otherwise unremarkable record (D12). For each of
+# the seven whole-day outages the function fits a model on everything
+# before the gap, carries its expectation and its own quantile band
+# through the gap on the proxies that kept recording, and compares the
+# level the station reports over `OUTAGE_WINDOW_DAYS` once it resumes —
+# past `OUTAGE_SETTLE_DAYS`'s restart transient — against that
+# expectation. Nothing is written into the gap on either side of the fit,
+# and the interval quoted through it is the fitted model's own band from
+# before the outage, since no conformal calibration exists inside a gap to
+# draw one from instead. Writes `GM_14` (the bridge table, every outage
+# and both sets) and `GM_F12` (the station set's bridges, drawn panel by
+# panel).
+
+# %% [markdown]
+# ### Bridging every outage on the station and ERA5 sets
+#
+# `runner=None` asks `outage_bridge` to fit its own bridge through
+# `neuralprophet_backtest` at `task='nowcast'`, with changepoints kept off
+# the very gap the pre-outage training data does not cover
+# (`covered_changepoints`) and every other setting carried from the
+# parameter cells the same way Movement 3's rolling expectation carries
+# them. `MIN_TRAIN` guards an outage sitting too close to the start of a
+# set's own usable history, reporting it `'no data'` without a fit rather
+# than fitting on a training window this study would not otherwise trust;
+# `BRIDGE_SETS` excludes the on-structure set outright rather than relying
+# on that guard alone, since the on-structure package is exactly what
+# every outage took down and so it has no regressor data of its own inside
+# a gap to bridge with. The loop over outages inside `outage_bridge` runs
+# at `N_JOBS`, one worker process per outage.
+
+# %%
+bridge_rows, bridge_paths = [], []
+for name in BRIDGE_SETS:
+    block = def_frames[name]
+    table, paths = prediction.outage_bridge(
+        None, block, OUTAGES, settle_days=OUTAGE_SETTLE_DAYS,
+        window_days=OUTAGE_WINDOW_DAYS, regressors=('tair', 'rh', 'sr'),
+        min_train=MIN_TRAIN, n_jobs=N_JOBS, epochs=EPOCHS, freq=NATIVE_FREQ,
+        growth='linear', n_changepoints=N_CHANGEPOINTS,
+        changepoints_range=CHANGEPOINTS_RANGE, trend_reg=TREND_REG,
+        yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
+        conditional_seasonality=CONDITIONS, quantiles=QUANTILES, seed=SEED,
+        learning_rate=LEARNING_RATE)
+    bridge_rows.append(table.assign(set=name))
+    bridge_paths.append(paths.assign(set=name))
+bridges = pd.concat(bridge_rows, ignore_index=True)
+display(bridges)
+bridges.to_csv(OUTPUT_DIR / 'GM_14_outage_bridges.csv', index=False)
+tables.write_table(bridges, str(OUTPUT_DIR / 'GM_14_body.tex'),
+                   [('set', tables.texttt), ('outage', 'd'),
+                    (tables.date_cell('start'), None), (tables.date_cell('end'), None),
+                    ('expected', '.1f'), ('observed', '.1f'), ('shift', '.1f'),
+                    ('lower', '.1f'), ('upper', '.1f'), ('verdict', tables.texttt)])
+
+# %% [markdown]
+# ### `GM_F12`: the station set's bridges
+#
+# `figures.plot_outage_bridge` draws the first set of `BRIDGE_SETS` — the
+# station set, the proxy source physically closest to the wall — one
+# panel per outage, the observed target against the expected level and
+# its band, with the post-resumption window the verdict is judged over
+# shaded.
+
+# %%
+figures.plot_outage_bridge(bridge_paths[0], bridge_rows[0],
+                           title=f'Outage bridges, {BRIDGE_SETS[0]} set',
+                           save_path=str(OUTPUT_DIR), filename='GM_F12_outage_bridges')
