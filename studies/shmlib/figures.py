@@ -2905,3 +2905,92 @@ def plot_daily_harmonic_chart(chart_amplitude, chart_phase, episodes=None,
               loc='upper center', bbox_to_anchor=(0.5, -0.01), frameon=False)
     viz.finish(fig, save_path=save_path, filename=filename)
     return fig
+
+
+def plot_outage_bridge(paths, table, title='', save_path=None, filename=None):
+    """
+    One panel per outage: the bridging model's expectation, run through the
+    gap, against what the station reported at resumption.
+
+    Each panel draws one outage's long predictions from ``paths`` — the
+    fitted model's own quantile band, carried from before the outage
+    through the gap and into the post-resumption window, since no
+    conformal calibration exists inside a gap (spec D12) — with the
+    observed target overlaid wherever the sensor actually reported a value,
+    which is nowhere inside the outage itself and every slot before and
+    after it that ``paths`` covers. The panels are stacked, one per outage,
+    because each occupies its own stretch of the record at its own
+    inclination level; a shared axes would put every outage on one
+    calendar and one vertical scale, which is not the comparison this
+    figure makes. The shaded span in each panel starts the day after the
+    outage ends (``table``'s ``end`` for that outage) and runs to the last
+    timestamp ``paths`` plots for it — the whole post-resumption window
+    drawn, of which :func:`outage_bridge`'s ``settle_days`` excludes the
+    first few days from ``table``'s own ``expected``/``observed`` averages
+    without excluding them from what is shaded here.
+
+    Parameters
+    ----------
+    paths : pd.DataFrame
+        The second return value of :func:`shmlib.prediction.outage_bridge`:
+        long predictions with ``ds``, ``y``, ``yhat``, ``q05``, ``q95`` and
+        an ``outage`` label. One panel is drawn per distinct value of
+        ``outage`` present here, in ascending order — an outage the
+        ``min_train`` guard or the history check skipped, and so carries
+        no rows in ``paths``, draws no panel.
+    table : pd.DataFrame
+        The first return value of :func:`shmlib.prediction.outage_bridge`,
+        read here for each drawn outage's ``end`` date, which anchors the
+        shaded span.
+    title : str, optional
+        Figure title. Default ``''``, which draws none.
+    save_path, filename : str or None, optional
+        Passed to :func:`shmlib.viz.finish`; nothing is written when
+        either is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        One axes per outage drawn.
+    """
+    outages = sorted(paths['outage'].unique())
+    fig, axes = plt.subplots(
+        len(outages), 1,
+        figsize=viz.figsize(viz.FIGURE_WIDTH, 2.2 * len(outages)))
+    axes = np.atleast_1d(axes)
+
+    handles = None
+    for ax, number in zip(axes, outages):
+        panel = paths[paths['outage'] == number].sort_values('ds')
+        rows = table[table['outage'] == number]
+
+        band = None
+        if 'q05' in panel.columns and 'q95' in panel.columns:
+            band = ax.fill_between(
+                panel['ds'], panel['q05'], panel['q95'], color=viz.INC_COLOUR,
+                alpha=0.18, linewidth=0.0, label='q05–q95 interval')
+        line, = ax.plot(panel['ds'], panel['yhat'], color=viz.INC_COLOUR,
+                        linewidth=1.0, linestyle='--', label='expected (yhat)')
+        points, = ax.plot(panel['ds'], panel['y'], color=viz.INC_COLOUR,
+                          marker='.', markersize=3, linestyle='none',
+                          label='observed')
+
+        if not rows.empty and pd.notna(rows.iloc[0]['end']) and not panel.empty:
+            end = pd.Timestamp(rows.iloc[0]['end'])
+            ax.axvspan(end + pd.Timedelta(days=1), panel['ds'].max(),
+                      **viz.SPAN_STYLE)
+
+        ax.set_ylabel(f'Outage {int(number)}\n[mdeg]')
+        viz.format_spines(ax)
+        if handles is None:
+            handles = [h for h in (points, line, band) if h is not None]
+
+    axes[-1].set_xlabel('')
+    if title:
+        fig.suptitle(title)
+    if handles:
+        labels = [h.get_label() for h in handles]
+        fig.legend(handles, labels, fontsize='small', ncol=len(handles),
+                  loc='upper center', bbox_to_anchor=(0.5, -0.01), frameon=False)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig

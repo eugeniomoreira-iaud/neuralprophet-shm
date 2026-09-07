@@ -3451,3 +3451,148 @@ def impulse_response_summary(weights, dt_hours):
                     'r2_onepole': 1.0 - best_sse / total if total > 0 else np.nan})
     return pd.DataFrame(
         rows, columns=['regressor', 'gain', 'delay_h', 'tau_h', 'r2_onepole'])
+
+
+def outage_bridge(runner, frame, outages, settle_days=1, window_days=7,
+                  regressors=(), min_train=None, n_jobs=1, **model_kwargs):
+    """
+    The expected level at resumption after each outage, against the level seen.
+
+    A model is fitted on everything before the outage; the proxies that kept
+    recording carry the expectation through the gap; the first days after
+    resumption test it. Nothing is written into the gap (spec D12): the
+    outage's own rows never reach a fit, on either side of it, and the
+    interval this function reports through the gap is the fitted model's
+    own quantile band from before the outage — there is no conformal
+    calibration inside a gap to draw on instead, since conformal
+    calibration needs a held-out stretch of observed target the gap does
+    not have.
+
+    ``runner`` is the escape hatch a caller uses to control exactly how the
+    bridging model is fit — the study's own notebook cell used it this way
+    before this function grew a default. Passing ``None`` asks the
+    function to fit the bridge itself, through
+    :func:`neuralprophet_backtest` at ``task='nowcast'`` with
+    ``changepoints=covered_changepoints(train.index, n_changepoints)`` so
+    that no changepoint of a per-outage fit falls inside the very gap that
+    fit's own training data does not cover; ``n_changepoints`` is read out
+    of ``model_kwargs`` (falling back to ``neuralprophet_backtest``'s own
+    default of ``10`` when absent) and also passed through to the
+    constructor unchanged, exactly as :func:`rolling_nowcast` already reads
+    it for its own per-window changepoints.
+
+    The loop over outages goes through :func:`_parallel_map`; this
+    function fits a model per outage but never returns one, so unlike
+    :func:`attribution_fits` it needs none of :func:`_detach_trainer`'s
+    care about what crosses the process boundary.
+
+    Parameters
+    ----------
+    runner : callable or None
+        ``runner(train, test) -> long predictions`` with ``ds``, ``y``,
+        ``yhat``, ``q05``, ``q95``. ``None`` fits the bridge through
+        :func:`neuralprophet_backtest` itself, as described above.
+    frame : pd.DataFrame
+        Modelling frame with ``y`` and the regressors, on a
+        ``DatetimeIndex``.
+    outages : sequence of (start, end)
+        Inclusive date bounds of each outage, as anything ``pd.Timestamp``
+        parses. Localised to ``frame.index``'s own timezone (or left naive,
+        matching a naive index) rather than assumed UTC, so the same call
+        works whether ``frame`` carries a tz-aware or a tz-naive index.
+    settle_days, window_days : int, optional
+        Days skipped after resumption (restart transient), then days
+        averaged into ``expected`` and ``observed``. Defaults ``1`` and
+        ``7``.
+    regressors : sequence of str, optional
+        Regressor columns exposed to the model when ``runner`` is
+        ``None``. Ignored when ``runner`` is given, since the caller's own
+        closure already decides what the model sees. Default empty.
+    min_train : str or None, optional
+        Pandas offset alias giving the minimum history required before an
+        outage's start, in the same sense as :func:`rolling_nowcast`'s own
+        ``min_train``. An outage whose training history is shorter than
+        this is reported ``'no data'`` without being fitted at all, on
+        either path. ``None`` (the default) applies no such guard, which
+        reproduces this function's behaviour before ``min_train`` existed.
+    n_jobs : int, optional
+        Passed to :func:`_parallel_map`: outages are fit in separate
+        worker processes when greater than ``1``. Default ``1``.
+    **model_kwargs
+        Forwarded to :func:`neuralprophet_backtest` when ``runner`` is
+        ``None``. Ignored when ``runner`` is given.
+
+    Returns
+    -------
+    (pd.DataFrame, pd.DataFrame)
+        ``table``: ``outage``, ``start``, ``end``, ``expected``, ``lower``,
+        ``upper``, ``observed``, ``shift``, ``n_observed``, ``verdict``,
+        one row per outage in the order given, regardless of which ones
+        were skipped by the ``min_train`` guard or the existing history
+        checks; ``paths``: the long predictions of every fitted bridge
+        with an ``outage`` label, for the figure. An outage with no
+        prediction carries no rows in ``paths``.
+    """
+    frame_tz = frame.index.tz
+    specs, no_data_rows = [], []
+    for number, (start, end) in enumerate(outages, 1):
+        start, end = pd.Timestamp(start), pd.Timestamp(end)
+        if frame_tz is not None:
+            start = (start.tz_localize(frame_tz) if start.tzinfo is None
+                     else start.tz_convert(frame_tz))
+            end = (end.tz_localize(frame_tz) if end.tzinfo is None
+                  else end.tz_convert(frame_tz))
+        resume = end + pd.Timedelta(days=1) + pd.Timedelta(days=settle_days)
+        stop = resume + pd.Timedelta(days=window_days)
+        train = frame.loc[:start - pd.Timedelta(minutes=1)]
+        test = frame.loc[start:stop]
+        short_history = (min_train is not None and not train.empty
+                         and (start - train.index.min()) < pd.Timedelta(min_train))
+        if train['y'].notna().sum() < 100 or test.empty or short_history:
+            no_data_rows.append({
+                'outage': number, 'start': start, 'end': end,
+                'expected': np.nan, 'lower': np.nan, 'upper': np.nan,
+                'observed': np.nan, 'shift': np.nan, 'n_observed': 0,
+                'verdict': 'no data'})
+            continue
+        specs.append((number, start, end, resume, stop, train, test))
+
+    def _fit_bridge(spec):
+        """Fit and score one outage's bridge; the unit _parallel_map dispatches."""
+        number, start, end, resume, stop, train, test = spec
+        if runner is not None:
+            long = runner(train, test)
+        else:
+            n_changepoints = int(model_kwargs.get('n_changepoints', 10))
+            _, long = neuralprophet_backtest(
+                train, test, regressors=regressors, task='nowcast',
+                changepoints=covered_changepoints(train.index, n_changepoints),
+                **model_kwargs)
+        long = long.assign(outage=number)
+        after = long[(pd.DatetimeIndex(long['ds']) >= resume)
+                     & (pd.DatetimeIndex(long['ds']) < stop)]
+        observed = after['y'].dropna()
+        expected = float(after['yhat'].mean())
+        lower, upper = float(after['q05'].mean()), float(after['q95'].mean())
+        if observed.size < 24:
+            verdict, shift, seen = 'no data', np.nan, np.nan
+        else:
+            seen = float(observed.mean())
+            shift = seen - expected
+            verdict = 'inside' if lower <= seen <= upper else 'outside'
+        row = {'outage': number, 'start': start, 'end': end,
+              'expected': expected, 'lower': lower, 'upper': upper,
+              'observed': seen, 'shift': shift,
+              'n_observed': int(observed.size), 'verdict': verdict}
+        return row, long
+
+    fitted = _parallel_map(_fit_bridge, specs, n_jobs=n_jobs)
+    rows = sorted(no_data_rows + [row for row, _ in fitted],
+                 key=lambda row: row['outage'])
+    table = pd.DataFrame(rows, columns=[
+        'outage', 'start', 'end', 'expected', 'lower', 'upper', 'observed',
+        'shift', 'n_observed', 'verdict'])
+    path_frames = [long for _, long in fitted]
+    paths = pd.concat(path_frames, ignore_index=True) if path_frames else pd.DataFrame(
+        columns=['ds', 'horizon_h', 'y', 'yhat', 'q05', 'q95', 'outage'])
+    return table, paths
