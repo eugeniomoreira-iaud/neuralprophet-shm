@@ -19,8 +19,8 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 
 | Measure | Progress |
 |---|---|
-| Tasks complete (of 42, Tasks 0.1 to 7.3) | `[█████████████████░░░]` **36 of 42** (86 %) |
-| Report sections written (of 14) | `[██████████████░░░░░░]` **10 of 14** (71 %) |
+| Tasks complete (of 42, Tasks 0.1 to 7.3) | `[███████████████████░]` **39 of 42** (93 %) |
+| Report sections written (of 14) | `[████████████████░░░░]` **11 of 14** (79 %) |
 
 | Phase | Tasks | State | Result and commits |
 |---|---|---|---|
@@ -32,10 +32,10 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 | 3 · Expectation and interval | 3.1–3.3 | ✅ complete | 9f4719f, 4f0278f, ed7f326. `GM_09`, `GM_F08`: pooled coverage 88.4 % (on-structure) against Study 04's 67.7 %; coverage 96 → 82 % and MAE 5.3 → 10.9 mdeg across the refit month. Two runs of about an hour each (the first died on the native conformal plot). |
 | 4 · Model B impulse response | 4.1–4.3 | ✅ complete | 9ecf31c, 68cadab, 97a427d, e51f176 (weights rescaled to millidegrees per unit of the driver after a first run in normalised units); §7 committed. `GM_10`, `GM_F07`. **Checkpoint 4:** air temperature agrees with Study 03 (gain −2.67 vs −2.79, response one slot deep, no time constant); radiation has no resolvable response, its summed weight positive against Study 03's negative gain, stated as a finding; Model A not re-tuned. Report §7 (2fbe399, 99c5843). Checkpoint 4 passed; both reviews clean. |
 | 5 · The monitor | 5.1–5.5, 5.4c | ✅ complete | 4c03b1b, fb479b0, bf6cd97, 5ac5a9e (5.1–5.4, review clean); e7bb7a8 (5.4c library); 250f5bd, 7d1e7f3 (fix round 1 of 5.4 and 5.4c Step 3, one shared run p5d of 35.7 min at `N_JOBS = 32`). `GM_11`–`GM_13b`, `GM_F09`–`GM_F11`, `GM_F13_{amplitude,phase,drift,step}`. Reference window 2020-11-21 to 2021-12-31 (the rolling residual's first full day). Limits: fast 6.25 (135 d), daily amplitude 3.25 (102 d), daily phase 1.00 (203 d, the sweep's floor: the joint alarm is gated by the shared CUSUM `h`), slow 13.5 (406 d on one episode). 99 episodes; 69 of 76 fast ones attributed to the instrument once the coincidence window shrank to two hours, the summer-2026 burst among them. Detectability: amplitude growth 8 mdeg on every date at every duration, 4 mdeg at a week; phase never on every date; drift only at 200 mdeg/yr over 90 d; step only at 16 mdeg (prewhitening turns a step into one slot). Two Windows defects fixed in the parallel path on the way (250f5bd: the fitted model's trainer graph in the worker's pickle, 143 GB; NeuralProphet's logger bound to a shared cwd on Drive). Report §10. **Checkpoint 5** in the report and the ledger. |
-| 6 · Outage bridges | 6.1–6.3 | ⬜ pending | `GM_14`, `GM_F12`; report §11. |
+| 6 · Outage bridges | 6.1–6.3 | ✅ complete | c79b47e, b7fd509 (Sonnet implementer; `outage_bridge` with `runner=None`, `min_train`, `n_jobs`; tz-naive frames handled; full run 36.8 min, 43/43 cells). `GM_14`, `GM_F12`. Outages 1–2 no data (before the first origin; the merged 437-day gap), 2022–23 gap +45/+54 mdeg and autumn 2024 +36/+33 mdeg outside on both sets, spring 2024 inside, autumn 2025 +16/+13 inside the calibrated half-width, 2026 contaminated by the instrument stretch. The band is the pre-outage fit's raw quantile band, not the conformal interval D12 named (no residuals inside a gap); D12's text and §11 say so. Report §11 written. **Checkpoint 6** stated in §11. |
 | 7 · Closure and the revision pass | 7.1–7.3 | ⬜ pending | `GM_15`; report §12–§14; then Task 7.3, the revision pass from `report05_check.md`. |
 
-Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend ✅ · 5 Seasonality ✅ · 6 Regressors ✅ · 7 Impulse response ✅ · 8 Uncertainty ✅ · 9 Ladder ✅ · 10 Monitor ✅ · 11 Outages ⬜ · 12 Verdict ⬜ · 13 Limitations ⬜ · 14 Run metadata ⬜.
+Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend ✅ · 5 Seasonality ✅ · 6 Regressors ✅ · 7 Impulse response ✅ · 8 Uncertainty ✅ · 9 Ladder ✅ · 10 Monitor ✅ · 11 Outages ✅ · 12 Verdict ⬜ · 13 Limitations ⬜ · 14 Run metadata ⬜.
 
 ## Global Constraints
 
@@ -3317,7 +3317,7 @@ Dependencies: Step 2's commit may proceed while Task 5.4 is running (disjoint fi
 - `prediction.outage_bridge(runner, frame, outages, settle_days=1, window_days=7) -> (table, paths)`: `runner(train, test) -> long predictions` (a closure over `neuralprophet_backtest` with the study's settings, returning the frame with `ds`, `y`, `yhat`, `q05`, `q95`); for each `(start, end)` in `outages`, `train = frame.loc[:start)`, `test = frame.loc[start : end + settle + window]`; `expected` = mean `yhat` and mean `q05`/`q95` over the first `window_days` after `end + settle_days`, `observed` = mean `y` there; `shift = observed − expected`; `verdict` = `'inside'` if `observed` lies in `[mean q05, mean q95]` else `'outside'`; `'no data'` if fewer than 24 observed slots. `paths` is the concatenated long predictions with an `outage` label, for the figure.
 - `figures.plot_outage_bridge(paths, table, title='', save_path=None, filename=None)`: one panel per outage, observed before and after, expected with its band through the gap, the resumption window shaded black at 5 %.
 
-- [ ] **Step 1: Test**
+- [x] **Step 1: Test**
 
 ```python
 """
@@ -3362,7 +3362,7 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```python
 def outage_bridge(runner, frame, outages, settle_days=1, window_days=7):
@@ -3432,7 +3432,7 @@ def outage_bridge(runner, frame, outages, settle_days=1, window_days=7):
 
 `plot_outage_bridge`: `len(outages)` stacked panels; in each, `y` as points in the inclination colour, `yhat` as a line with `q05`–`q95` filled at low alpha, the resumption window `axvspan` black at 5 %; test asserts one axes per outage in `paths`.
 
-- [ ] **Step 3: Run; PASS. Commit** `feat(shmlib): test the level at resumption after each outage against the bridged expectation`.
+- [x] **Step 3: Run; PASS. Commit** `feat(shmlib): test the level at resumption after each outage against the bridged expectation`. (c79b47e; Task 6.2 as b7fd509.)
 
 ### Task 6.2 (S): Movement 6 — `GM_14`, `GM_F12`
 
@@ -3482,7 +3482,7 @@ Note that the on-structure set has no regressor data inside an outage, which is 
 
 ### Task 6.3 (O): Report §11
 
-- [ ] From `GM_14_body.tex` and `GM_F12_outage_bridges.png`: one paragraph per outage, the verdict per proxy set, the caveat on the interval through the gap. Build, honesty test, README status, commit `docs(study05): write the outages section`.
+- [x] From `GM_14_body.tex` and `GM_F12_outage_bridges.png`: one paragraph per outage, the verdict per proxy set, the caveat on the interval through the gap. Build, honesty test, README status, commit `docs(study05): write the outages section`.
 
 > **Checkpoint 6 (O):** a verdict per outage and proxy set. Approval opens Phase 7.
 

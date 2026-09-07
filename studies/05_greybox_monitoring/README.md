@@ -1,6 +1,6 @@
 # Study 5 · Grey-box expectation and monitoring of the station 02 inclination
 
-Status: **in progress — Phase 5 complete (record, clocks, regressor sets, harmonic diagnostics, Model A attribution on three sets, current-era ladder, rolling expectation with rolling conformal bounds, Model B impulse response, the three-scale monitor with attribution and detectability by mechanism on every chart).** Built to the design in
+Status: **in progress — Phase 6 complete (record, clocks, regressor sets, harmonic diagnostics, Model A attribution on three sets, current-era ladder, rolling expectation with rolling conformal bounds, Model B impulse response, the three-scale monitor with attribution and detectability by mechanism on every chart, the outage bridges).** Built to the design in
 `docs/superpowers/specs/2026-09-05-study05-greybox-monitoring-design.md`.
 
 This study answers the question Study 04 posed and did not fully answer, for the same
