@@ -3531,7 +3531,13 @@ def outage_bridge(runner, frame, outages, settle_days=1, window_days=7,
         were skipped by the ``min_train`` guard or the existing history
         checks; ``paths``: the long predictions of every fitted bridge
         with an ``outage`` label, for the figure. An outage with no
-        prediction carries no rows in ``paths``.
+        prediction carries no rows in ``paths``. The predictions cover
+        the rows of ``frame`` between the outage's start and the end of
+        the scored window, so a frame that keeps no row where its target
+        is missing, as the study's modelling frames do (spec D13), yields
+        a path that begins at resumption rather than one drawn through
+        the gap; the verdict, which compares levels after the gap, does
+        not depend on the difference.
     """
     frame_tz = frame.index.tz
     specs, no_data_rows = [], []
