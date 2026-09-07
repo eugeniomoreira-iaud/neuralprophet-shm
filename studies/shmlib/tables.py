@@ -322,3 +322,53 @@ def basename(output_dir, artefact):
         The joined path.
     """
     return os.path.join(output_dir, artefact)
+
+
+def run_metadata(parameters, versions=None):
+    """
+    Summarise a run's parameters and library versions in one two-column table.
+
+    A study's closing movement records what it was run on: every parameter the
+    notebook's own parameter cells declared, in the order the notebook states
+    them, followed by the versions of the four libraries whose behaviour the
+    result depends on. Keeping this as one function rather than a table
+    literal typed into the notebook means the row order and the version
+    lookup are tested once here rather than re-typed, and possibly
+    mistyped, in every study that closes this way.
+
+    Parameters
+    ----------
+    parameters : mapping
+        Parameter name to value, in the order the output table should list
+        them. Typically one dict literal built in the notebook's closing
+        cell, naming its own parameter-cell variables.
+    versions : mapping, optional
+        Version-row name to value, e.g. ``{'neuralprophet_version': '0.8.0',
+        ...}``. Default ``None``, which reads the installed versions of
+        ``neuralprophet``, ``pandas``, ``numpy`` and ``scipy`` inside this
+        function and names the four rows ``neuralprophet_version``,
+        ``pandas_version``, ``numpy_version`` and ``scipy_version``, in that
+        order. A mapping given instead is used as is, unchanged.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``parameter`` and ``value``: one row per entry of
+        ``parameters``, in its order, followed by one row per entry of
+        ``versions``. Every value is rendered with ``str``, so a value that is
+        itself a dict or a tuple — a set of regressor sets, a bundle of tuned
+        control limits — survives :func:`write_table` as readable text rather
+        than raising on an unformattable type.
+    """
+    if versions is None:
+        import neuralprophet
+        import scipy
+        versions = {
+            'neuralprophet_version': neuralprophet.__version__,
+            'pandas_version': pd.__version__,
+            'numpy_version': np.__version__,
+            'scipy_version': scipy.__version__,
+        }
+    rows = list(parameters.items()) + list(versions.items())
+    return pd.DataFrame(
+        [(name, str(value)) for name, value in rows], columns=['parameter', 'value'])
