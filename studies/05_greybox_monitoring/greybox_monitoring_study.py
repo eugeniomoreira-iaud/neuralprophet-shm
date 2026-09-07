@@ -421,6 +421,19 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 # (`CONDITIONS` is not `None`): when it is not, the plain daily term is the
 # same shape on every day of the year, so drawing it four times would show
 # four identical curves, and only the first date is evaluated instead.
+#
+# **`N_JOBS`** — worker processes `prediction.rolling_nowcast`,
+# `fold_stability`, `sweep_trend_reg`, `attribution_fits` and
+# `channel_ladder` fit their independent origins, folds, candidates, sets
+# and rungs across; default `32`. `1` reproduces the serial run bit for
+# bit (`_parallel_map` never imports `joblib` at that value). The useful
+# ceiling is the length of the longest loop — about seventy walk-forward
+# origins — rather than the machine's core count, and `_parallel_map`
+# caps its pool at the number of items, so a value above the loop length
+# only pays to start worker processes that go straight to idle. Each
+# worker holds its own copy of the frame, about one gigabyte, so raising
+# this alongside a much larger record is a memory decision as much as a
+# speed one.
 
 # %%
 N_CHANGEPOINTS = 12
@@ -451,6 +464,7 @@ STUDY03_GAINS = {('str', 'tair'): -2.79, ('gs', 'tair'): -2.23, ('era5', 'tair')
                  ('str', 'sr'): -0.035, ('gs', 'sr'): -0.035, ('era5', 'sr'): -0.026,
                  ('str', 'rh'): np.nan, ('gs', 'rh'): np.nan, ('era5', 'rh'): np.nan}
 SEASONAL_CURVE_DATES = ('2024-03-20', '2024-06-21', '2024-09-22', '2024-12-21')
+N_JOBS = 32
 
 # %% [markdown]
 # ## Parameters · Uncertainty and validation
@@ -685,14 +699,28 @@ LADDER_RUNGS = [
 #
 # **`LIMIT_CANDIDATES`** — control limits swept, in standard deviations, to
 # find the smallest one meeting each chart's budget; default
-# `tuple(np.arange(2.0, 15.01, 0.25))`, a quarter-standard-deviation grid
-# wide enough that the slow chart's coarse, thirteen-month-limited tuning
-# still has room to land on a genuine minimum rather than the grid's edge.
+# `tuple(np.arange(1.0, 15.01, 0.25))`. The floor was `2.0` in the first
+# run, and `GM_12` showed the daily-phase chart tuned to exactly that
+# floor — the sweep's own edge, not a genuine minimum, so the chart was
+# less sensitive than its budget actually allowed. Lowering the floor to
+# `1.0` gives the smallest-limit search room below the old edge; only a
+# chart previously tuned to `2.00` can change, since the smallest limit
+# meeting the budget is chosen and the achieved run length only rises with
+# the limit. With the floor at `1.0` the daily-phase chart lands on the
+# floor again, at the same run length of 203 days on the same two
+# reference episodes: its joint alarm is gated by the CUSUM's decision
+# interval (`CUSUM_H`), which every chart shares by D10, so below about
+# two standard deviations the EWMA limit no longer sets the chart's
+# sensitivity and lowering the floor further would change nothing. The
+# floor is left at `1.0` and the report states the gate.
 #
 # **`DETECT_MAGNITUDES`, `DETECT_DURATIONS`** — injected amplitude-growth
 # magnitudes (millidegrees) and durations swept for detectability; default
 # `(0.5, 1.0, 2.0, 4.0, 8.0, 16.0)` and `('6h', '24h', '72h', '168h',
-# '336h')`, Study 04's grid, bracketing the residual's own scale.
+# '336h')`, Study 04's grid, bracketing the residual's own scale. Shared by
+# the amplitude, phase and step mechanisms; the drift mechanism uses
+# `DETECT_DRIFT_HORIZONS` instead (below), since a drift needs weeks, not
+# hours, to accumulate into anything a chart could see.
 #
 # **`DETECT_PHASE_SHIFTS_H`** — timing shifts probed for the phase
 # mechanism, in hours; default `(0.25, 0.5, 1.0, 2.0)`. Each is sized by
@@ -702,7 +730,23 @@ LADDER_RUNGS = [
 # the measured daily response implies about 5.6 mdeg (§2.5).
 #
 # **`DETECT_DRIFT_RATES`** — drift rates probed, in millidegrees per year;
-# default `(1.0, 2.0, 5.0, 10.0, 20.0)`, Study 04's grid.
+# default `(1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0)`. The first five
+# are Study 04's own grid; the last three are added because the sweep at
+# Study 04's rates and durations never crossed the slow chart's limit at
+# all (`detected = 0` on every drift row of `GM_13`) — the injected drift
+# never exceeded 0.8 mdeg inside the scoring window against a reference
+# residual whose standard deviation is 13.4 mdeg. The added rates locate
+# where the chart's threshold actually sits.
+#
+# **`DETECT_DRIFT_HORIZONS`** — the drift mechanism's own scoring
+# durations, in place of `DETECT_DURATIONS`; default `('30d', '60d',
+# '90d')`. `inject_anomaly(kind='drift')` takes its magnitude as a rate per
+# year and accumulates continuously, so scoring it inside `DETECT_DURATIONS`'s
+# longest span (336 hours, fourteen days) never lets a plausible drift rate
+# accumulate into anything the slow chart's coarse limit would catch — the
+# defect `DETECT_DRIFT_RATES` alone could not fix. All four injection dates
+# plus ninety days plus `DETECT_RESPONSE_WINDOW` still fall inside the
+# reference window (`2021-09-15` + 90 d = `2021-12-14`).
 #
 # **`DETECT_RESPONSE_WINDOW`** — how long after a departure ends an alarm
 # still counts as having found it; default `'24h'`.
@@ -727,6 +771,22 @@ LADDER_RUNGS = [
 # against before it is called a structural departure; default `('tair',
 # 'rh', 'batt')` (D10). An alarm coincident with a swing on one of these is
 # attributed to the environment or the instrument rather than to the wall.
+#
+# **`ATTRIBUTION_WINDOW`** — width of `channel_coincidence`'s centred
+# rolling median, the baseline each channel's departure is measured
+# against; default `'2h'`. The function's own default, `'24h'`, spans an
+# entire diurnal cycle, so on air temperature the "departure from the
+# median" is the diurnal cycle itself — a MAD of about 6 °C against a
+# threshold near 31 °C that no realistic swing reaches, which is why every
+# one of the first run's 75 fast-chart episodes came back `unattributed`.
+# The coincidence test is built to catch a twenty-minute-scale swing
+# against its own local background, not a slow cycle the median should
+# already track out, so the window is shortened to two hours instead.
+#
+# **`ATTRIBUTION_THRESHOLD`** — number of scaled departures a channel must
+# exceed to count as in excursion, passed to `channel_coincidence`;
+# default `5.0`, the function's own default, unchanged — only the window
+# needed correcting.
 
 # %%
 REFERENCE_START = '2020-11-21'
@@ -742,11 +802,12 @@ JOINT_WINDOW_DAILY = '1D'
 BUDGET_FAST_DAYS = 90.0
 BUDGET_DAILY_DAYS = 90.0
 BUDGET_SLOW_DAYS = 365.0
-LIMIT_CANDIDATES = tuple(np.arange(2.0, 15.01, 0.25))
+LIMIT_CANDIDATES = tuple(np.arange(1.0, 15.01, 0.25))
 DETECT_MAGNITUDES = (0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
 DETECT_DURATIONS = ('6h', '24h', '72h', '168h', '336h')
 DETECT_PHASE_SHIFTS_H = (0.25, 0.5, 1.0, 2.0)
-DETECT_DRIFT_RATES = (1.0, 2.0, 5.0, 10.0, 20.0)
+DETECT_DRIFT_RATES = (1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0)
+DETECT_DRIFT_HORIZONS = ('30d', '60d', '90d')
 DETECT_RESPONSE_WINDOW = '24h'
 DETECT_INJECTION_DATES = ('2020-12-15', '2021-03-15', '2021-06-15', '2021-09-15')
 MECHANISM_CHARTS = {'amplitude': ('daily_amplitude', 'daily_amplitude'),
@@ -754,6 +815,8 @@ MECHANISM_CHARTS = {'amplitude': ('daily_amplitude', 'daily_amplitude'),
                     'drift': ('slow', 'daily_mean'),
                     'step': ('fast', 'innovation')}
 ATTRIBUTION_CHANNELS = ('tair', 'rh', 'batt')
+ATTRIBUTION_WINDOW = '2h'
+ATTRIBUTION_THRESHOLD = 5.0
 
 # %% [markdown]
 # ## Parameters · Outage bridges
@@ -1049,7 +1112,7 @@ changepoints_str = prediction.covered_changepoints(train_str.index, N_CHANGEPOIN
 # %%
 sweep = prediction.sweep_trend_reg(
     train_str, valid_str, TREND_REG_CANDIDATES, ('tair', 'rh', 'sr'),
-    epochs=EPOCHS, freq=NATIVE_FREQ, growth='linear',
+    n_jobs=N_JOBS, epochs=EPOCHS, freq=NATIVE_FREQ, growth='linear',
     changepoints=changepoints_str, n_changepoints=N_CHANGEPOINTS,
     changepoints_range=CHANGEPOINTS_RANGE, yearly_order=YEARLY_ORDER,
     daily_order=DAILY_ORDER, quantiles=QUANTILES, seed=SEED,
@@ -1110,7 +1173,7 @@ tables.write_table(conditional_test, str(OUTPUT_DIR / 'GM_05b_body.tex'),
 fits, shares, gains, diagnostics = prediction.attribution_fits(
     def_frames, ('tair', 'rh', 'sr'), VALID_P, N_CHANGEPOINTS,
     study03_gains=STUDY03_GAINS, diagnostic_lags=(1, 72, 216),
-    weight_curve=WEIGHT_CURVE, epochs=EPOCHS, freq=NATIVE_FREQ,
+    weight_curve=WEIGHT_CURVE, n_jobs=N_JOBS, epochs=EPOCHS, freq=NATIVE_FREQ,
     growth='linear', changepoints_range=CHANGEPOINTS_RANGE,
     trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
     conditional_seasonality=CONDITIONS, quantiles=QUANTILES, seed=SEED,
@@ -1172,7 +1235,8 @@ for native in (model.plot(forecast_native, plotting_backend='plotly'),
 stability = prediction.fold_stability(
     fits, def_frames, ('tair', 'rh', 'sr'), N_CHANGEPOINTS, CV_FOLDS,
     CV_FOLD_PCT, CV_FOLD_OVERLAP_PCT, NATIVE_FREQ, gain_regressor='tair',
-    epochs=EPOCHS, growth='linear', changepoints_range=CHANGEPOINTS_RANGE,
+    n_jobs=N_JOBS, epochs=EPOCHS, growth='linear',
+    changepoints_range=CHANGEPOINTS_RANGE,
     trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
     conditional_seasonality=CONDITIONS, seed=SEED, learning_rate=LEARNING_RATE)
 display(stability)
@@ -1276,8 +1340,9 @@ current = prediction.ladder_frame(
 ladder, ladder_errors = prediction.channel_ladder(
     current, LADDER_RUNGS, VALID_P, LADDER_N_CHANGEPOINTS,
     block_hours=LADDER_BOOTSTRAP_BLOCK_HOURS,
-    repetitions=LADDER_BOOTSTRAP_REPETITIONS, seed=SEED, epochs=EPOCHS,
-    freq=NATIVE_FREQ, growth='linear', changepoints_range=CHANGEPOINTS_RANGE,
+    repetitions=LADDER_BOOTSTRAP_REPETITIONS, seed=SEED, n_jobs=N_JOBS,
+    epochs=EPOCHS, freq=NATIVE_FREQ, growth='linear',
+    changepoints_range=CHANGEPOINTS_RANGE,
     trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
     conditional_seasonality=CONDITIONS, quantiles=QUANTILES,
     learning_rate=LEARNING_RATE)
@@ -1334,8 +1399,8 @@ for name, block in def_frames.items():
     rolling = prediction.rolling_nowcast(
         block, regressors=('tair', 'rh', 'sr'), refit_every=REFIT_EVERY,
         min_train=MIN_TRAIN, train_window=TRAIN_WINDOW,
-        changepoints_per_window=True, freq=NATIVE_FREQ, epochs=EPOCHS,
-        growth='linear', n_changepoints=N_CHANGEPOINTS,
+        changepoints_per_window=True, freq=NATIVE_FREQ, n_jobs=N_JOBS,
+        epochs=EPOCHS, growth='linear', n_changepoints=N_CHANGEPOINTS,
         changepoints_range=CHANGEPOINTS_RANGE, trend_reg=TREND_REG,
         yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
         conditional_seasonality=CONDITIONS, quantiles=QUANTILES, seed=SEED,
@@ -1537,11 +1602,13 @@ else:
 # limit is swept to its own false-alarm budget; the fast chart's alarms
 # are cross-checked against the on-structure environment and supply
 # channels; and detectability is measured per damage mechanism on the
-# chart and statistic each one is actually scored on, with injections
-# sized by the wall's own measured daily response (D11). Writes `GM_11`
-# and `GM_12` (the alarm episodes and the tuned run lengths), `GM_13` (the
-# detectability sweep), and `GM_F09`–`GM_F11` and `GM_F13_amplitude`,
-# `GM_F13_phase`, `GM_F13_drift`.
+# chart and statistic each one is actually scored on — every mechanism on
+# every chart, not only its own — with injections sized by the wall's own
+# measured daily response (D11). Writes `GM_11` and `GM_12` (the alarm
+# episodes and the tuned run lengths), `GM_13` (the full detectability
+# sweep) and `GM_13b` (the detection threshold read off each mechanism's
+# own chart), and `GM_F09`–`GM_F11` and `GM_F13_amplitude`, `GM_F13_phase`,
+# `GM_F13_drift`, `GM_F13_step`.
 
 # %% [markdown]
 # ### The charted series
@@ -1619,22 +1686,29 @@ tables.write_table(runs, str(OUTPUT_DIR / 'GM_12_body.tex'),
 # `monitoring.channel_coincidence` reduces air temperature, relative
 # humidity and supply voltage — the raw on-structure channels, from
 # `sensor`, before any dust-gap filling — to their departure from a
-# centred rolling median, scaled on the reference window, and labels every
-# fast-chart alarm slot by whichever of them was also in excursion.
-# `monitoring.attribute_episodes` reduces those slot labels to one
-# attribution per episode: the mode of the labels falling inside its
-# span. `GM_11` carries every chart's episodes, with the attribution
-# filled in for the fast chart and the table's missing marker elsewhere —
-# the daily and slow charts are not cross-checked against these channels,
-# since a swing over a day or a year is not what a twenty-minute
-# coincidence test is built to catch.
+# centred rolling median at `ATTRIBUTION_WINDOW`, scaled on the reference
+# window by `ATTRIBUTION_THRESHOLD`, and labels every fast-chart alarm slot
+# by whichever of them was also in excursion. The window is two hours, not
+# the function's own twenty-four: at a full day the "departure from the
+# median" on air temperature is the diurnal cycle itself, whose own swing
+# swamps the threshold and left every episode of the first run
+# `unattributed` — the coincidence test is built to catch a twenty-minute
+# swing against its own local background, not a cycle the median should
+# already track out. `monitoring.attribute_episodes` reduces those slot
+# labels to one attribution per episode: the mode of the labels falling
+# inside its span. `GM_11` carries every chart's episodes, with the
+# attribution filled in for the fast chart and the table's missing marker
+# elsewhere — the daily and slow charts are not cross-checked against
+# these channels, since a swing over a day or a year is not what a
+# twenty-minute coincidence test is built to catch.
 
 # %%
 attribution_channels = sensor[[f'{c}_str' for c in ATTRIBUTION_CHANNELS]].rename(
     columns={f'{c}_str': c for c in ATTRIBUTION_CHANNELS}).reindex(residual.index)
 labels = monitoring.channel_coincidence(
     tuned['fast']['joint'], attribution_channels,
-    scale_start=REFERENCE_START, scale_end=REFERENCE_END)
+    scale_start=REFERENCE_START, scale_end=REFERENCE_END,
+    window=ATTRIBUTION_WINDOW, threshold=ATTRIBUTION_THRESHOLD)
 fast_episodes = monitoring.attribute_episodes(
     tuned['fast']['episodes'], labels).assign(chart='fast')
 other_episodes = pd.concat(
@@ -1674,18 +1748,24 @@ figures.plot_control_chart(
     save_path=str(OUTPUT_DIR), filename='GM_F11_slow_chart')
 
 # %% [markdown]
-# ### Detectability per mechanism, on the chart built for it
+# ### Detectability per mechanism, on every chart
 #
 # `monitoring.daily_response_amplitude` reads the wall's own fitted daily
 # response — the air-temperature component plus every daily seasonal term
 # — on the injection dates, so the phase mechanism's timing shifts
 # (`DETECT_PHASE_SHIFTS_H`) are converted to a residual amplitude by
 # `monitoring.phase_shift_amplitude` against a response the model actually
-# learned rather than an arbitrary figure. `monitoring.
-# detectability_by_mechanism` then sweeps each mechanism once, on the
-# chart and statistic `MECHANISM_CHARTS` names for it, over the reference
-# window's own residual — the only stretch known to be in control. Before
-# the sweep, the notebook prints, for each injection date, how much of the
+# learned rather than an arbitrary figure. The drift mechanism sweeps
+# `DETECT_DRIFT_HORIZONS` rather than `DETECT_DURATIONS` — a drift needs
+# weeks, not hours, to accumulate into anything a chart could see —
+# assembled into a per-mechanism `durations` dict by a comprehension over
+# `MECHANISM_CHARTS` with the drift key replaced. `monitoring.
+# detectability_by_mechanism` then sweeps each mechanism not only on its
+# own chart but on every chart named in `MECHANISM_CHARTS` (`all_charts=
+# True`), over the reference window's own residual — the only stretch
+# known to be in control — so the report can say what a chart built for
+# one mechanism does or does not catch of the other three. Before the
+# sweep, the notebook prints, for each injection date, how much of the
 # following twenty days the reference residual actually covers, since a
 # date sitting against a gap would understate what the sweep could find.
 
@@ -1701,28 +1781,56 @@ phase_magnitudes = tuple(
     monitoring.phase_shift_amplitude(response_amplitude, h) for h in DETECT_PHASE_SHIFTS_H)
 detect_magnitudes = {'amplitude': DETECT_MAGNITUDES, 'phase': phase_magnitudes,
                      'drift': DETECT_DRIFT_RATES, 'step': DETECT_MAGNITUDES}
+detect_durations = {name: DETECT_DURATIONS for name in MECHANISM_CHARTS}
+detect_durations['drift'] = DETECT_DRIFT_HORIZONS
 injection_starts = [d for d in DETECT_INJECTION_DATES
                     if REFERENCE_START <= d <= REFERENCE_END] or None
 
 detectability = monitoring.detectability_by_mechanism(
     residual.loc[REFERENCE_START:REFERENCE_END], tuned, charts, MECHANISM_CHARTS,
-    detect_magnitudes, DETECT_DURATIONS, NATIVE_FREQ, CUSUM_K, CUSUM_H, phi,
-    DETECT_RESPONSE_WINDOW, injection_starts, DAILY_HARMONIC_MIN_SLOTS, seed=SEED)
+    detect_magnitudes, detect_durations, NATIVE_FREQ, CUSUM_K, CUSUM_H, phi,
+    DETECT_RESPONSE_WINDOW, injection_starts, DAILY_HARMONIC_MIN_SLOTS, seed=SEED,
+    all_charts=True)
 display(detectability)
 detectability.to_csv(OUTPUT_DIR / 'GM_13_detectability.csv', index=False)
-tables.write_table(detectability, str(OUTPUT_DIR / 'GM_13_body.tex'),
+primary_detectability = detectability[detectability['primary']]
+tables.write_table(primary_detectability, str(OUTPUT_DIR / 'GM_13_body.tex'),
                    [('mechanism', tables.texttt), ('chart', tables.texttt),
                     ('magnitude', '.2f'), ('duration_h', '.0f'), ('detected', '.2f'),
                     ('delay_h', '.1f')])
 figures.plot_detectability(
-    detectability[detectability['mechanism'] == 'amplitude'],
+    primary_detectability[primary_detectability['mechanism'] == 'amplitude'],
     title='Amplitude growth on the daily chart',
     save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_amplitude')
 figures.plot_detectability(
-    detectability[detectability['mechanism'] == 'phase'],
+    primary_detectability[primary_detectability['mechanism'] == 'phase'],
     title='Phase change on the daily chart',
     save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_phase')
 figures.plot_detectability(
-    detectability[detectability['mechanism'] == 'drift'],
+    primary_detectability[primary_detectability['mechanism'] == 'drift'],
     title='Drift on the slow chart',
     save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_drift')
+figures.plot_detectability(
+    primary_detectability[primary_detectability['mechanism'] == 'step'],
+    title='Step on the fast chart',
+    save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_step')
+
+# %% [markdown]
+# ### `GM_13b`: the detection threshold read off each mechanism's own chart
+#
+# `monitoring.detection_thresholds` reduces the full sweep to one number a
+# reader actually wants: at the longest horizon swept, the smallest
+# magnitude a chart catches at all and the smallest it catches on every
+# injection, for every mechanism-and-chart pair — not only the primary
+# ones, so a chart's blindness to a mechanism it was not built for is on
+# the record too.
+
+# %%
+thresholds = monitoring.detection_thresholds(detectability)
+display(thresholds)
+thresholds.to_csv(OUTPUT_DIR / 'GM_13b_detection_thresholds.csv', index=False)
+tables.write_table(thresholds, str(OUTPUT_DIR / 'GM_13b_body.tex'),
+                   [('mechanism', tables.texttt), ('chart', tables.texttt),
+                    ('horizon_h', '.0f'), ('smallest_any', '.2f'),
+                    ('smallest_all', '.2f'), ('delay_h_at_smallest_all', '.1f'),
+                    ('primary', lambda value: tables.texttt('yes' if value else 'no'))])

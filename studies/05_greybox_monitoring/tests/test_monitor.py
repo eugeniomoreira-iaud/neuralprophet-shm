@@ -66,6 +66,26 @@ class TestChannelCoincidence(unittest.TestCase):
         self.assertEqual(out.loc[index[700]], 'environment')
         self.assertEqual(out.loc[index[900]], 'unattributed')
 
+    def test_a_short_window_catches_a_jump_the_24h_default_buries_in_the_diurnal_cycle(self):
+        # Fix-round ruling 7: a 24-hour centred median leaves the diurnal
+        # cycle itself in the "departure", inflating the MAD-based scale
+        # until no realistic swing crosses the threshold. A window short
+        # enough to track the cycle out (two hours) isolates a genuine
+        # twenty-minute jump instead.
+        index = pd.date_range('2024-01-01', periods=72 * 10, freq='20min', tz='UTC')
+        hours = index.hour + index.minute / 60.0
+        tair = pd.Series(5.0 * np.cos(2 * np.pi * (hours - 14) / 24.0), index=index)
+        alarm_slot = index[72 * 5]
+        tair.loc[alarm_slot] += 3.0
+        channels = pd.DataFrame({'tair': tair})
+        alarm = pd.Series(False, index=index)
+        alarm.loc[alarm_slot] = True
+        short_window = monitoring.channel_coincidence(
+            alarm, channels, window='2h', threshold=5.0)
+        default_window = monitoring.channel_coincidence(alarm, channels)
+        self.assertEqual(short_window.loc[alarm_slot], 'environment')
+        self.assertEqual(default_window.loc[alarm_slot], 'unattributed')
+
 
 class TestStatisticAwareDetectability(unittest.TestCase):
 
@@ -156,6 +176,34 @@ class TestRunChart(unittest.TestCase):
         self.assertEqual(list(out['episodes'].columns),
                          ['start', 'end', 'duration_h', 'n_slots', 'mean_z', 'peak_abs_z'])
 
+    def test_mean_z_is_the_standardised_mean_not_the_raw_one(self):
+        # Fix-round ruling 6: GM_11's mean_z/peak_abs_z read as z-scores, so
+        # they must be computed on the standardised series, not on the
+        # chart's own native units (hours for the daily phase, mdeg for the
+        # slow chart's daily mean). The episode's own start/end are read
+        # back from run_chart's own output, so this holds regardless of
+        # exactly which slots the joint alarm picks out.
+        index = pd.date_range('2024-01-01', periods=300, freq='20min')
+        rng = np.random.default_rng(3)
+        values = rng.normal(50.0, 0.5, 300)  # baseline near 50, native units
+        values[150:160] += 40.0              # a clear, sustained spike
+        series = pd.Series(values, index=index)
+        reference = monitoring.reference_stats(series, start=index[0], end=index[99])
+        out = monitoring.run_chart(
+            series, reference, L=3.0, lam=0.3, k=0.5, h=3.0, joint_window='1h',
+            monitored_start=index[0], freq='20min')
+        self.assertFalse(out['episodes'].empty)
+        episode = out['episodes'].iloc[0]
+        watched_z = (series - reference['mu']) / reference['sigma']
+        window = watched_z.loc[episode['start']:episode['end']]
+        self.assertAlmostEqual(episode['mean_z'], window.mean(), places=6)
+        self.assertAlmostEqual(episode['peak_abs_z'], window.abs().max(), places=6)
+        # Guard against silently reverting to the raw-units behaviour: the
+        # episode's own native-unit mean sits near 50-90, nowhere close to a
+        # z-score.
+        raw_window = series.loc[episode['start']:episode['end']]
+        self.assertGreater(abs(episode['mean_z'] - raw_window.mean()), 1.0)
+
 
 class TestAttributeEpisodes(unittest.TestCase):
 
@@ -199,6 +247,77 @@ class TestDetectabilityByMechanism(unittest.TestCase):
             freq='20min', k=0.5, h=5.0, phi=None, response_window='24h',
             injection_starts=None, min_slots=60)
         self.assertEqual(set(out['mechanism']), {'step', 'drift'})
+
+    def test_a_dict_of_durations_gives_each_mechanism_its_own_duration_h(self):
+        # Fix-round ruling 1: a mechanism whose damage accumulates on a
+        # different timescale (drift, watched for weeks) is not forced
+        # through the same duration grid as the others.
+        residual = _quiet(6000)
+        reference = monitoring.reference_stats(
+            residual, start=residual.index[0], end=residual.index[-1])
+        tuned = {'fast': {'reference': reference, 'L': 3.0},
+                'slow': {'reference': reference, 'L': 3.0}}
+        specs = {'fast': {'lam': 0.2}, 'slow': {'lam': 0.1}}
+        mechanisms = {'step': ('fast', 'residual'), 'drift': ('slow', 'residual')}
+        magnitudes = {'step': (5.0,), 'drift': (5.0,)}
+        durations = {'step': ('24h',), 'drift': ('720h', '1440h')}
+        out = monitoring.detectability_by_mechanism(
+            residual, tuned, specs, mechanisms, magnitudes, durations=durations,
+            freq='20min', k=0.5, h=5.0, phi=None, response_window='24h',
+            injection_starts=None, min_slots=60)
+        step_hours = set(out.loc[out['mechanism'] == 'step', 'duration_h'])
+        drift_hours = set(out.loc[out['mechanism'] == 'drift', 'duration_h'])
+        self.assertEqual(step_hours, {24.0})
+        self.assertEqual(drift_hours, {720.0, 1440.0})
+
+    def test_all_charts_true_sweeps_every_mechanism_on_every_chart(self):
+        # Fix-round ruling 2: with two mechanisms on two charts and
+        # all_charts=True, four (mechanism, chart) pairs come back and
+        # exactly one per mechanism is primary.
+        residual = _quiet(6000)
+        reference = monitoring.reference_stats(
+            residual, start=residual.index[0], end=residual.index[-1])
+        tuned = {'fast': {'reference': reference, 'L': 3.0},
+                'slow': {'reference': reference, 'L': 3.0}}
+        specs = {'fast': {'lam': 0.2}, 'slow': {'lam': 0.1}}
+        mechanisms = {'step': ('fast', 'residual'), 'drift': ('slow', 'residual')}
+        magnitudes = {'step': (5.0,), 'drift': (5.0,)}
+        out = monitoring.detectability_by_mechanism(
+            residual, tuned, specs, mechanisms, magnitudes, durations=('24h',),
+            freq='20min', k=0.5, h=5.0, phi=None, response_window='24h',
+            injection_starts=None, min_slots=60, all_charts=True)
+        pairs = set(zip(out['mechanism'], out['chart']))
+        self.assertEqual(pairs, {('step', 'fast'), ('step', 'slow'),
+                                 ('drift', 'fast'), ('drift', 'slow')})
+        for mechanism in ('step', 'drift'):
+            primaries = out.loc[out['mechanism'] == mechanism, 'primary']
+            self.assertEqual(primaries.sum(), 1)
+
+
+class TestDetectionThresholds(unittest.TestCase):
+
+    def test_smallest_magnitudes_and_the_all_zero_case(self):
+        detectability = pd.DataFrame([
+            {'mechanism': 'step', 'chart': 'fast', 'primary': True,
+             'magnitude': 1.0, 'duration_h': 24.0, 'detected': 0.0, 'delay_h': np.nan},
+            {'mechanism': 'step', 'chart': 'fast', 'primary': True,
+             'magnitude': 2.0, 'duration_h': 24.0, 'detected': 0.5, 'delay_h': 3.0},
+            {'mechanism': 'step', 'chart': 'fast', 'primary': True,
+             'magnitude': 4.0, 'duration_h': 24.0, 'detected': 1.0, 'delay_h': 1.0},
+            {'mechanism': 'drift', 'chart': 'slow', 'primary': True,
+             'magnitude': 1.0, 'duration_h': 720.0, 'detected': 0.0, 'delay_h': np.nan},
+            {'mechanism': 'drift', 'chart': 'slow', 'primary': True,
+             'magnitude': 2.0, 'duration_h': 720.0, 'detected': 0.0, 'delay_h': np.nan},
+        ])
+        out = monitoring.detection_thresholds(detectability)
+        step = out.loc[out['mechanism'] == 'step'].iloc[0]
+        self.assertEqual(step['smallest_any'], 2.0)
+        self.assertEqual(step['smallest_all'], 4.0)
+        self.assertEqual(step['delay_h_at_smallest_all'], 1.0)
+        drift = out.loc[out['mechanism'] == 'drift'].iloc[0]
+        self.assertTrue(np.isnan(drift['smallest_any']))
+        self.assertTrue(np.isnan(drift['smallest_all']))
+        self.assertTrue(np.isnan(drift['delay_h_at_smallest_all']))
 
 
 if __name__ == '__main__':

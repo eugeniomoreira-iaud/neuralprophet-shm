@@ -970,13 +970,17 @@ def run_chart(series, reference, L, lam, k, h, joint_window, monitored_start, fr
     -------
     dict
         ``ewma``, ``cusum``, ``joint`` and ``episodes`` — the last from
-        ``alarm_episodes(joint, watched)``.
+        ``alarm_episodes(joint, standardised)``, so an episode's ``mean_z``
+        and ``peak_abs_z`` are genuinely standard deviations of the
+        reference, not the chart's own native units under a name that
+        implies otherwise.
     """
     watched = series.loc[monitored_start:]
     ewma = ewma_chart(watched, reference['mu'], reference['sigma'], lam=lam, L=L)
     cusum = cusum_chart(watched, reference['mu'], reference['sigma'], k=k, h=h)
     joint = joint_alarm(ewma['alarm'], cusum['alarm'], window=joint_window)
-    episodes = alarm_episodes(joint, watched)
+    standardised = _standardise(watched, reference['mu'], reference['sigma'])
+    episodes = alarm_episodes(joint, standardised)
     return {'ewma': ewma, 'cusum': cusum, 'joint': joint, 'episodes': episodes}
 
 
@@ -1058,7 +1062,7 @@ def daily_response_amplitude(components, dates, window=72, min_slots=60,
 def detectability_by_mechanism(reference_residual, tuned, specs, mechanisms,
                                magnitudes, durations, freq, k, h, phi,
                                response_window, injection_starts, min_slots,
-                               seed=0):
+                               seed=0, all_charts=False):
     """
     Detectability swept once per damage mechanism, on its own chart.
 
@@ -1082,11 +1086,19 @@ def detectability_by_mechanism(reference_residual, tuned, specs, mechanisms,
         Keyed by chart name; each entry carries at least ``lam``.
     mechanisms : dict
         Mechanism name to ``(chart_name, statistic)``, e.g.
-        ``{'step': ('fast', 'innovation')}``.
+        ``{'step': ('fast', 'innovation')}``. The chart named for a
+        mechanism is that mechanism's own, primary chart; the statistic
+        named alongside a chart is also read as that chart's own statistic
+        when ``all_charts`` sweeps a mechanism onto a chart that is not its
+        own.
     magnitudes : dict
         Mechanism name to the sequence of magnitudes swept for it.
-    durations : sequence of str or pd.Timedelta
-        Durations swept, shared by every mechanism.
+    durations : sequence of str or pd.Timedelta, or dict
+        Durations swept. A plain sequence is shared by every mechanism, as
+        before; a dict maps a mechanism name to its own sequence, so a
+        mechanism whose damage accumulates on a different timescale — a
+        drift, watched for weeks rather than hours — is not forced through
+        the same duration grid as the others.
     freq : str
         Spacing of ``reference_residual``.
     k, h : float
@@ -1103,22 +1115,96 @@ def detectability_by_mechanism(reference_residual, tuned, specs, mechanisms,
         Passed through for the daily statistics.
     seed : int, optional
         Passed through to ``detectability_curve``. Default ``0``.
+    all_charts : bool, optional
+        When ``True``, each mechanism is swept not only on its own chart
+        but on every other chart named in ``mechanisms``' values too, each
+        with that chart's own statistic, tuned limit and smoothing
+        constant — the report's own promise that every mechanism is
+        "scored on the chart built for it, with the other two reported as
+        well". Default ``False``, which reproduces the original
+        one-chart-per-mechanism behaviour exactly.
 
     Returns
     -------
     pd.DataFrame
-        The concatenation of every mechanism's ``detectability_curve``, each
-        with its own ``mechanism`` and ``chart`` columns.
+        The concatenation of every mechanism's ``detectability_curve``
+        calls, each with its own ``mechanism`` and ``chart`` columns, plus
+        a boolean ``primary`` column that is ``True`` on the rows scored on
+        the mechanism's own chart.
     """
+    chart_statistic = {chart_name: statistic
+                       for chart_name, statistic in mechanisms.values()}
     rows = []
-    for mechanism, (chart_name, statistic) in mechanisms.items():
-        fit = tuned[chart_name]
-        curve = detectability_curve(
-            reference_residual, fit['reference']['mu'], fit['reference']['sigma'],
-            magnitudes=magnitudes[mechanism], durations=durations, freq=freq,
-            lam=specs[chart_name]['lam'], L=fit['L'], k=k, h=h, seed=seed,
-            kind=mechanism, statistic=statistic, phi=phi,
-            response_window=response_window, injection_starts=injection_starts,
-            min_slots=min_slots)
-        rows.append(curve.assign(mechanism=mechanism, chart=chart_name))
+    for mechanism, (own_chart, _) in mechanisms.items():
+        mechanism_durations = (durations[mechanism] if isinstance(durations, dict)
+                               else durations)
+        charts_to_sweep = ([own_chart] + [name for name in chart_statistic
+                                          if name != own_chart]
+                           if all_charts else [own_chart])
+        for chart_name in charts_to_sweep:
+            fit = tuned[chart_name]
+            curve = detectability_curve(
+                reference_residual, fit['reference']['mu'], fit['reference']['sigma'],
+                magnitudes=magnitudes[mechanism], durations=mechanism_durations,
+                freq=freq, lam=specs[chart_name]['lam'], L=fit['L'], k=k, h=h,
+                seed=seed, kind=mechanism, statistic=chart_statistic[chart_name],
+                phi=phi, response_window=response_window,
+                injection_starts=injection_starts, min_slots=min_slots)
+            rows.append(curve.assign(mechanism=mechanism, chart=chart_name,
+                                     primary=(chart_name == own_chart)))
     return pd.concat(rows, ignore_index=True)
+
+
+def detection_thresholds(detectability):
+    """
+    The smallest departure each mechanism-and-chart pair actually catches.
+
+    ``GM_13`` answers "was this specific magnitude and duration found"; a
+    reader wants the single number a magnitude sweep exists to produce —
+    the smallest departure size the chart catches at all, and the smallest
+    it catches every time — read off the longest duration swept, which is
+    the mechanism's best chance to be found.
+
+    Parameters
+    ----------
+    detectability : pd.DataFrame
+        Output of :func:`detectability_by_mechanism`: at least
+        ``mechanism``, ``chart``, ``magnitude``, ``duration_h``,
+        ``detected`` and ``delay_h``. A ``primary`` column, when present,
+        is carried through unchanged rather than recomputed.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per ``(mechanism, chart)`` pair present in `detectability`:
+        ``mechanism``, ``chart``, ``primary``, ``horizon_h`` (the longest
+        ``duration_h`` swept for that mechanism), ``smallest_any`` (the
+        smallest magnitude with ``detected > 0`` at that horizon, ``NaN``
+        when none), ``smallest_all`` (the smallest magnitude with
+        ``detected == 1`` at that horizon, ``NaN`` when none), and
+        ``delay_h_at_smallest_all`` (that magnitude's own ``delay_h``,
+        ``NaN`` when ``smallest_all`` is ``NaN``).
+    """
+    columns = ['mechanism', 'chart', 'primary', 'horizon_h', 'smallest_any',
+              'smallest_all', 'delay_h_at_smallest_all']
+    rows = []
+    for (mechanism, chart_name), group in detectability.groupby(
+            ['mechanism', 'chart'], sort=False):
+        horizon_h = float(group['duration_h'].max())
+        at_horizon = group.loc[group['duration_h'] == horizon_h].sort_values('magnitude')
+        any_hit = at_horizon.loc[at_horizon['detected'] > 0]
+        all_hit = at_horizon.loc[at_horizon['detected'] >= 1.0]
+        primary = bool(group['primary'].iloc[0]) if 'primary' in group else True
+        rows.append({
+            'mechanism': mechanism,
+            'chart': chart_name,
+            'primary': primary,
+            'horizon_h': horizon_h,
+            'smallest_any': (float(any_hit['magnitude'].iloc[0])
+                            if not any_hit.empty else np.nan),
+            'smallest_all': (float(all_hit['magnitude'].iloc[0])
+                             if not all_hit.empty else np.nan),
+            'delay_h_at_smallest_all': (float(all_hit['delay_h'].iloc[0])
+                                        if not all_hit.empty else np.nan),
+        })
+    return pd.DataFrame(rows, columns=columns)
