@@ -1907,3 +1907,45 @@ tables.write_table(bridges, str(OUTPUT_DIR / 'GM_14_body.tex'),
 figures.plot_outage_bridge(bridge_paths[0], bridge_rows[0],
                            title=f'Outage bridges, {BRIDGE_SETS[0]} set',
                            save_path=str(OUTPUT_DIR), filename='GM_F12_outage_bridges')
+
+# %% [markdown]
+# ## Movement 7 · Run metadata
+#
+# `tables.run_metadata` closes the study's record of itself: every
+# parameter cell the notebook declared, in the order it declared them,
+# followed by the versions of the four libraries this run's numbers
+# depend on — so that a reader who wants to reproduce a result, or to
+# tell whether a later run changed it, can read one table rather than
+# scroll the whole notebook. Writes `GM_15`.
+
+# %%
+parameters = {
+    'window_start': WINDOW_START, 'window_end': str(frame.index.max().date()),
+    'native_freq': NATIVE_FREQ, 'target_column': TARGET_COLUMN,
+    'regressor_sets': ';'.join(f"{k}:{v}" for k, v in REGRESSOR_SETS.items()),
+    'radiation_delay_h': RADIATION_DELAY_H,
+    'regressor_fill_max_gap': REGRESSOR_FILL_MAX_GAP,
+    'yearly_order': YEARLY_ORDER, 'daily_order': DAILY_ORDER,
+    'conditional_daily_kept': keep_conditional, 'weight_curve': str(WEIGHT_CURVE),
+    'n_changepoints': N_CHANGEPOINTS, 'changepoints_range': CHANGEPOINTS_RANGE,
+    'trend_reg': TREND_REG, 'epochs': EPOCHS, 'learning_rate': LEARNING_RATE,
+    'seed': SEED, 'min_train': MIN_TRAIN, 'refit_every': REFIT_EVERY,
+    'train_window': TRAIN_WINDOW, 'conformal_alpha': CONFORMAL_ALPHA,
+    'conformal_method': CONFORMAL_METHOD,
+    'conformal_calibration_window': CONFORMAL_CALIBRATION_WINDOW,
+    'cv_folds': CV_FOLDS, 'lagged_n_lags': LAGGED_N_LAGS, 'lagged_reg': LAGGED_REG,
+    'reference_window': f'{REFERENCE_START} to {REFERENCE_END}',
+    'monitored_start': MONITORED_START, 'phi': round(phi, 5),
+    'budgets_days': f'{BUDGET_FAST_DAYS}/{BUDGET_DAILY_DAYS}/{BUDGET_SLOW_DAYS}',
+    'limits_L': ';'.join(f"{k}:{v['L']}" for k, v in tuned.items()),
+    'n_jobs': N_JOBS, 'attribution_window': ATTRIBUTION_WINDOW,
+    'attribution_threshold': ATTRIBUTION_THRESHOLD,
+    'detect_drift_horizons': DETECT_DRIFT_HORIZONS,
+    'outage_settle_days': OUTAGE_SETTLE_DAYS, 'outage_window_days': OUTAGE_WINDOW_DAYS,
+    'bridge_sets': BRIDGE_SETS,
+}
+metadata = tables.run_metadata(parameters)
+display(metadata)
+metadata.to_csv(OUTPUT_DIR / 'GM_15_run_metadata.csv', index=False)
+tables.write_table(metadata, str(OUTPUT_DIR / 'GM_15_body.tex'),
+                   [('parameter', tables.texttt), ('value', tables.texttt)])
