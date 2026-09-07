@@ -1121,8 +1121,9 @@ def detectability_by_mechanism(reference_residual, tuned, specs, mechanisms,
         with that chart's own statistic, tuned limit and smoothing
         constant — the report's own promise that every mechanism is
         "scored on the chart built for it, with the other two reported as
-        well". Default ``False``, which reproduces the original
-        one-chart-per-mechanism behaviour exactly.
+        well". Default ``False``, which sweeps the same rows as the
+        original one-chart-per-mechanism behaviour; the ``primary`` column
+        is present either way, and is ``True`` on every row at the default.
 
     Returns
     -------

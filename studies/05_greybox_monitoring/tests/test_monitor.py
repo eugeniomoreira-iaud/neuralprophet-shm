@@ -273,14 +273,21 @@ class TestDetectabilityByMechanism(unittest.TestCase):
     def test_all_charts_true_sweeps_every_mechanism_on_every_chart(self):
         # Fix-round ruling 2: with two mechanisms on two charts and
         # all_charts=True, four (mechanism, chart) pairs come back and
-        # exactly one per mechanism is primary.
+        # exactly one per mechanism is primary. The two charts carry
+        # different statistics on purpose, so that a sweep which took each
+        # mechanism's own statistic onto the other chart, instead of the
+        # other chart's own, would fail the statistic assertion below.
         residual = _quiet(6000)
-        reference = monitoring.reference_stats(
-            residual, start=residual.index[0], end=residual.index[-1])
-        tuned = {'fast': {'reference': reference, 'L': 3.0},
-                'slow': {'reference': reference, 'L': 3.0}}
+        daily_mean, _ = monitoring._monitor_statistic(
+            residual, 'daily_mean', freq='20min', min_slots=60)
+        tuned = {'fast': {'reference': monitoring.reference_stats(
+                              residual, start=residual.index[0], end=residual.index[-1]),
+                          'L': 3.0},
+                 'slow': {'reference': monitoring.reference_stats(
+                              daily_mean, start=daily_mean.index[0], end=daily_mean.index[-1]),
+                          'L': 3.0}}
         specs = {'fast': {'lam': 0.2}, 'slow': {'lam': 0.1}}
-        mechanisms = {'step': ('fast', 'residual'), 'drift': ('slow', 'residual')}
+        mechanisms = {'step': ('fast', 'residual'), 'drift': ('slow', 'daily_mean')}
         magnitudes = {'step': (5.0,), 'drift': (5.0,)}
         out = monitoring.detectability_by_mechanism(
             residual, tuned, specs, mechanisms, magnitudes, durations=('24h',),
@@ -292,6 +299,16 @@ class TestDetectabilityByMechanism(unittest.TestCase):
         for mechanism in ('step', 'drift'):
             primaries = out.loc[out['mechanism'] == mechanism, 'primary']
             self.assertEqual(primaries.sum(), 1)
+        # detectability_curve reports the statistic column only on its
+        # extended path (a non-residual statistic or several injection
+        # dates), so the fast chart's rows carry NaN here and the slow
+        # chart's rows must all say daily_mean; a sweep that took the
+        # mechanism's own statistic would leave the step's slow-chart rows
+        # without it.
+        slow_rows = out.loc[out['chart'] == 'slow', 'statistic']
+        self.assertEqual(set(slow_rows), {'daily_mean'})
+        fast_rows = out.loc[out['chart'] == 'fast', 'statistic']
+        self.assertFalse((fast_rows == 'daily_mean').any())
 
 
 class TestDetectionThresholds(unittest.TestCase):
