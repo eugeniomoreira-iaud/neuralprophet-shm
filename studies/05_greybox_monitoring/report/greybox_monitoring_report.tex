@@ -1789,12 +1789,169 @@ whose target is missing.}
 % ===========================================================================
 \section{Verdict}
 \label{sec:verdict}
-\pending{Phase 7}
+
+Five questions were asked in Section~\ref{sec:intro}. Each is answered here
+in one paragraph, with the qualification that belongs to it, and every number
+is one of the tables' own.
+
+\textbf{What is the record made of, over eight years?} Net of its slow
+movement, a thermometer. On the on-structure set the trend holds 60.1\,\% of
+the fitted variance, air temperature 24.1\,\% with a peak-to-peak
+contribution of 115.4\,mdeg, the yearly term 12.2\,\%, the residual 3.1\,\%,
+and humidity, the daily term and radiation together under half a per cent
+(Table~\ref{tab:shares}); the station and ERA5 sets give the same picture
+with the driver's share falling as it is measured farther from the wall. The
+air-temperature gain is $-2.639$\,mdeg per degree, within 5.4\,\% of the
+$-2.79$ Study~03 measured on the diurnal band by a different method, and
+$-2.402$ and $-2.295$ on the other two sets (Table~\ref{tab:gains}). The
+yearly term, of order one as the harmonic diagnostic prescribed, peaks at the
+equinoxes, in quadrature with the air: the delayed part of the annual
+response. The daily term, of order two, is small, 3.9\,mdeg peak-to-peak, and
+its seasonal modulation did not earn a conditional term. The trend is not a
+drift: its rate reverses sign twice, from $+104$\,mdeg per year in the spring
+and summer of 2019 to $-91$ in 2021, $-89$ after the 2023 resumption and
+$+28$ in 2024 (Table~\ref{tab:trend-rates}). The qualification is
+radiation: the one driver the fit does not recover, with a gain of
+$+0.006$\,mdeg per W\,m$^{-2}$ against Study~03's $-0.035$, because on
+levels its marginal contribution beyond the air temperature that heats with
+it is close to zero; and the residual, 7.97\,mdeg in standard deviation, is
+not white and carries a semi-annual line this study does not explain.
+
+\textbf{Does the wall answer its drivers with a delay or an inertia the
+20-minute grid can resolve?} For air temperature, no: the learned impulse
+response holds 69.6\,\% of its $-2.668$\,mdeg per degree in the twenty
+minutes before the observation and 85.6\,\% in the first hour, a step and not
+an exponential, with no resolvable delay and no time constant, which is the
+operator Study~03 measured hourly and Model~A imposes
+(Table~\ref{tab:impulse}). For radiation the question has no answer, because
+the learned response has no shape: no lag stands out, the weights beyond six
+hours weigh as much as those within, and the sum is $+0.023$, opposite in
+sign to Study~03's coupling. Model~B validates the instantaneous
+air-temperature coupling at a resolution the hourly scan could not reach and
+leaves the one-hour radiation delay imposed on Study~03's evidence alone.
+
+\textbf{Is this reading the expected one?} With a stated confidence that
+depends on the age of the last refit. The rolling expectation, refitted
+every thirty days on the trailing three years, has a mean absolute error of
+5.31\,mdeg in the week after a refit and 10.89\,mdeg in the fourth week on
+the on-structure set, and its conformal interval, calibrated on the six
+months before each origin, covers 96.2\,\% of the readings in the first week
+and 81.9\,\% in the fourth, 88.4\,\% pooled over the month against the
+nominal 90 and against the 67.7\,\% Study~04 reached with an interval
+calibrated once (Table~\ref{tab:nowcast}). The qualification is that the
+interval's width, about 35\,mdeg, does not change with staleness, so it is
+right on average and wrong at both ends, and that a departure sustained
+across a refit month is not what the interval judges. On the current era,
+neither the wall-temperature probe nor the on-structure pyranometer buys the
+expectation anything: the pyranometer raises the held-out error by 2.3\,\%
+against the station's radiation, and the probe in its deployable form
+changes nothing (Table~\ref{tab:ladder}).
+
+\textbf{What departure does each chart catch, at a stated false-alarm
+budget?} At budgets of ninety days per false alarm on the fast and daily
+charts and a year on the slow one, met at 6.25, 3.25, 1.00 and 13.5 standard
+deviations (Table~\ref{tab:run-lengths}): an amplitude growth of 8\,mdeg on
+every injection date within hours and of 4\,mdeg within a week, on the
+daily-amplitude chart; a drift of 200\,mdeg per year within seven weeks on
+the slow chart; a step of 16\,mdeg on three dates in four, at once, on the
+fast chart (Table~\ref{tab:thresholds}). The blind spots are as plainly
+stated: a step below 16\,mdeg, which prewhitening reduces to one slot's
+innovation; a timing shift of up to two hours on the phase chart, which the
+amplitude chart catches only at the top of the range; and a drift below
+100\,mdeg per year within ninety days. Over the monitored record the charts
+raised 99 episodes (Table~\ref{tab:episodes}), and the attribution step did
+what D10 asked of it: 69 of the 76 fast-chart episodes, the whole
+summer-2026 stretch among them, are the instrument's by the supply-voltage
+channel, and the five left to the wall fall in the weeks after a resumption.
+The qualification is the reference window, thirteen months rather than
+three years, on which the slow chart's tuning rests on a single episode.
+
+\textbf{What happened across each outage?} The level after two of the five
+gaps that could be bridged is not the level the drivers account for. Across
+the 437-day gap of 2022 to 2023 the readings resumed 44.8 and 53.6\,mdeg
+above what the station and ERA5 sets expected, and across the autumn 2024
+outage 36.4 and 33.4\,mdeg above; the spring 2024 outage hid nothing, the
+autumn 2025 shift of 13 to 16\,mdeg is inside the calibrated half-width, and
+the 2026 outage resumed into the instrument's own stretch and is left open
+(Table~\ref{tab:bridges}). The qualification is twofold: the band a bridge
+carries is the pre-outage fit's raw quantile band, which under-covers, so
+every shift is read against the calibrated half-width as well; and a bridge
+sees only levels, so whether a rise is the wall's or the instrument's is a
+question for the record on either side of the gap, not for the bridge. The
+monitor's charts, which alarm on every time scale in the weeks after those
+same resumptions, say that the departure is real in the residual; what
+caused it, this study does not decide.
 
 % ===========================================================================
 \section{Limitations}
 \label{sec:limitations}
-\pending{Phase 7}
+
+The compensation is taken as given, and it is not independent of the fitted
+term. The record is the manufacturer's thermally compensated inclination,
+and every gain learned here is a post-compensation wall response: a
+coefficient applied inside the instrument to the same air temperature the
+model reads cannot be separated from the wall's own response to it, so the
+$-2.64$\,mdeg per degree of Table~\ref{tab:gains} is the residual coupling
+after that coefficient, and Study~03's finding that the compensation is
+imperfect stands behind every figure of this report.
+
+The on-structure set's radiation is borrowed. The wall's own pyranometer
+exists only from February 2025 and lost 161 of its days to Study~01's
+verdicts, so the on-structure set reads the station's radiation, an hour
+away, delayed by the hour Study~03 measured for it; the set's air and
+humidity are the wall's, its radiation is not, and Section~\ref{sec:ladder}
+found that replacing the borrowed column with the wall's own instrument on
+the one window where both exist made the expectation worse.
+
+The reference window is thirteen months, not three years, and it ends three
+years before the instrument change. The rolling residual exists only from
+November 2020, so the monitor is calibrated on 406 days rather than the
+1,096 D10 planned; the slow chart's tuning rests on a single episode, the
+daily-phase chart is gated by the CUSUM decision interval every chart
+shares, and the instrument installed in February 2025 is charted against
+limits set on its predecessor's residual. The charts' verdicts on the
+current era, including the summer-2026 stretch, are read with that in mind.
+
+The interval through a gap is the pre-outage fit's own band. No conformal
+calibration exists inside a gap, and the raw band under-covers by the
+measure of Sections~\ref{sec:uncertainty} and~\ref{sec:ladder}, so the
+outage verdicts of Section~\ref{sec:outages} are stated twice, against the
+band and against the calibrated half-width, and the reader is asked to
+prefer the second.
+
+Two things the design named were not built, and one it did not foresee was
+found. The sequence of refit trend slopes beside the slow chart was not
+built, and the trend rates of Section~\ref{sec:trend} describe the record's
+slow movement without monitoring it. The expectation is not drawn through a
+gap, because a modelling frame keeps no row whose target is missing; the
+verdict does not need it, but the picture D12 described is not the one
+Figure~\ref{fig:bridges} draws. And the full model's residual carries a
+semi-annual line, at 181 to 183 days on every set, that the diagnostic of
+Section~\ref{sec:harmonic-diagnostic} did not certify on the regression
+residual; whether it is a component of the wall's annual response that an
+order-one term cannot hold or the imprint of the changepoint spacing on
+what the trend leaves behind is left open, since by D6 the order is never
+raised beyond what the scan supports.
+
+The fast chart does not see a level step. Prewhitening, which brought its
+limit from Study~04's 14.75 standard deviations to 6.25, turns a step into a
+single innovation, and a sustained shift below 16\,mdeg passes it unseen;
+the slow chart is where such a shift belongs, and the detectability sweep
+found it there only at the top of the range. A monitor that must catch a
+step of a few millidegrees within hours needs a chart this study did not
+build.
+
+Radiation is unresolved. Neither the attribution fit nor the learned impulse
+response recovers the coupling Study~03 measured on the diurnal band, and
+the study reports the sign of its learned gain as a finding rather than a
+coupling; what radiation adds to the level beyond the air that heats with it
+is, on this evidence, close to nothing, and what it does to the daily swing
+is Study~03's question, not this one's.
+
+One sensor, one site, one archive. Everything above is measured on the
+inclinometer at station~02 of the Gubbio walls over eight years with the
+outages Section~\ref{sec:record} describes; the method transfers, and the
+numbers do not, until another sensor has been through the same sections.
 
 % ===========================================================================
 \section{Run metadata}
