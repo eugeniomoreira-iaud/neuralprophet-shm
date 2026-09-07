@@ -23,7 +23,7 @@ NOTEBOOK = STUDY / 'greybox_monitoring_study.py'
 
 # Flipped to True in the final task, when every artefact the README names
 # must exist and no section may remain pending.
-STUDY_COMPLETE = False
+STUDY_COMPLETE = True
 
 
 class TestNoCodeOutsideShmlib(unittest.TestCase):

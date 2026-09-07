@@ -1,272 +1,368 @@
 {
   "01_data_exploration/data_exploration_study.py": {
-    "mtime": 1787326806.110443,
-    "seen": 1787338637.058889,
+    "mtime": 1787326806.11,
+    "seen": 1788776311.1032023,
     "ast_hash": "3d083bfd52fbacfb3e015de9a59b5c40",
     "semantic_hash": "3d083bfd52fbacfb3e015de9a59b5c40"
   },
   "01_data_exploration/de_lib.py": {
-    "mtime": 1787384265.1331534,
-    "seen": 1787385953.077893,
+    "mtime": 1787384265.133,
+    "seen": 1788776311.103209,
     "ast_hash": "d4f9dc03cb5c467af0c59f5f3f8ef881",
     "semantic_hash": "d4f9dc03cb5c467af0c59f5f3f8ef881"
   },
   "01_data_exploration/tests/test_report_span_highlights.py": {
-    "mtime": 1787285172.537593,
-    "seen": 1787338637.058892,
+    "mtime": 1787285172.537,
+    "seen": 1788776311.1032124,
     "ast_hash": "f932ac6bff6fc0789566493b2a72f35d",
     "semantic_hash": "f932ac6bff6fc0789566493b2a72f35d"
   },
   "01_data_exploration/tests/test_wall_temperature_filter.py": {
-    "mtime": 1787177686.795264,
-    "seen": 1787338637.058892,
+    "mtime": 1787177686.795,
+    "seen": 1788776311.1032138,
     "ast_hash": "40d0ba7142c559ae5401c1b1c87c5389",
     "semantic_hash": "40d0ba7142c559ae5401c1b1c87c5389"
   },
   "02_proxy_forcing_characterization/proxy_forcing_characterization_study.py": {
-    "mtime": 1787383146.006735,
-    "seen": 1787385953.077999,
-    "ast_hash": "ee45c5d4c1b6580a080fa2e17a412b7a",
-    "semantic_hash": "ee45c5d4c1b6580a080fa2e17a412b7a"
+    "mtime": 1788732180.129,
+    "seen": 1788776311.1032155,
+    "ast_hash": "4aad53af644c2e0d24cce308eef7f8df",
+    "semantic_hash": ""
   },
   "shmlib/__init__.py": {
-    "mtime": 1787755604.5993538,
-    "seen": 1788663648.919277,
+    "mtime": 1787755604.599,
+    "seen": 1788776311.103246,
     "ast_hash": "43a84bbbf79f56227290a76952a010d6",
     "semantic_hash": ""
   },
   "shmlib/adc.py": {
-    "mtime": 1787321029.4944963,
-    "seen": 1787338637.0588942,
+    "mtime": 1787321029.494,
+    "seen": 1788776311.1032476,
     "ast_hash": "d7f3622ac825a130d6202e64670ae65b",
     "semantic_hash": "d7f3622ac825a130d6202e64670ae65b"
   },
   "shmlib/site.py": {
-    "mtime": 1787351073.5003808,
-    "seen": 1787381266.08186,
+    "mtime": 1787351073.5,
+    "seen": 1788776311.1032598,
     "ast_hash": "a5fbd260e6073acc45b7cee4f81d3fb4",
     "semantic_hash": "a5fbd260e6073acc45b7cee4f81d3fb4"
   },
   "shmlib/solar.py": {
-    "mtime": 1787350109.5272665,
-    "seen": 1787381266.081861,
+    "mtime": 1787350109.527,
+    "seen": 1788776311.103261,
     "ast_hash": "f4624ef680b62b8e7bbe177ff8744159",
     "semantic_hash": "f4624ef680b62b8e7bbe177ff8744159"
   },
   "shmlib/tables.py": {
-    "mtime": 1787862495.3536754,
-    "seen": 1788663648.919283,
-    "ast_hash": "c4ce7f3171620b2b66eb5cd857bdd699",
+    "mtime": 1788758909.649,
+    "seen": 1788776311.1032624,
+    "ast_hash": "28108b3ce3797cd5227632254d387dbd",
     "semantic_hash": ""
   },
   "shmlib/tests/test_shmlib.py": {
-    "mtime": 1787862506.1355183,
-    "seen": 1788663648.919283,
-    "ast_hash": "6bb6a0364625a5eb42b4887123b7d51e",
+    "mtime": 1788733176.148,
+    "seen": 1788776311.1032667,
+    "ast_hash": "e206135c443b807117cee00919ffd482",
     "semantic_hash": ""
   },
   "shmlib/viz.py": {
-    "mtime": 1787382655.5620167,
-    "seen": 1787385953.078295,
-    "ast_hash": "bb9aaf1909425abfb2ee548bb77b9c87",
-    "semantic_hash": "bb9aaf1909425abfb2ee548bb77b9c87"
+    "mtime": 1788702604.24,
+    "seen": 1788776311.1032686,
+    "ast_hash": "0ab9fd6da4a9061a36b1eae344931550",
+    "semantic_hash": ""
   },
   "01_data_exploration/README.md": {
-    "mtime": 1787321972.6292448,
-    "seen": 1787338637.0588958,
+    "mtime": 1787321972.629,
+    "seen": 1788776311.10327,
     "ast_hash": "eb89f6ef0f66ce015168f4cd9de02d8e",
     "semantic_hash": "eb89f6ef0f66ce015168f4cd9de02d8e"
   },
   "01_data_exploration/report/for-review.md": {
-    "mtime": 1787281869.5258489,
-    "seen": 1787338637.0588958,
+    "mtime": 1787281869.525,
+    "seen": 1788776311.1032715,
     "ast_hash": "34664ccbedad60a7c92ee64856722a91",
     "semantic_hash": "34664ccbedad60a7c92ee64856722a91"
   },
   "02_proxy_forcing_characterization/README.md": {
-    "mtime": 1787351098.008646,
-    "seen": 1787381266.081862,
-    "ast_hash": "e300149411707b63f465f9f39cd6dc46",
-    "semantic_hash": "e300149411707b63f465f9f39cd6dc46"
+    "mtime": 1788731417.349,
+    "seen": 1788776311.1032767,
+    "ast_hash": "1d94354f156ca7bacf25c40975363b8f",
+    "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1788646463.8541398,
-    "seen": 1788663648.919287,
-    "ast_hash": "799bcb9b0e8c4e771779bf4f72bad0a6",
+    "mtime": 1788776266.82,
+    "seen": 1788776311.1032827,
+    "ast_hash": "a09169fe7137981bfd50c307ab8aac66",
     "semantic_hash": ""
   },
   "01_data_exploration/report/data_exploration_report.pdf": {
-    "mtime": 1787285771.612485,
-    "seen": 1787338637.0588968,
+    "mtime": 1787285771.612,
+    "seen": 1788776311.1032875,
     "ast_hash": "7a6ff063be57d49d0b335edae296c04e",
     "semantic_hash": "7a6ff063be57d49d0b335edae296c04e"
   },
   "02_proxy_forcing_characterization/tests/test_shmlib_study02.py": {
-    "mtime": 1787382372.5334663,
-    "seen": 1787385953.078,
-    "ast_hash": "d77fdd06f607a1e4a2606caea6e41368",
-    "semantic_hash": "d77fdd06f607a1e4a2606caea6e41368"
+    "mtime": 1788730344.883,
+    "seen": 1788776311.1032178,
+    "ast_hash": "db15ef53d364884e43c9abb58ee41080",
+    "semantic_hash": ""
   },
   "shmlib/compare.py": {
-    "mtime": 1787351081.951299,
-    "seen": 1787381266.0818582,
+    "mtime": 1787351081.951,
+    "seen": 1788776311.103249,
     "ast_hash": "fccc90dc59ed2c1026e1d90b5ce949cd",
     "semantic_hash": "fccc90dc59ed2c1026e1d90b5ce949cd"
   },
   "shmlib/figures.py": {
-    "mtime": 1787778598.5277681,
-    "seen": 1788663648.9192781,
-    "ast_hash": "8a34c794ed7053925c43dace74f61644",
+    "mtime": 1788755033.8,
+    "seen": 1788776311.1032515,
+    "ast_hash": "254165d671b8029e2588c72bcc2bd60b",
     "semantic_hash": ""
   },
   "shmlib/meteo.py": {
-    "mtime": 1787383535.1216867,
-    "seen": 1787385953.0781069,
+    "mtime": 1787383535.121,
+    "seen": 1788776311.103253,
     "ast_hash": "769d47f893caa6f7c1a7693ba015c124",
     "semantic_hash": "769d47f893caa6f7c1a7693ba015c124"
   },
   "shmlib/proxies.py": {
-    "mtime": 1787382373.7006278,
-    "seen": 1787385953.0781078,
-    "ast_hash": "128abf7e2beeac774d0c6e9750db90f7",
-    "semantic_hash": "128abf7e2beeac774d0c6e9750db90f7"
+    "mtime": 1788729810.245,
+    "seen": 1788776311.1032574,
+    "ast_hash": "fedad2dbcb242f114daf7779abac4a11",
+    "semantic_hash": ""
   },
   "shmlib/quality.py": {
-    "mtime": 1787382301.0174825,
-    "seen": 1787385953.078109,
+    "mtime": 1787382301.017,
+    "seen": 1788776311.1032586,
     "ast_hash": "31154151d8868de2da3eb89645e3303c",
     "semantic_hash": "31154151d8868de2da3eb89645e3303c"
   },
   "02_proxy_forcing_characterization/report/proxy_forcing_report.pdf": {
-    "mtime": 1787383210.4253564,
-    "seen": 1787398116.2855139,
+    "mtime": 1787383210.425,
+    "seen": 1788776311.1032887,
     "ast_hash": "0e376f9768623a709dfc2a26e539b37d",
     "semantic_hash": ""
   },
   "03_thermomechanical_response/tests/test_shmlib_study03.py": {
-    "mtime": 1787384374.3399506,
-    "seen": 1787385953.0780008,
-    "ast_hash": "3083b083aca8ad6ad557ece369b5dffd",
-    "semantic_hash": "3083b083aca8ad6ad557ece369b5dffd"
+    "mtime": 1788735641.733,
+    "seen": 1788776311.1032224,
+    "ast_hash": "2ee064ba03023a1045e3aa7ea7d443ef",
+    "semantic_hash": ""
   },
   "03_thermomechanical_response/thermomechanical_response_study.py": {
-    "mtime": 1787406947.310684,
-    "seen": 1788663648.919273,
-    "ast_hash": "882c2bf2d4cd9f8dd1f669baf66eaef9",
+    "mtime": 1788737137.79,
+    "seen": 1788776311.1032238,
+    "ast_hash": "4d4c9bcf1c85b9cf28ec1aedf50421e7",
     "semantic_hash": ""
   },
   "shmlib/coupling.py": {
-    "mtime": 1787396241.9675522,
-    "seen": 1787398116.285504,
-    "ast_hash": "4c2de32d2d834f9b03b83b2b208ee495",
+    "mtime": 1788671563.646,
+    "seen": 1788776311.1032503,
+    "ast_hash": "029feb7abffce8bcedef7f24aa0332ce",
     "semantic_hash": ""
   },
   "03_thermomechanical_response/README.md": {
-    "mtime": 1787395991.5384216,
-    "seen": 1787398116.285512,
-    "ast_hash": "25aff8d3eb58f9b25ba29437fd359264",
+    "mtime": 1788735282.154,
+    "seen": 1788776311.1032786,
+    "ast_hash": "f3a9db35f105a96cd30ffd563efc6fac",
     "semantic_hash": ""
   },
   "04_neuralprophet_inclination_prediction/neuralprophet_inclination_prediction_study.py": {
-    "mtime": 1787862625.80464,
-    "seen": 1788663648.919273,
+    "mtime": 1787862625.804,
+    "seen": 1788776311.1032262,
     "ast_hash": "aa45fe6a9fa55debd22b3bb741fe7830",
     "semantic_hash": ""
   },
   "04_neuralprophet_inclination_prediction/tests/test_prediction.py": {
-    "mtime": 1787406884.4837084,
-    "seen": 1788663648.919275,
+    "mtime": 1787406884.483,
+    "seen": 1788776311.1032326,
     "ast_hash": "c9e102e4f955d471308fdd0c53c2afd0",
     "semantic_hash": ""
   },
   "shmlib/prediction.py": {
-    "mtime": 1787852526.7294898,
-    "seen": 1788663648.91928,
-    "ast_hash": "ed2f3c70a40fde9ec8438376cead79d9",
+    "mtime": 1788758936.58,
+    "seen": 1788776311.1032557,
+    "ast_hash": "42d8b8393ae78c95fd3b76877f4e066b",
     "semantic_hash": ""
   },
   "04_neuralprophet_inclination_prediction/README.md": {
-    "mtime": 1787862694.5270753,
-    "seen": 1788663648.919286,
+    "mtime": 1787862694.527,
+    "seen": 1788776311.1032796,
     "ast_hash": "a0751810b345588b9410ae62556e141f",
     "semantic_hash": ""
   },
   "graphify-out/memory/query_20260822_081118_what_connects_compensated_inclination__solar_radia.md": {
-    "mtime": 1787386278.035931,
-    "seen": 1787398116.285513,
+    "mtime": 1787386278.035,
+    "seen": 1788776311.1032836,
     "ast_hash": "cd052291fc140c85d9c4f98668b9cf38",
     "semantic_hash": ""
   },
   "graphify-out/memory/query_20260822_102044_implement_study_04_using_neuralprophet_to_predict.md": {
-    "mtime": 1787394044.973178,
-    "seen": 1787398116.285513,
+    "mtime": 1787394044.973,
+    "seen": 1788776311.1032848,
     "ast_hash": "abbf933ffb6a45b5279fdcffed1864e6",
     "semantic_hash": ""
   },
   "03_thermomechanical_response/report/thermomechanical_response_report.pdf": {
-    "mtime": 1787407052.7458897,
-    "seen": 1788663648.91929,
-    "ast_hash": "4f95d872a386d0a3443e2ec588547bf1",
+    "mtime": 1788737164.212,
+    "seen": 1788776311.1032896,
+    "ast_hash": "8b6b1243850ecd8022df63eda4b69004",
     "semantic_hash": ""
   },
   "04_neuralprophet_inclination_prediction/report/neuralprophet_inclination_prediction_report.pdf": {
-    "mtime": 1787864172.1057053,
-    "seen": 1788663648.91929,
+    "mtime": 1787864172.105,
+    "seen": 1788776311.1032906,
     "ast_hash": "8f66b26d754aaf779a99f67a31f49220",
     "semantic_hash": ""
   },
   "03_thermomechanical_response/find_good_week.py": {
-    "mtime": 1787406846.2878008,
-    "seen": 1788663648.919271,
+    "mtime": 1787406846.287,
+    "seen": 1788776311.1032202,
     "ast_hash": "2f56569753f22641f9b24535e9284e68",
     "semantic_hash": ""
   },
   "04_neuralprophet_inclination_prediction/tests/test_decomposition.py": {
-    "mtime": 1787852686.402237,
-    "seen": 1788663648.919274,
+    "mtime": 1787852686.402,
+    "seen": 1788776311.1032283,
     "ast_hash": "5c42578360fd3c2869e9f3bbdd7590a0",
     "semantic_hash": ""
   },
   "04_neuralprophet_inclination_prediction/tests/test_folder_honesty.py": {
-    "mtime": 1787706928.908503,
-    "seen": 1788663648.919274,
+    "mtime": 1787706928.908,
+    "seen": 1788776311.10323,
     "ast_hash": "384da2a65bf87549d01ceab29e9242ef",
     "semantic_hash": ""
   },
   "04_neuralprophet_inclination_prediction/tests/test_gaps.py": {
-    "mtime": 1787762324.7618177,
-    "seen": 1788663648.919275,
+    "mtime": 1787762324.761,
+    "seen": 1788776311.1032312,
     "ast_hash": "28003727b177195fcb6f473a3072fd91",
     "semantic_hash": ""
   },
   "05_greybox_monitoring/greybox_monitoring_study.py": {
-    "mtime": 1788646454.98908,
-    "seen": 1788663648.919276,
-    "ast_hash": "f211f607b20d55be8ed2e7d4f733bf32",
+    "mtime": 1788758974.775,
+    "seen": 1788776311.1032336,
+    "ast_hash": "1923cd4e9b822d92abcdf7e287ba2b79",
     "semantic_hash": ""
   },
   "05_greybox_monitoring/tests/test_neuralprophet_capabilities.py": {
-    "mtime": 1788663309.1460807,
-    "seen": 1788663648.919276,
-    "ast_hash": "373952062cea09a7e11554e30758afff",
+    "mtime": 1788717549.401,
+    "seen": 1788776311.1032438,
+    "ast_hash": "6c5c90ca3d22227d5bec6032e0c987d1",
     "semantic_hash": ""
   },
   "shmlib/monitoring.py": {
-    "mtime": 1787771969.1519547,
-    "seen": 1788663648.919279,
-    "ast_hash": "1bee4e2a701ec99ec40ad7a08b0b0076",
+    "mtime": 1788755019.71,
+    "seen": 1788776311.1032543,
+    "ast_hash": "373415c799e0b40ac45fd59fdbcb6047",
     "semantic_hash": ""
   },
   "shmlib/tests/test_monitoring.py": {
-    "mtime": 1787773459.4993877,
-    "seen": 1788663648.919283,
+    "mtime": 1787773459.499,
+    "seen": 1788776311.1032648,
     "ast_hash": "cf7cc6379dcb8e8926cb6dfb913af8d7",
     "semantic_hash": ""
   },
   "05_greybox_monitoring/README.md": {
-    "mtime": 1788646361.6698666,
-    "seen": 1788663648.919287,
-    "ast_hash": "80e37c7bb34f041980b485d467f771ea",
+    "mtime": 1788776258.882,
+    "seen": 1788776311.1032805,
+    "ast_hash": "84806cf84de0468b0bba179f277dc5a2",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/sidequest/setup_sidequest.py": {
+    "mtime": 1788753978.639,
+    "seen": 1788776311.103235,
+    "ast_hash": "fff060dbaf1b65a90897fc88fab7537e",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/sidequest/test_24_changepoints.py": {
+    "mtime": 1788753526.421,
+    "seen": 1788776311.1032362,
+    "ast_hash": "db900edd33b428884ada6cc623af5ff4",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/tests/test_bridges.py": {
+    "mtime": 1788755494.957,
+    "seen": 1788776311.1032374,
+    "ast_hash": "1c69416e0ade54b207bbdb93de33bb43",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/tests/test_folder_honesty.py": {
+    "mtime": 1788776260.46,
+    "seen": 1788776311.1032383,
+    "ast_hash": "bcc9b50645a1d281a7226dfc6dc47488",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/tests/test_harmonics.py": {
+    "mtime": 1788671500.574,
+    "seen": 1788776311.1032395,
+    "ast_hash": "704756c3db0dff4f3896a24fb00f7037",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/tests/test_model_a.py": {
+    "mtime": 1788751242.154,
+    "seen": 1788776311.1032403,
+    "ast_hash": "449410d4dff635c885536b15b6e75c5f",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/tests/test_model_b.py": {
+    "mtime": 1788726530.401,
+    "seen": 1788776311.1032412,
+    "ast_hash": "49a5899563d87e01c189905ee8085255",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/tests/test_monitor.py": {
+    "mtime": 1788755072.001,
+    "seen": 1788776311.103242,
+    "ast_hash": "60bf26f81ef86a1092d0ad5220a97306",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/tests/test_run_metadata.py": {
+    "mtime": 1788758886.437,
+    "seen": 1788776311.1032448,
+    "ast_hash": "0cb1686d842f6d0e55e6f1780ea38579",
+    "semantic_hash": ""
+  },
+  "shmlib/temporal_alignment.py": {
+    "mtime": 1788731978.691,
+    "seen": 1788776311.1032631,
+    "ast_hash": "c4c3d8375d6f75b5a4e4ff355fe6d56d",
+    "semantic_hash": ""
+  },
+  "shmlib/tests/test_proxies_grid.py": {
+    "mtime": 1788665814.882,
+    "seen": 1788776311.1032655,
+    "ast_hash": "ed3770a81a61bc56e9cc11cc8a426479",
+    "semantic_hash": ""
+  },
+  "shmlib/tests/test_temporal_alignment.py": {
+    "mtime": 1788732129.333,
+    "seen": 1788776311.1032677,
+    "ast_hash": "1974467d3d665f5946ba9fe4b44ab2d5",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/report/report05_check.md": {
+    "mtime": 1788751829.787,
+    "seen": 1788776311.1032815,
+    "ast_hash": "93c10345b1e971347d4c9a35b4e48674",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260907_004530_i_need_help_to_figure_out_if_one_idea_is_good_for.md": {
+    "mtime": 1788741930.066,
+    "seen": 1788776311.1032856,
+    "ast_hash": "ba2072d13cf60d006cda9e0d2f5f6457",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260907_005228_can_radiation_be_transformed_so_nighttime_cooling.md": {
+    "mtime": 1788742348.32,
+    "seen": 1788776311.1032865,
+    "ast_hash": "031df072df1c730f4941a5d2450ab14a",
+    "semantic_hash": ""
+  },
+  "05_greybox_monitoring/report/greybox_monitoring_report.pdf": {
+    "mtime": 1788776292.672,
+    "seen": 1788776311.1032913,
+    "ast_hash": "716f0c5e6582e8585b07c0d64597f8db",
     "semantic_hash": ""
   }
 }

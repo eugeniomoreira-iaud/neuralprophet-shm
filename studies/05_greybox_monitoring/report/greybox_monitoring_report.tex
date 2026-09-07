@@ -4,7 +4,8 @@
 % Build: pdflatex greybox_monitoring_report.tex (twice, for the ToC)
 % Figures and table bodies are read from ../outputs/ and are produced by the
 % paired notebook, which must be run first. Sections are written phase by
-% phase; a section still to be written carries a \pending{} note.
+% phase; while a section was still to be written it carried a pending note,
+% and none does now.
 % ---------------------------------------------------------------------------
 \documentclass[11pt,a4paper]{article}
 
@@ -1957,6 +1958,35 @@ numbers do not, until another sensor has been through the same sections.
 % ===========================================================================
 \section{Run metadata}
 \label{sec:metadata}
-\pending{Phase 7}
+
+Table~\ref{tab:metadata} records what the notebook was run on: every
+parameter its parameter cells declare, in the order they declare them, the
+seed, and the versions of the four libraries the numbers depend on. The run
+that produced every table and figure of this report executed the whole
+notebook end to end, 44 cells without error, in 36 minutes on a workstation
+with 64 physical cores and 500\,GB of memory, PyTorch on the CPU and NumPy on
+OpenBLAS, with the independent fits of the walk-forward origins, the folds,
+the regularisation candidates, the regressor sets, the ladder rungs and the
+outage bridges spread over 32 worker processes. A serial control run of the
+same source on the same machine, one process throughout, took 117 minutes
+and reproduced every \texttt{GM\_} table bit for bit, so the parallel
+execution changes no number in this report; the same tables computed on the
+laptop the study began on, with a different BLAS and torch build, agreed to
+within 5\,parts in $10^{4}$ and to every digit the report prints.
+
+\begin{table}[H]
+\centering
+\caption{Run metadata: every parameter, the seed and the library versions.
+Read from \texttt{GM\_15\_run\_metadata.csv}.}
+\label{tab:metadata}
+{\scriptsize
+\begin{tabular}{l p{10.2cm}}
+\toprule
+Parameter & Value \\
+\midrule
+\input{../outputs/GM_15_body.tex}\\
+\bottomrule
+\end{tabular}}
+\end{table}
 
 \end{document}

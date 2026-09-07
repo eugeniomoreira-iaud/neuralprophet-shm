@@ -19,8 +19,8 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 
 | Measure | Progress |
 |---|---|
-| Tasks complete (of 42, Tasks 0.1 to 7.3) | `[███████████████████░]` **39 of 42** (93 %) |
-| Report sections written (of 14) | `[████████████████░░░░]` **11 of 14** (79 %) |
+| Tasks complete (of 42, Tasks 0.1 to 7.3) | `[████████████████████]` **41 of 42** (98 %) |
+| Report sections written (of 14) | `[████████████████████]` **14 of 14** (100 %) |
 
 | Phase | Tasks | State | Result and commits |
 |---|---|---|---|
@@ -33,9 +33,9 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 | 4 · Model B impulse response | 4.1–4.3 | ✅ complete | 9ecf31c, 68cadab, 97a427d, e51f176 (weights rescaled to millidegrees per unit of the driver after a first run in normalised units); §7 committed. `GM_10`, `GM_F07`. **Checkpoint 4:** air temperature agrees with Study 03 (gain −2.67 vs −2.79, response one slot deep, no time constant); radiation has no resolvable response, its summed weight positive against Study 03's negative gain, stated as a finding; Model A not re-tuned. Report §7 (2fbe399, 99c5843). Checkpoint 4 passed; both reviews clean. |
 | 5 · The monitor | 5.1–5.5, 5.4c | ✅ complete | 4c03b1b, fb479b0, bf6cd97, 5ac5a9e (5.1–5.4, review clean); e7bb7a8 (5.4c library); 250f5bd, 7d1e7f3 (fix round 1 of 5.4 and 5.4c Step 3, one shared run p5d of 35.7 min at `N_JOBS = 32`). `GM_11`–`GM_13b`, `GM_F09`–`GM_F11`, `GM_F13_{amplitude,phase,drift,step}`. Reference window 2020-11-21 to 2021-12-31 (the rolling residual's first full day). Limits: fast 6.25 (135 d), daily amplitude 3.25 (102 d), daily phase 1.00 (203 d, the sweep's floor: the joint alarm is gated by the shared CUSUM `h`), slow 13.5 (406 d on one episode). 99 episodes; 69 of 76 fast ones attributed to the instrument once the coincidence window shrank to two hours, the summer-2026 burst among them. Detectability: amplitude growth 8 mdeg on every date at every duration, 4 mdeg at a week; phase never on every date; drift only at 200 mdeg/yr over 90 d; step only at 16 mdeg (prewhitening turns a step into one slot). Two Windows defects fixed in the parallel path on the way (250f5bd: the fitted model's trainer graph in the worker's pickle, 143 GB; NeuralProphet's logger bound to a shared cwd on Drive). Report §10. **Checkpoint 5** in the report and the ledger. |
 | 6 · Outage bridges | 6.1–6.3 | ✅ complete | c79b47e, b7fd509 (Sonnet implementer; `outage_bridge` with `runner=None`, `min_train`, `n_jobs`; tz-naive frames handled; full run 36.8 min, 43/43 cells). `GM_14`, `GM_F12`. Outages 1–2 no data (before the first origin; the merged 437-day gap), 2022–23 gap +45/+54 mdeg and autumn 2024 +36/+33 mdeg outside on both sets, spring 2024 inside, autumn 2025 +16/+13 inside the calibrated half-width, 2026 contaminated by the instrument stretch. The band is the pre-outage fit's raw quantile band, not the conformal interval D12 named (no residuals inside a gap); D12's text and §11 say so. Report §11 written. **Checkpoint 6** stated in §11. |
-| 7 · Closure and the revision pass | 7.1–7.3 | ⬜ pending | `GM_15`; report §12–§14; then Task 7.3, the revision pass from `report05_check.md`. |
+| 7 · Closure and the revision pass | 7.1–7.3 | 🔄 7.1–7.2 complete, 7.3 pending | 3b45d9b, fc0bdeb (`tables.run_metadata`, Movement 7, `GM_15`; full run 44/44 in 36 min; the serial control run on the same machine reproduces every table bit for bit, 117 min). Report §12–§14 written; `STUDY_COMPLETE = True`; README complete with the closing summary; `studies/README.md` row Complete. **Task 7.3**, the revision pass from `report05_check.md`, is planned next and not started: it is the user's gate. |
 
-Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend ✅ · 5 Seasonality ✅ · 6 Regressors ✅ · 7 Impulse response ✅ · 8 Uncertainty ✅ · 9 Ladder ✅ · 10 Monitor ✅ · 11 Outages ✅ · 12 Verdict ⬜ · 13 Limitations ⬜ · 14 Run metadata ⬜.
+Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend ✅ · 5 Seasonality ✅ · 6 Regressors ✅ · 7 Impulse response ✅ · 8 Uncertainty ✅ · 9 Ladder ✅ · 10 Monitor ✅ · 11 Outages ✅ · 12 Verdict ✅ · 13 Limitations ✅ · 14 Run metadata ✅.
 
 ## Global Constraints
 
@@ -2902,7 +2902,7 @@ If Task 0.1's lagged-regressor test failed, resample `block_b` to `MODEL_B_FALLB
 **Interfaces:**
 - `monitoring.prewhiten(residuals, phi=None, start=None, end=None, freq='20min') -> (pd.Series, float)`: innovations `e(t) = r(t) − φ·r(t − 1 step)`, with `φ` the lag-1 autocorrelation of the residual over `[start, end]` when `phi` is `None`; `e` is missing wherever `r(t)` or `r(t − 1 step)` is missing, so no gap is bridged.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 """
@@ -2950,7 +2950,7 @@ class TestPrewhiten(unittest.TestCase):
         self.assertFalse(np.isnan(innovations.iloc[211]))
 ```
 
-- [ ] **Step 2: Run; expected AttributeError. Step 3: Implement**
+- [x] **Step 2: Run; expected AttributeError. Step 3: Implement**
 
 ```python
 def prewhiten(residuals, phi=None, start=None, end=None, freq='20min'):
@@ -2990,14 +2990,14 @@ def prewhiten(residuals, phi=None, start=None, end=None, freq='20min'):
     return innovations, float(phi)
 ```
 
-- [ ] **Step 4: Run; PASS. `python shmlib/tests/test_monitoring.py` unchanged. Commit** `feat(shmlib): prewhiten a residual with its reference AR(1) coefficient`.
+- [x] **Step 4: Run; PASS. `python shmlib/tests/test_monitoring.py` unchanged. Commit** `feat(shmlib): prewhiten a residual with its reference AR(1) coefficient`.
 
 ### Task 5.2 (S): `monitoring.channel_coincidence`
 
 **Interfaces:**
 - `monitoring.channel_coincidence(alarm, channels, scale_start=None, scale_end=None, window='24h', threshold=5.0, instrument=('batt',), environment=('tair', 'rh')) -> pd.Series` of strings aligned to `alarm[alarm]`: each channel in `channels` (a DataFrame) is reduced to its departure from its centred rolling median over `window`, scaled by `1.4826 · median|departure|` over `[scale_start, scale_end]` (Study 01's test, Equations 1–2 of its anomaly section); a slot is an excursion where `|departure| > threshold · scale`. An alarm slot is `'instrument'` if any `instrument` channel is in excursion in the same slot, else `'environment'` if any `environment` channel is, else `'unattributed'`.
 
-- [ ] **Step 1: Test** (append to `test_monitor.py`)
+- [x] **Step 1: Test** (append to `test_monitor.py`)
 
 ```python
 class TestChannelCoincidence(unittest.TestCase):
@@ -3018,7 +3018,7 @@ class TestChannelCoincidence(unittest.TestCase):
         self.assertEqual(out.loc[index[900]], 'unattributed')
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```python
 def channel_coincidence(alarm, channels, scale_start=None, scale_end=None,
@@ -3054,7 +3054,7 @@ def channel_coincidence(alarm, channels, scale_start=None, scale_end=None,
     return labels
 ```
 
-- [ ] **Step 3: Run; PASS. Commit** `feat(shmlib): attribute each alarm to the instrument, the environment or neither`.
+- [x] **Step 3: Run; PASS. Commit** `feat(shmlib): attribute each alarm to the instrument, the environment or neither`.
 
 ### Task 5.3 (S): `detectability_curve(statistic=…)` and `figures.plot_daily_harmonic_chart`
 
@@ -3064,7 +3064,7 @@ def channel_coincidence(alarm, channels, scale_start=None, scale_end=None,
 **Interfaces:**
 - `detectability_curve(residuals, mu, sigma, magnitudes, durations, freq='20min', lam=0.2, L=3.0, k=0.5, h=5.0, seed=0, kind='pulse', period='24h', response_window='24h', statistic='residual', phi=None, injection_starts=None, min_slots=60)`: with `statistic='residual'` (default) today's behaviour. Otherwise the contaminated and the uncontaminated series are both transformed before charting: `'innovation'` → `prewhiten(series, phi=phi)[0]` on the 20-minute grid; `'daily_amplitude'` / `'daily_phase'` → the `amplitude` / `phase_h` column of `daily_harmonic(series, min_slots)` on a daily grid; `'daily_mean'` → `series.resample('1D').mean()`. For the daily statistics the chart frequency is `'1D'`, the joint window one day, and `delay_h` is counted in days × 24. With `injection_starts` (sequence of timestamps) the sweep runs once per start and `detected` is the fraction of starts detected, `delay_h` their mean; `None` keeps the single mid-record injection.
 
-- [ ] **Step 1: Test** (append to `test_monitor.py`)
+- [x] **Step 1: Test** (append to `test_monitor.py`)
 
 ```python
 class TestStatisticAwareDetectability(unittest.TestCase):
@@ -3094,7 +3094,7 @@ class TestStatisticAwareDetectability(unittest.TestCase):
         self.assertIn(curve.loc[0, 'detected'], (0.5, 1.0, True))
 ```
 
-- [ ] **Step 2: Implement.** Add a private helper above `detectability_curve`:
+- [x] **Step 2: Implement.** Add a private helper above `detectability_curve`:
 
 ```python
 def _monitor_statistic(series, statistic, phi=None, freq='20min', min_slots=60):
@@ -3113,9 +3113,9 @@ def _monitor_statistic(series, statistic, phi=None, freq='20min', min_slots=60):
 
 Then in `detectability_curve`: add the four keyword arguments; compute `base_values, chart_freq = _monitor_statistic(values, statistic, phi, freq, min_slots)` and build `baseline` on `base_values` with `window=chart_freq`; the injection points are `[index[len(index) // 2]]` or `pd.DatetimeIndex(injection_starts)`; for each (magnitude, duration) loop over the injection points, contaminate the **raw** `values`, transform with `_monitor_statistic`, chart, compare with the baseline over `[injection, horizon]`, and aggregate: `detected` = fraction of points detected (a `float`; equal to `1.0`/`0.0` for a single point, which keeps `bool(...)` working for existing callers), `delay_h` = mean delay over the points that detected. Keep the columns `magnitude, duration_h, detected, delay_h` and add `statistic` and `n_starts`.
 
-- [ ] **Step 3: `figures.plot_daily_harmonic_chart(chart_amplitude, chart_phase, episodes=None, title='', save_path=None, filename=None)`** — two stacked control charts (amplitude and phase EWMA with limits), reusing the drawing logic of `plot_control_chart` for each panel (call it with `ax=` if that function accepts an axes; if not, draw the `ewma`, `upper`, `lower` columns directly with the same colours and shade `episodes` spans black at 5 %). One axes-count test.
+- [x] **Step 3: `figures.plot_daily_harmonic_chart(chart_amplitude, chart_phase, episodes=None, title='', save_path=None, filename=None)`** — two stacked control charts (amplitude and phase EWMA with limits), reusing the drawing logic of `plot_control_chart` for each panel (call it with `ax=` if that function accepts an axes; if not, draw the `ewma`, `upper`, `lower` columns directly with the same colours and shade `episodes` spans black at 5 %). One axes-count test.
 
-- [ ] **Step 4: Run all tests; `test_monitoring.py` unchanged (the default path is untouched). Commit** `feat(shmlib): detectability on the statistic each chart is built on, and the daily-harmonic chart figure`.
+- [x] **Step 4: Run all tests; `test_monitoring.py` unchanged (the default path is untouched). Commit** `feat(shmlib): detectability on the statistic each chart is built on, and the daily-harmonic chart figure`.
 
 ### Task 5.4 (O designs the cells; S runs the sweeps): Movement 5 — reference, three charts, attribution, detectability; `GM_11`–`GM_13`, `GM_F09`–`GM_F11`, `GM_F13`
 
@@ -3492,7 +3492,7 @@ Note that the on-structure set has no regressor data inside an outage, which is 
 
 ### Task 7.1 (O): Movement 7 metadata and the last three sections
 
-- [ ] **Step 1: Append the metadata cell**
+- [x] **Step 1: Append the metadata cell**
 
 ```python
 # %% [markdown]
@@ -3526,17 +3526,17 @@ tables.write_table(metadata, str(OUTPUT_DIR / 'GM_15_body.tex'),
 
 Sync, execute the whole notebook once more end to end (background, timeout 43200 s), copy back.
 
-- [ ] **Step 2: Write §12 Verdict** — one paragraph per question of spec §1, each with its qualification, every number from a `GM_` body.
-- [ ] **Step 3: Write §13 Limitations** — the compensation not independent of the fitted term; borrowed radiation; the reference window three years before the instrument change; the interval through a gap being the pre-outage band; one sensor, one site; anything Checkpoints 1b–6 surfaced.
-- [ ] **Step 4: Write §14 Run metadata** with `\input{../outputs/GM_15_body.tex}`.
+- [x] **Step 2: Write §12 Verdict** — one paragraph per question of spec §1, each with its qualification, every number from a `GM_` body.
+- [x] **Step 3: Write §13 Limitations** — the compensation not independent of the fitted term; borrowed radiation; the reference window three years before the instrument change; the interval through a gap being the pre-outage band; one sensor, one site; anything Checkpoints 1b–6 surfaced.
+- [x] **Step 4: Write §14 Run metadata** with `\input{../outputs/GM_15_body.tex}`.
 
 ### Task 7.2 (S, O reviews): Closure
 
-- [ ] Set `STUDY_COMPLETE = True` in `tests/test_folder_honesty.py`; run it — every artefact the README names must exist, no `\pending{` may remain. Fix the README's artefact list to what `outputs/` holds (add `GM_04b`, `GM_04c`, `GM_05b`, `GM_06b`, `GM_10_impulse_response_weights`, `GM_F13_detectability_{amplitude,phase,drift}` if they were produced under those names).
-- [ ] Provenance and narrative closure: the honesty test's notebook-provenance class passes on the final tree, and the notebook is read top to bottom to confirm that every movement and every step carries its Markdown narrative cell and that every figure and table body the report includes traces to a call in it.
-- [ ] README status → `Status: **complete.**` with the closing summary in Study 04's shape (one line per question with its headline number, each traceable). `studies/README.md` study 5 row → `Complete`.
-- [ ] Build the PDF twice; run every test file listed in Global Constraints plus the five Study 05 test files; `graphify update .` from `studies/`.
-- [ ] Commit `docs(study05): verdict, limitations, run metadata; the study is complete`.
+- [x] Set `STUDY_COMPLETE = True` in `tests/test_folder_honesty.py`; run it — every artefact the README names must exist, no `\pending{` may remain. Fix the README's artefact list to what `outputs/` holds (add `GM_04b`, `GM_04c`, `GM_05b`, `GM_06b`, `GM_10_impulse_response_weights`, `GM_F13_detectability_{amplitude,phase,drift}` if they were produced under those names).
+- [x] Provenance and narrative closure: the honesty test's notebook-provenance class passes on the final tree, and the notebook is read top to bottom to confirm that every movement and every step carries its Markdown narrative cell and that every figure and table body the report includes traces to a call in it.
+- [x] README status → `Status: **complete.**` with the closing summary in Study 04's shape (one line per question with its headline number, each traceable). `studies/README.md` study 5 row → `Complete`.
+- [x] Build the PDF twice; run every test file listed in Global Constraints plus the five Study 05 test files; `graphify update .` from `studies/`.
+- [x] Commit `docs(study05): verdict, limitations, run metadata; the study is complete`.
 
 > **Checkpoint 7 (O):** every number traces to a file; the README matches the folder; the report builds; the honesty test passes with `STUDY_COMPLETE = True`.
 

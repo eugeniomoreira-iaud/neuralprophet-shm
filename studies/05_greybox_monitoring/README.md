@@ -1,7 +1,28 @@
 # Study 5 · Grey-box expectation and monitoring of the station 02 inclination
 
-Status: **in progress — Phase 6 complete (record, clocks, regressor sets, harmonic diagnostics, Model A attribution on three sets, current-era ladder, rolling expectation with rolling conformal bounds, Model B impulse response, the three-scale monitor with attribution and detectability by mechanism on every chart, the outage bridges).** Built to the design in
-`docs/superpowers/specs/2026-09-05-study05-greybox-monitoring-design.md`.
+Status: **complete.** Built to the design in
+`docs/superpowers/specs/2026-09-05-study05-greybox-monitoring-design.md`; the report in `report/`
+answers the five questions below, every number traced to a `GM_` artefact. The headline per
+question, each traceable to the table named:
+
+- **What the record is made of** (`GM_05`, `GM_06`, `GM_04d`): net of its slow movement, a
+  thermometer — on the on-structure set the trend holds 60.1 % of the fitted variance, air
+  temperature 24.1 % at a learned gain of −2.64 mdeg/°C against Study 03's −2.79, the yearly term
+  12.2 %, the residual 3.1 %; the trend's rate reverses sign twice; radiation is not recovered.
+- **Delay and inertia** (`GM_10`): the air-temperature response is one slot deep, 69.6 % of its
+  −2.67 mdeg/°C in the first twenty minutes and 85.6 % in the first hour, no time constant;
+  radiation's learned response has no shape.
+- **Is this reading the expected one** (`GM_09`, `GM_16`): the rolling expectation's error grows
+  from 5.3 to 10.9 mdeg across a refit month and its conformal interval covers 96 → 82 %, 88.4 %
+  pooled against Study 04's 67.7 %; neither the wall probe nor the pyranometer improves it.
+- **What each chart catches** (`GM_12`, `GM_13b`, `GM_11`): at ninety days per false alarm, an
+  amplitude growth of 8 mdeg on every date within hours and 4 mdeg within a week; a drift of
+  200 mdeg/yr within seven weeks; a step of 16 mdeg at once and nothing below; a two-hour timing
+  shift only on the amplitude chart. 69 of the 76 fast-chart episodes, the summer-2026 stretch
+  among them, are the instrument's.
+- **What happened across each outage** (`GM_14`): the 2022–23 gap and the autumn 2024 outage each
+  hid a rise of 45–54 and 33–36 mdeg the drivers do not account for; spring 2024 hid nothing;
+  autumn 2025 is inside the calibrated half-width; 2026 is contaminated by the instrument stretch.
 
 This study answers the question Study 04 posed and did not fully answer, for the same
 inclinometer at station 02, over the whole eight-year record rather than one post-outage window.
@@ -55,16 +76,23 @@ in every table that reports the `str` set.
 | `GM_01_window_coverage` | Coverage per role per set over the whole window |
 | `GM_02_gap_inventory` | Every target gap over eight years, classified by duration |
 | `GM_03_clock_check` | Clock offset per source |
-| `GM_04_harmonic_diagnostics` | Certified periods per series, annual fits of daily amplitude and phase with held-out order, singular values of the daily-by-annual surface |
+| `GM_04_harmonic_diagnostics` | Certified periods per series, annual fits of daily amplitude and phase with held-out order, singular values of the daily-by-annual surface (bodies `GM_04`, `GM_04b`, `GM_04c`) |
+| `GM_04d_trend_rates` | Trend rate per changepoint segment, in mdeg per year |
 | `GM_05_component_shares` | Variance share and peak-to-peak per component, per set |
+| `GM_05b_conditional_test` | The conditional daily term against the plain one on the held-out tail |
+| `GM_05c_trend_reg_sweep` | Held-out error per trend-regularisation candidate |
+| `GM_05d_seasonal_curves` | The fitted yearly and daily curves, by day of year and hour of day |
+| `GM_05e_fit_metrics` | Training and held-out error by epoch, on-structure attribution fit |
 | `GM_06_learned_gains` | Learned gain per driver beside Study 03's, per set |
 | `GM_07_component_stability` | Gain, yearly amplitude, trend slope per fold, per set |
-| `GM_08_residual_diagnostics` | Ljung–Box, autocorrelation, scale, period scan, per set |
+| `GM_08_residual_diagnostics` | Ljung–Box, scale, per set |
+| `GM_08b_residual_periods` | Periodic structure the residual still carries, band by band, per set |
 | `GM_09_nowcast_metrics` | Expectation and interval metrics, per set and per days since refit |
-| `GM_10_impulse_response` | Effective delay and time constant per driver beside Study 03's operator |
+| `GM_10_impulse_response` | Effective delay and time constant per driver beside Study 03's operator; `GM_10_impulse_response_weights` holds the weight at every lag |
 | `GM_11_alarm_episodes` | Episodes per chart with attribution |
 | `GM_12_run_lengths` | Achieved run length per chart with episode count |
-| `GM_13_detectability` | Smallest detected departure by mechanism, chart and persistence |
+| `GM_13_detectability` | Detected fraction and delay by mechanism, chart, magnitude and persistence, every mechanism on every chart |
+| `GM_13b_detection_thresholds` | Smallest departure caught on any and on every injection date, per mechanism and chart |
 | `GM_14_outage_bridges` | Expected, observed, shift, interval and verdict per outage and proxy set |
 | `GM_15_run_metadata` | Every parameter, seed and library version |
 | `GM_16_current_era_ladder` | What `twall` and the pyranometer buy, rung by rung |
@@ -79,11 +107,12 @@ Figures `GM_F01` through `GM_F14`, each written as both `.png` and `.svg`:
 | `GM_F04` | `plot_parameters` trend | Trend on covered time with rate changes marked in the accent colour |
 | `GM_F05` | `plot_parameters` seasonality | Yearly curve, and the daily curve at the two solstices and two equinoxes if the smooth conditional term is kept |
 | `GM_F06` | `plot_components` | Decomposition stack over the whole record |
+| `GM_F06b` | `plot_parameters` regressors | Learned gain per driver beside Study 03's, per set |
 | `GM_F07` | `plot_parameters` lagged regressors | Impulse response per driver with Study 03's operator overlaid |
 | `GM_F08` | `plot`, `conformal_plot` | Observed against expected with the conformal band, one month |
-| `GM_F09`–`GM_F11` | — | The three charts over the monitored record, episodes shaded, attribution marked |
-| `GM_F12` | — | Outage bridges: expected level and interval through each outage, observed at resumption |
-| `GM_F13` | — | Detectability per mechanism on its own chart |
+| `GM_F09`–`GM_F11` | — | The three charts over the monitored record, episodes shaded |
+| `GM_F12` | — | Outage bridges on the station set: the expectation and its band from resumption, the observed readings, the scored week shaded |
+| `GM_F13` | — | Detectability per mechanism on its own chart, four files: `GM_F13_detectability_amplitude`, `GM_F13_detectability_phase`, `GM_F13_detectability_drift`, `GM_F13_detectability_step` |
 | `GM_F14` | — | Current-era ladder, rung by rung |
 
 ## Reproducing
@@ -104,11 +133,21 @@ the watcher first.
 
 ## Tests
 
-No implementation exists yet, so no tests exist yet. Tests are added phase by phase, alongside the
-notebook cells each phase adds: one file under `tests/` per `shmlib` area a phase draws on, on the
-model of Study 04's `test_prediction.py`, `test_gaps.py` and `test_decomposition.py`, plus a
-folder-honesty test on the model of Study 04's `test_folder_honesty.py`, guarding this folder
-against any prose claim without a `GM_` artefact behind it.
+Run from `studies/`, each with `python 05_greybox_monitoring/tests/<file>`:
+
+| File | What it guards |
+|---|---|
+| `test_neuralprophet_capabilities.py` | The NeuralProphet 0.8.0 features the design relies on |
+| `test_harmonics.py` | The harmonic diagnostics: daily harmonic, annual modulation, surface rank, seasonal weights |
+| `test_model_a.py` | The attribution fit's adaptations and extractors, the rolling conformal interval, and the parallel fits (order, equality with the serial path, the trainer detached across processes) |
+| `test_model_b.py` | Lagged-regressor weights and the impulse-response summary |
+| `test_monitor.py` | Prewhitening, attribution, the charted series, limit tuning, and detectability by mechanism on every chart |
+| `test_bridges.py` | The outage bridge and its figure |
+| `test_run_metadata.py` | The run-metadata table |
+| `test_folder_honesty.py` | No code outside `shmlib`, every graphic and table body the report includes written by the notebook, every artefact the README names present, no section pending |
+
+The notebook's full run takes about 36 minutes on a 64-core workstation with `N_JOBS = 32`, and
+about two hours serially; the two produce identical tables.
 
 ## Rebuilding the report
 
