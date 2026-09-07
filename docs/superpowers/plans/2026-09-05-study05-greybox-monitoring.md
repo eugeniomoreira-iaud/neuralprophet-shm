@@ -12,14 +12,14 @@
 
 ## Progress
 
-Updated 2026-09-06 · 22:07 UTC. This block is the summary a reader needs to follow the
+Updated 2026-09-07 · 00:05 UTC. This block is the summary a reader needs to follow the
 implementation; the checkboxes under each task below are ticked as the work lands, and the
 detailed execution ledger (rulings, fix rounds, commits) lives in
 `.superpowers/sdd/2026-09-05-study05-greybox-monitoring/progress.md`, which is gitignored.
 
 | Measure | Progress |
 |---|---|
-| Tasks complete (of 41, Tasks 0.1 to 7.3) | `[███████████████░░░░░]` **30 of 41** (73 %) |
+| Tasks complete (of 42, Tasks 0.1 to 7.3) | `[██████████████░░░░░░]` **30 of 42** (71 %) |
 | Report sections written (of 14) | `[█████████████░░░░░░░]` **9 of 14** (64 %) |
 
 | Phase | Tasks | State | Result and commits |
@@ -31,7 +31,7 @@ detailed execution ledger (rulings, fix rounds, commits) lives in
 | 2b · Current-era ladder | 2b.1–2b.2 | ✅ complete | ef0a67a, 6882563, 74cf7dc; 0d63e51, e5e07ba. `GM_16`, `GM_F14` on one matched window. Neither the pyranometer nor the probe buys anything for the expectation on the current era. Report §9 written. |
 | 3 · Expectation and interval | 3.1–3.3 | ✅ complete | 9f4719f, 4f0278f, ed7f326. `GM_09`, `GM_F08`: pooled coverage 88.4 % (on-structure) against Study 04's 67.7 %; coverage 96 → 82 % and MAE 5.3 → 10.9 mdeg across the refit month. Two runs of about an hour each (the first died on the native conformal plot). |
 | 4 · Model B impulse response | 4.1–4.3 | ✅ complete | 9ecf31c, 68cadab, 97a427d, e51f176 (weights rescaled to millidegrees per unit of the driver after a first run in normalised units); §7 committed. `GM_10`, `GM_F07`. **Checkpoint 4:** air temperature agrees with Study 03 (gain −2.67 vs −2.79, response one slot deep, no time constant); radiation has no resolvable response, its summed weight positive against Study 03's negative gain, stated as a finding; Model A not re-tuned. Report §7 (2fbe399, 99c5843). Checkpoint 4 passed; both reviews clean. |
-| 5 · The monitor | 5.1–5.5 | 🔄 in progress | 5.1–5.4 implementer running (library, Movement 5, one full run of about two hours); reference window ruled as 2020-11-21 to 2021-12-31, the rolling residual's overlap with the design's window. Then report §10. |
+| 5 · The monitor | 5.1–5.5, 5.4c | 🔄 in progress | 5.1–5.3 committed (4c03b1b, fb479b0, bf6cd97), review pending; 5.4's second run in progress (the first died on a daily index with missing days); reference window ruled as 2020-11-21 to 2021-12-31. **New Task 5.4c** (user request, 2026-09-07): `n_jobs` parallel fits across the library's loops, verified by a run whose `GM_` tables must match within tolerance. Then report §10. |
 | 6 · Outage bridges | 6.1–6.3 | ⬜ pending | `GM_14`, `GM_F12`; report §11. |
 | 7 · Closure and the revision pass | 7.1–7.3 | ⬜ pending | `GM_15`; report §12–§14; then Task 7.3, the revision pass from `report05_check.md`. |
 
@@ -50,6 +50,7 @@ Report sections: 1 Introduction ✅ · 2 Record ✅ · 3 Method ✅ · 4 Trend �
 - **Every number in the report traces to a `GM_` artefact.** A claim with no artefact does not enter the report. (Spec §7.)
 - **Every image in the report comes from the paired notebook.** Each `\includegraphics{GM_Fxx_…}` in `report/greybox_monitoring_report.tex` names a file that a `figures.*` call in `greybox_monitoring_study.py` writes with `save_path=str(OUTPUT_DIR), filename='GM_Fxx_…'`, and each `\input{../outputs/GM_xx_body.tex}` names a body that a `tables.write_table` call in the same notebook writes. No image reaches the PDF from a test, a helper script, a hand edit or the paper side; a figure that needs changing is changed in `shmlib.figures` and the notebook is re-run. The folder-honesty test enforces the mapping from Task 2.4b onward. (User rule, 2026-09-06.)
 - **The notebook tells the code side of the story.** Each movement opens with a Markdown cell stating what it computes, why, and which `GM_` artefacts it writes, and each step inside a movement has its own `###` Markdown cell in the same voice, so that a reader who follows the report can open the notebook at the matching movement and find the calls that produced every figure and table. Code comments do not substitute for these cells; reviewers of every notebook task check for them. (User rule, 2026-09-06.)
+- **Iterate against dumped state; run the whole notebook once per task.** A movement's new cells are developed against a state dump of the movements before it: a scratch copy of the notebook truncated after the previous movement, plus one cell that pickles the frames the new movement reads, executed once to the scratch directory; then a scratch runner executes the parameter cells, loads the dump and executes the new movement's cells alone, in seconds. The full notebook runs when the cells pass on real state, once per task. A synthetic dry-run does not replace this. (Controller ruling, 2026-09-07, after a run failed 48 minutes in on a column shape the synthetic data did not have.)
 - **Report in parts.** Each phase ends with a task that writes that phase's report section(s), removes their `\pending{}` marker, rebuilds the PDF twice, runs the honesty test and commits. The PDF is tracked.
 - **Notebook execution.** Edit the `.py`; sync with `jupytext --to ipynb`. Execute to a scratch path with `--output-dir` (or stop `auto_watcher.py` first), verify by reading printed lines back from the executed `.ipynb`, since nbconvert exits 0 on a failing cell. (Study 04 README.)
 - **Commits.** One per task, message in full prose, ending with the two trailer lines `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` and `Claude-Session: https://claude.ai/code/session_01UarwTTUzLD2P9hff6RJHew`.
@@ -3273,6 +3274,28 @@ figures.plot_detectability(detectability[detectability['mechanism'] == 'drift'],
 The injection dates must fall inside the reference window (the uncontaminated stretch); replace the four 2023 dates by four dates across the seasons of 2020 and set `DETECT_INJECTION_DATES` in the parameter cell accordingly. Check the column names `average_run_length` returns (`arl_days`, episode count) and `alarm_episodes` returns (`start`, `end`, `duration_h`, `mean_z`) against `NP_09`/`NP_15` of Study 04 and adjust the body columns.
 
 - [ ] **Step 2: Sync, execute (sweeps are long; background, timeout 43200 s), copy back, commit** `feat(study05): three monitoring charts at three time scales, attribution and detectability by mechanism`.
+
+### Task 5.4c (S): Parallel fits — `n_jobs` across origins, folds, candidates, sets and rungs
+
+**Why:** measured on 2026-09-06, a full notebook run occupies about 1.5 of the machine's 10 cores (4 performance, 6 efficiency; torch reports 4 threads and the run sits at 15 % CPU): every NeuralProphet fit is small and every library loop over fits is serial. Movement 3 alone (three sets × about seventy refits) takes about 45 minutes, the whole notebook about two hours, and every fix re-runs it. Process-level parallelism over independent fits is the lever; nothing about any fit changes.
+
+**Files:**
+- Modify: `studies/shmlib/prediction.py` — private `_parallel_map(function, items, n_jobs=1)`; keyword `n_jobs=1` on `rolling_nowcast` (over origins), `fold_stability` (over folds), `sweep_trend_reg` (over candidates), `attribution_fits` (over sets), `channel_ladder` (over rungs). Task 6.1's `outage_bridge` is born with `n_jobs=1` over outages (see `task-6.2-addendum.md`).
+- Modify: `studies/05_greybox_monitoring/tests/test_model_a.py` (append `TestParallelFits`).
+- Modify: `studies/05_greybox_monitoring/greybox_monitoring_study.py` — `N_JOBS` in "Parameters · Model A" with a Parameter Tuning Guidance bullet; every call of the five functions passes `n_jobs=N_JOBS`.
+
+**Interfaces:**
+- `_parallel_map(function, items, n_jobs=1)`: when `n_jobs == 1` it returns `[function(item) for item in items]` and joblib is never imported; otherwise `joblib.Parallel(n_jobs=n_jobs, backend='loky')(joblib.delayed(wrapped)(item) for item in items)`, where `wrapped` calls `torch.set_num_threads(1)` in the worker before `function`. Results come back in the order of `items`; any exception propagates unchanged.
+- Each function's loop body becomes a helper fed to `_parallel_map` (a module-level function or a closure; loky pickles closures with cloudpickle). The per-fit seed is exactly today's, so `n_jobs > 1` reproduces `n_jobs = 1` up to floating-point reduction order (workers run one torch thread; the serial path keeps torch's default thread count). Defaults unchanged, so Study 04's calls are unaffected.
+- Notebook: `N_JOBS = 8`. Bullet: `1` reproduces the serial run bit for bit; values above the core count gain nothing; each worker holds its own copy of the frame, about one gigabyte.
+
+**Steps:**
+- [ ] **Step 1: Tests (RED).** `TestParallelFits` in `test_model_a.py`: (a) `_parallel_map(double, [1, 2, 3], n_jobs=2) == [2, 4, 6]`, and order is preserved with `n_jobs=3` on a function whose items sleep for decreasing times; (b) `rolling_nowcast` on the synthetic frame the file already uses, `epochs=2`, a `refit_every` that yields at least three origins, once with `n_jobs=1` and once with `n_jobs=2`: `pd.testing.assert_frame_equal(serial, parallel, check_exact=False, rtol=1e-5)` and identical `origin` columns; (c) `sweep_trend_reg` with two candidates and `n_jobs=2` returns the same candidates in the same order as serial, values within `rtol=1e-5`.
+- [ ] **Step 2: Implement (GREEN).** Run the Global Constraints suites plus `test_model_a.py`, `test_model_b.py`, `test_harmonics.py`, `test_monitor.py`; output pristine. Commit 1: `feat(shmlib): fit the walk-forward origins, folds, candidates, sets and rungs in parallel processes`.
+- [ ] **Step 3: Notebook and verification run.** Add `N_JOBS` and the `n_jobs=N_JOBS` keywords (Movements 2, 2b, 3, and 6 once it exists). Before the run, copy `outputs/GM_*.csv` and `outputs/GM_*_body.tex` to a scratch directory `gm05_before_parallel/`. Run the whole notebook to the scratch as usual; read each cell's wall time from `metadata.execution` in the executed `.ipynb` and total it per movement. Compare every `GM_*.csv` numerically against the copy (a scratch script: same shape and columns, numeric columns `np.allclose(rtol=1e-6, atol=1e-9)`, other columns equal) and every `_body.tex` textually; paste the comparison table (file, maximum relative deviation) and the per-movement timings into `task-5.4c-report.md`. A body `.tex` that differs textually is reported with both versions so the controller re-reads that table's numbers in the report. Copy back, honesty test. Commit 2: `feat(study05): parallel fits across the notebook, results unchanged within tolerance`.
+- [ ] **Step 4: Failure mode.** If `n_jobs > 1` fails inside the Jupyter kernel on macOS (loky spawn with torch) in a way that `torch.set_num_threads(1)` in the worker or `JOBLIB_START_METHOD` cannot fix, report BLOCKED with the traceback; never fall back to threads silently (the GIL would give no speed-up and hide the failure).
+
+Dependencies: Step 2's commit may proceed while Task 5.4 is running (disjoint files: `prediction.py` and `test_model_a.py` against `monitoring.py`, `figures.py`, `test_monitor.py` and the notebook); Step 3 starts only after Task 5.4's commit.
 
 ### Task 5.5 (O): Report §10 The monitor
 
