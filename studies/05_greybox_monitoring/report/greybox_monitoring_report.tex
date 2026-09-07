@@ -11,6 +11,7 @@
 \newcommand{\runninghead}{Grey-box expectation and monitoring at Gubbio}
 
 \input{../../_shared/reportstyle.tex}
+\usepackage{longtable}
 \graphicspath{{../outputs/}}
 
 \newcommand{\pending}[1]{\begin{center}\textcolor{rulegrey}{\itshape
@@ -366,17 +367,21 @@ not needed.
 
 \subsection{D10 · Three charts, one per damage mechanism and time scale}
 
-Reference statistics come from a fixed window, 2019 to 2021, before the 2022
-outages and before the instrument change; the monitored record runs from
-January 2022. All three charts run on Model~A's rolling residual for each set.
+Reference statistics come from a fixed window before the 2022 outages and
+before the instrument change, planned as 2019 to 2021 and taken as
+21~November 2020 to 31~December 2021, because the rolling residual the charts
+run on exists only from its first refit origin (Section~\ref{sec:monitor});
+the monitored record runs from January 2022. All three charts run on Model~A's
+rolling residual for each set.
 The fast chart applies an exponentially weighted moving average and a CUSUM to
 the residual's prewhitened innovations at twenty minutes, for steps, spikes
 and instrument faults, at a budget of ninety watched days per false alarm. The
 daily chart applies the same pair to the amplitude and phase of a 24-hour
 harmonic fitted to each day's residual, for amplitude growth and phase change,
 at the same budget. The slow chart applies a CUSUM with a small reference value
-to the daily mean residual, beside the sequence of refit trend slopes, for
-drift, at a budget of one year. Every fast alarm is cross-checked against the
+to the daily mean residual, for drift, at a budget of one year; the design
+placed the sequence of refit trend slopes beside it, and that companion was
+not built (Section~\ref{sec:monitor}). Every fast alarm is cross-checked against the
 air temperature, humidity and battery channels in the same slot, so that the
 episode table carries an attribution: environment, instrument, or unattributed.
 
@@ -1311,7 +1316,337 @@ changed nothing.}
 % ===========================================================================
 \section{The monitor}
 \label{sec:monitor}
-\pending{Phase 5}
+
+\subsection{The reference window and the four charted series}
+
+Every control limit in this section is a multiple of a centre and a scale
+estimated on a reference window, and D10 planned that window as the three
+years 2019 to 2021. The residual the charts run on is the rolling
+expectation's of Section~\ref{sec:uncertainty}, and that residual exists only
+from the first refit origin, 20~November 2020, the first instant with two
+annual cycles of history behind it. A window opening in 2019 would calibrate
+the charts on rows that do not exist, so the window is 21~November 2020, the
+first full day of the rolling residual, to 31~December 2021: 406 days, about
+thirteen months, the last full year before the 2022 outages and before the
+instrument change, with no outage longer than eleven days inside it. The
+window is not widened, since a window containing a departure would calibrate
+the detector against the very thing it is meant to find. Two consequences
+follow and are carried through the section. The slow chart's budget of a year
+per false alarm admits at most one false episode inside a window that short,
+so its tuning rests on a single episode, and the injection dates for the
+detectability sweep must all fall inside the same thirteen months.
+
+The on-structure set's rolling residual is reduced to the four series of D10's
+table. The fast chart runs on the residual's prewhitened innovations at twenty
+minutes, $e(t) = r(t) - \phi\, r(t - 1)$, with $\phi = 0.996$ estimated as the
+lag-one autocorrelation on the reference window, so that the limit is set
+against the residual's own innovation scale rather than against a series that
+keeps 99.6\,\% of its value from one slot to the next; the prewhitened
+innovation's spread is well below the residual's, which is what
+brings the fast chart's limit from the 14.75 standard deviations Study~04
+needed on the raw residual to the 6.25 of Table~\ref{tab:run-lengths}. The
+daily chart runs on the amplitude and the phase of a 24-hour harmonic fitted
+to each day's residual, a day counting only when it holds at least 60 of its
+72 slots. The slow chart runs on the daily mean residual. Each series carries
+its own smoothing constant, coincidence window and false-alarm budget, fixed
+before any sweep: 90 watched days per false alarm on the fast and daily charts,
+365 on the slow one. The design placed the sequence of refit trend slopes
+beside the slow chart; that companion was not built, and the trend rates of
+Section~\ref{sec:trend} describe the record's slow movement without
+monitoring it.
+
+\subsection{The limits, and the run lengths achieved}
+
+Each chart's control limit is the smallest candidate, on a grid of a quarter
+of a standard deviation from 1.0 to 15.0, whose average run length between joint alarms
+on the reference stretch meets that chart's budget; the CUSUM slack and
+decision interval, 0.5 and 5 standard deviations, are Study~04's and are
+shared by every chart. Table~\ref{tab:run-lengths} gives the result. The fast
+chart meets its budget at 6.25 standard deviations with a run length of
+135~days on three reference episodes; the daily-amplitude chart at 3.25 with
+102~days on four; the slow chart at 13.5 with 406~days on one, the whole
+window, so its run length is a bound set by a single episode rather than a
+measurement. The daily-phase chart sits at 1.00, the floor of the sweep, with
+203~days on two episodes, and it sat on the floor of the first run's sweep,
+2.00, with the same run length on the same two episodes. That is not a defect
+of the grid: the joint alarm requires the EWMA and the CUSUM to agree, and at
+these limits the CUSUM's decision interval, not the EWMA's limit, gates the
+phase chart, so lowering the floor further would change nothing. The phase
+chart is therefore as sensitive as D10's shared CUSUM allows, and its run
+length exceeds its budget by a factor of two.
+
+\begin{table}[H]
+\centering
+\caption{The control limit each chart met its budget at, the run length it
+achieves on the reference window and the number of reference episodes that
+run length rests on. Read from \texttt{GM\_12\_run\_lengths.csv}.}
+\label{tab:run-lengths}
+\begin{tabular}{lrrrr}
+\toprule
+Chart & $L$ & Budget (d) & Achieved (d) & Episodes \\
+\midrule
+\input{../outputs/GM_12_body.tex}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{What the charts reported}
+
+Figures~\ref{fig:fast-chart} to~\ref{fig:slow-chart} run the three charts over
+the monitored record, from January 2022 to the archive end, and
+Table~\ref{tab:episodes} lists every episode the joint alarm raised, 99 in
+all: 76 on the fast chart, 17 on the daily-amplitude chart, 3 on the
+daily-phase chart and 3 on the slow one.
+
+Every fast alarm is cross-checked against the on-structure air temperature,
+relative humidity and supply voltage in the same slot, the test Study~01 ran by
+hand on the summer of 2026. A channel counts as in excursion when its departure
+from a centred two-hour rolling median exceeds five times that departure's
+robust scale on the reference window, and an episode's attribution is the
+majority label of its slots. The window is two hours rather than the day the
+first run used: over a day the departure from the median on air temperature is
+the diurnal cycle itself, whose swing no realistic excursion reaches, and every
+episode came back unattributed; a coincidence test built to catch a
+twenty-minute swing must measure that swing against its own local background.
+With the two-hour window 69 of the 76 fast episodes are attributed to the
+instrument, two to the environment and five to neither. The 52 episodes from
+18~June to 10~August 2026, one or two a day, are the summer-2026 stretch
+Study~01 flagged; they begin the day after the archive resumed on 17~June
+2026, they coincide to the day with the wall-temperature probe's second valid
+block of Section~\ref{sec:ladder}, and every one of them is attributed to the
+instrument through the supply-voltage channel. That is the demonstration D10
+asked of the attribution step and not a claim about the monitor's
+sensitivity: the fast chart alarms on a stretch the record's own supply
+channel already marks, and says so. The sixteen episodes between 11~March and
+26~August 2025, in the months after the instrument change of 21~February 2025,
+carry the same label, and so does one slot on the morning of 30~October 2024.
+The five unattributed episodes, the ones the monitor leaves to the wall to
+answer for, fall on four dates: two on 8~July 2023, the second of them twelve
+hours long and the largest standardised excursion of the record at a peak of
+95.7, and one each on 3~April 2024, 2~July 2024 and 30~October 2024. Three of
+the four dates fall 17 to 22 days after a resumption: 21~June 2023 after the
+437-day gap, 13~June 2024 and 8~October 2024 after the two outages of that
+year. The two environment labels are one and two slots at the onset of the
+July 2023 and July 2024 episodes, where the air temperature or humidity also
+jumped.
+
+The daily charts see the same stretches at their own scale. The amplitude
+chart's longest episodes are the 33 days from 8~July 2023, at a mean of 3.8
+standard deviations, the 48 days from 23~August to 9~October 2024, which
+span the outage of 28~August to 8~October so that most of their days are the
+gap itself, and the 55 days from 19~June to 12~August 2026 at a mean of 4.4,
+the summer-2026 stretch again, whose daily amplitude peaks at 8.0 standard
+deviations in the top panel of Figure~\ref{fig:daily-chart}. The phase chart
+raises three episodes, two in October 2023 and one of 44 days in the same
+summer of 2026. The slow chart raises three: 26~June to 12~July 2023 at a mean
+of $+4.8$ standard deviations and 23 to 31~October 2024 at $+3.9$, beginning
+five and fifteen days after a resumption, and 10 to 12~August 2026 at $-4.3$,
+at the archive's end. What the wall did across each of those outages,
+and whether the level the model expected at resumption is the one observed,
+is the question Section~\ref{sec:outages} puts to the proxies that kept
+recording; the charts of this section report that the weeks after each
+resumption are where the record departs from its expectation on every time
+scale at once.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F09_fast_chart.png}
+\caption{The fast chart over the monitored record: the exponentially weighted
+moving average of the prewhitened innovations, standardised on the reference
+window, with the tuned limit; alarming episodes shaded. The line breaks across
+gaps rather than interpolating through them.}
+\label{fig:fast-chart}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F10_daily_chart.png}
+\caption{The daily chart: the amplitude (top) and phase (bottom) of the
+24-hour harmonic fitted to each day's residual, standardised on the reference
+window, with their tuned limits and their episodes shaded.}
+\label{fig:daily-chart}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F11_slow_chart.png}
+\caption{The slow chart: the upper CUSUM of the daily mean residual against
+its decision interval, episodes shaded.}
+\label{fig:slow-chart}
+\end{figure}
+
+{\scriptsize
+\begin{longtable}{llrrrl}
+\caption{Every episode the joint alarm raised over the monitored record, by
+chart: start and end dates, duration, the mean standardised departure over
+the episode and, for the fast chart, its attribution. Read from
+\texttt{GM\_11\_alarm\_episodes.csv}.}
+\label{tab:episodes}\\
+\toprule
+Chart & Start & End & Duration (h) & Mean $z$ & Attribution \\
+\midrule
+\endfirsthead
+\toprule
+Chart & Start & End & Duration (h) & Mean $z$ & Attribution \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\input{../outputs/GM_11_body.tex}\\
+\end{longtable}}
+
+\subsection{What each chart can and cannot see}
+
+One large event cannot establish a detector's sensitivity, and the summer-2026
+stretch is not used to try. Departures of known size, duration and shape are
+injected into the reference window's own residual, the only stretch known to
+be in control, on four dates across the seasons, 15~December 2020 and 15~March,
+15~June and 15~September 2021, and an alarm counts only where the
+uncontaminated record is silent within a twenty-four-hour response window. The
+detected fraction is therefore the share of the four dates on which the
+departure was found. The four mechanisms are Study~04's three, with the two
+corrections of D11, and a step. Amplitude growth is injected at 0.5 to 16~mdeg.
+The phase change is injected as a timing shift of a quarter, half, one and two
+hours, converted to a residual amplitude by the wall's own fitted daily
+response on each injection date, the air-temperature component plus the daily
+seasonal terms: 0.69, 1.39, 2.77 and 5.49~mdeg, against the 1.07 Study~04
+injected for a two-hour shift on the leftover daily term alone. The drift is
+injected as a rate of 1 to 200~mdeg per year and, unlike the other mechanisms,
+scored over horizons of 30, 60 and 90 days rather than of 6 to 336 hours,
+because a rate accumulated over fourteen days never amounts to anything a
+chart could see. The step is injected at the same magnitudes as the amplitude.
+Each mechanism is scored on the chart built for it and on the other three as
+well. Table~\ref{tab:detectability} gives the sweep on each mechanism's own
+chart, Figures~\ref{fig:detect-amplitude} to~\ref{fig:detect-step} draw it,
+and Table~\ref{tab:thresholds} reduces the whole sweep, own charts and the
+others, to the two numbers a reader wants: at the longest horizon swept, the
+smallest departure a chart catches on any date and the smallest it catches on
+every date.
+
+Amplitude growth is the mechanism the monitor sees. On the daily-amplitude
+chart a growth of 8~mdeg is found on every date at every duration, from six
+hours upward, and 4~mdeg on every date at a week's duration and on three dates
+in four at two weeks; 2~mdeg is found on one date in four at most durations,
+on two at a week, and 1~mdeg on one date at the two shortest durations only.
+Study~04, on one injection date and the raw residual, found amplitude growth
+at 16~mdeg alone. The delay grows with the duration at a given magnitude, from
+six hours at 8~mdeg and a six-hour injection to 156~hours at the two-week one,
+because a longer injection is scored over a longer window and the alarm that
+counts sits later in it.
+
+The phase change is the mechanism the monitor does not see on its own chart.
+No shift is found on all four dates; a one-hour shift, 2.77~mdeg, is found on
+one date in four at the two-week duration, and a two-hour shift, 5.49~mdeg, on
+one date in four from a week upward. The same two-hour shift is found on every
+date by the amplitude chart, with a delay of 186~hours, since a sinusoid added
+to the residual at a shifted phase raises the fitted daily amplitude as well
+as moving its phase. Study~04's verdict that a timing shift of up to two
+hours is undetectable stands for the phase chart; the amplitude chart
+qualifies it at the top of the swept range.
+
+The drift is found on the slow chart only at rates far above the ones D10 had
+in mind. A rate of 200~mdeg per year is found on every date over 90 days, with
+a delay of 1,128~hours, 47 days, and on three dates in four over 60 days; 100
+per year is found on two dates over 90 days. From 10~mdeg per year upward one
+date in four alarms at every rate and every horizon, which reads as one
+injection date already sitting near the limit rather than as sensitivity to the
+rate, since the fraction does not rise with either. Study~04's grid of 1 to
+20~mdeg per year is not detected on every date at any horizon, as it was not
+in Study~04, and the slow chart's limit, set by a single reference episode at
+13.5 standard deviations, is where that blindness comes from.
+
+The step is the mechanism the fast chart was built for, and it is found only
+at 16~mdeg, on three dates in four, at every duration and with no delay, and
+not at all below. The reason is the prewhitening itself. With $\phi = 0.996$ a
+level step of size $s$ becomes a single innovation of size $s$ followed by
+innovations of $(1 - \phi)\,s$, four thousandths of the step, so a step is one
+slot's spike to the fast chart; the EWMA at a smoothing constant of 0.05
+retains a twentieth of that spike and the CUSUM accumulates it for one slot.
+The chart finds spikes and instrument faults, which is what the record's
+episodes are, and leaves a sustained level shift to the slow chart, which
+does see the 16~mdeg step on one date. Across charts, drift reaches the fast
+chart from 20~mdeg per year and the daily charts from 100, on one date each,
+and amplitude growth reaches the fast chart only at 16~mdeg.
+
+The blind spots, stated at the budgets of Table~\ref{tab:run-lengths}: a
+level step below 16~mdeg, a timing shift of two hours or less on the phase
+chart, and a drift below 100~mdeg per year within 90 days. What the monitor
+does catch on every date is an amplitude growth of 8~mdeg within hours and of
+4~mdeg within a week, a two-hour timing shift within eight days on the
+amplitude chart, and a drift of 200~mdeg per year within seven weeks.
+
+{\scriptsize
+\begin{longtable}{llrrrr}
+\caption{Detectability by mechanism on its own chart, at the stated budgets:
+injected magnitude (mdeg, or mdeg per year for the drift), duration or
+horizon, the fraction of the four injection dates on which the departure was
+found, and the mean detection delay where it was. Read from
+\texttt{GM\_13\_detectability.csv}, primary rows.}
+\label{tab:detectability}\\
+\toprule
+Mechanism & Chart & Magnitude & Duration (h) & Detected & Delay (h) \\
+\midrule
+\endfirsthead
+\toprule
+Mechanism & Chart & Magnitude & Duration (h) & Detected & Delay (h) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\input{../outputs/GM_13_body.tex}\\
+\end{longtable}}
+
+\begin{table}[H]
+\centering
+\caption{The detection threshold of every mechanism on every chart, read at
+the longest horizon swept: the smallest magnitude found on any injection date,
+the smallest found on every date, and the delay at that magnitude; a dash
+where no magnitude in the sweep was found. The primary column marks the chart
+built for the mechanism. Read from
+\texttt{GM\_13b\_detection\_thresholds.csv}.}
+\label{tab:thresholds}
+{\small\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrrrl}
+\toprule
+Mechanism & Chart & Horizon (h) & Smallest any & Smallest all & Delay (h) & Primary \\
+\midrule
+\input{../outputs/GM_13b_body.tex}\\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F13_detectability_amplitude.png}
+\caption{Amplitude growth on the daily-amplitude chart: the fraction of
+injection dates detected (left) and the mean detection delay (right) by
+magnitude and duration.}
+\label{fig:detect-amplitude}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F13_detectability_phase.png}
+\caption{Phase change on the daily-phase chart, the timing shift expressed as
+the residual amplitude the wall's fitted daily response gives it.}
+\label{fig:detect-phase}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F13_detectability_drift.png}
+\caption{Drift on the slow chart, by rate in mdeg per year and horizon in
+hours.}
+\label{fig:detect-drift}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{GM_F13_detectability_step.png}
+\caption{Step on the fast chart. Nothing below 16~mdeg is found at any
+duration: prewhitening turns a level step into a single slot's innovation.}
+\label{fig:detect-step}
+\end{figure}
 
 % ===========================================================================
 \section{Outages as hypotheses}
