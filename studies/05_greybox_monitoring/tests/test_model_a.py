@@ -6,6 +6,7 @@ Run from studies/:  python 05_greybox_monitoring/tests/test_model_a.py
 import logging
 import os
 import sys
+import time
 import unittest
 import warnings
 
@@ -438,6 +439,52 @@ class TestRollingAdditions(unittest.TestCase):
             warnings.simplefilter('error', FutureWarning)
             out = prediction.score_predictions(frame, ['group'])
         self.assertEqual(sorted(out['group'].astype(str)), ['a', 'b'])
+
+
+class TestParallelFits(unittest.TestCase):
+    """Task 5.4c: process-level parallelism over independent fits reproduces
+    the serial loop's own output, in order, up to floating-point reduction
+    order."""
+
+    def test_parallel_map_matches_serial_values(self):
+        self.assertEqual(
+            prediction._parallel_map(lambda x: x * 2, [1, 2, 3], n_jobs=2),
+            [2, 4, 6])
+
+    def test_parallel_map_preserves_item_order_under_uneven_timing(self):
+        # Item 0 sleeps longest and finishes last; the result must still
+        # come back first, because _parallel_map orders by item, not by
+        # completion.
+        def _sleep_and_return(item):
+            index, delay = item
+            time.sleep(delay)
+            return index
+
+        items = [(0, 0.3), (1, 0.2), (2, 0.1)]
+        out = prediction._parallel_map(_sleep_and_return, items, n_jobs=3)
+        self.assertEqual(out, [0, 1, 2])
+
+    def test_rolling_nowcast_parallel_matches_serial(self):
+        frame = _frame(n=24 * 120)
+        kwargs = dict(regressors=('tair',), refit_every='20d', min_train='40d',
+                     freq='1h', epochs=2)
+        serial = prediction.rolling_nowcast(frame, n_jobs=1, **kwargs)
+        parallel = prediction.rolling_nowcast(frame, n_jobs=2, **kwargs)
+        self.assertGreaterEqual(serial['origin'].nunique(), 3)
+        self.assertTrue(serial['origin'].equals(parallel['origin']))
+        pd.testing.assert_frame_equal(serial, parallel, check_exact=False,
+                                      rtol=1e-5)
+
+    def test_sweep_trend_reg_parallel_matches_serial(self):
+        frame = _frame(n=24 * 60)
+        train, valid = frame.iloc[:1000], frame.iloc[1000:]
+        serial = prediction.sweep_trend_reg(
+            train, valid, [0.0, 1.0], ('tair',), n_jobs=1, epochs=2, freq='1h')
+        parallel = prediction.sweep_trend_reg(
+            train, valid, [0.0, 1.0], ('tair',), n_jobs=2, epochs=2, freq='1h')
+        self.assertEqual(list(serial['trend_reg']), list(parallel['trend_reg']))
+        pd.testing.assert_frame_equal(serial, parallel, check_exact=False,
+                                      rtol=1e-5)
 
 
 if __name__ == '__main__':

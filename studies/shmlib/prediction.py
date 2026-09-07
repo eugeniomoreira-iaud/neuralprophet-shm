@@ -1172,9 +1172,71 @@ def neuralprophet_backtest(train, test, regressors=(), task='forecast',
     return model, long
 
 
+def _parallel_map(function, items, n_jobs=1):
+    """
+    Apply ``function`` to every element of ``items``, optionally in worker
+    processes.
+
+    ``n_jobs=1`` (the default) runs a plain list comprehension in the
+    calling process and never imports ``joblib``, so every caller that does
+    not ask for parallelism reproduces exactly what it did before this
+    function existed. Any other value of ``n_jobs`` dispatches each item to
+    a separate worker process through ``joblib.Parallel(backend='loky')``.
+    Each worker first silences the fit logging every caller of this
+    function already silences for its own, single process — NeuralProphet's
+    ``'NP'`` logger, PyTorch Lightning's ``'pytorch_lightning'`` logger, and
+    the ``FutureWarning``/``UserWarning`` chatter both libraries raise
+    directly — because a freshly spawned worker process inherits none of
+    the caller's own logging configuration; without this, parallel
+    execution would be noisier than the serial path it replaces rather than
+    merely faster. It then calls ``torch.set_num_threads(1)`` before calling
+    ``function``, because a worker sharing torch's default thread count with
+    every sibling process would spend more time contending for CPU cores
+    than the extra processes gain. Results are returned in the order
+    ``items`` was given, regardless of which worker finishes first, and an
+    exception raised inside ``function`` propagates to the caller
+    unchanged.
+
+    Parameters
+    ----------
+    function : callable
+        Applied to one item at a time. A module-level function or a
+        closure — ``loky`` pickles either with ``cloudpickle``.
+    items : sequence
+        Independent units of work; one call to ``function`` per element.
+    n_jobs : int, optional
+        Number of worker processes. ``1`` (the default) never leaves the
+        calling process, so a caller with no need for parallelism pays no
+        cost for this function's existence. Default ``1``.
+
+    Returns
+    -------
+    list
+        One result per item of ``items``, in the same order.
+    """
+    items = list(items)
+    if n_jobs == 1:
+        return [function(item) for item in items]
+
+    import joblib
+
+    def _in_worker(item):
+        import logging
+        import warnings
+        import torch
+        warnings.filterwarnings('ignore')
+        logging.getLogger('NP').setLevel(logging.ERROR)
+        logging.getLogger('pytorch_lightning').setLevel(logging.ERROR)
+        torch.set_num_threads(1)
+        return function(item)
+
+    return joblib.Parallel(n_jobs=n_jobs, backend='loky')(
+        joblib.delayed(_in_worker)(item) for item in items)
+
+
 def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
                     freq=None, train_window=None, changepoints_per_window=False,
-                    **model_kwargs):
+                    n_jobs=1, **model_kwargs):
     """
     Walk-forward nowcast evaluation: keep every prediction as fresh as a
     deployed model would be, by refitting on a schedule rather than once.
@@ -1247,6 +1309,15 @@ def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
         gapped record, can place one inside an outage. Default ``False``,
         which reproduces the original behaviour of letting
         :func:`neuralprophet_backtest` place changepoints itself.
+    n_jobs : int, optional
+        Passed to :func:`_parallel_map`: windows are fit and predicted in
+        separate worker processes when greater than ``1``. Every window is
+        already independent of every other — each fits on its own slice and
+        predicts its own slice — so parallelising them changes only how
+        long this function takes, never what it returns; a fit's own random
+        seed is set inside :func:`neuralprophet_backtest` exactly as it is
+        for ``n_jobs=1``. Default ``1``, which reproduces the original
+        serial loop and never imports ``joblib``.
     **model_kwargs
         Forwarded unchanged to :func:`neuralprophet_backtest` for every
         window (e.g. ``n_lags``, ``epochs``, ``yearly``, ``quantiles``,
@@ -1291,7 +1362,21 @@ def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
     origin = index.min() + pd.Timedelta(min_train)
     last = index.max()
 
-    windows = []
+    def _fit_window(spec):
+        """Fit and score one walk-forward window; the unit _parallel_map dispatches."""
+        window_train, window_test, window_origin, window_kwargs = spec
+        _, predictions = neuralprophet_backtest(
+            window_train, window_test, regressors=regressors, task='nowcast',
+            freq=freq, **window_kwargs)
+        if predictions.empty:
+            return None
+        predictions = predictions.copy()
+        predictions['origin'] = window_origin
+        predictions['staleness_d'] = (
+            pd.DatetimeIndex(predictions['ds']) - window_origin) / pd.Timedelta(days=1)
+        return predictions
+
+    specs = []
     while origin <= last:
         lower = (origin - pd.Timedelta(train_window)) if train_window else index.min()
         train = ordered.loc[(index >= lower) & (index < origin)]
@@ -1304,17 +1389,11 @@ def rolling_nowcast(frame, regressors=(), refit_every='30d', min_train='180d',
             if changepoints_per_window:
                 window_kwargs['changepoints'] = covered_changepoints(
                     train.index, int(window_kwargs.get('n_changepoints', 10)))
-            _, predictions = neuralprophet_backtest(
-                train, test, regressors=regressors, task='nowcast',
-                freq=freq, **window_kwargs)
-            if not predictions.empty:
-                predictions = predictions.copy()
-                predictions['origin'] = origin
-                predictions['staleness_d'] = (
-                    pd.DatetimeIndex(predictions['ds']) - origin) / pd.Timedelta(days=1)
-                windows.append(predictions)
+            specs.append((train, test, origin, window_kwargs))
         origin += step
 
+    windows = [w for w in _parallel_map(_fit_window, specs, n_jobs=n_jobs)
+              if w is not None]
     if not windows:
         return pd.DataFrame(columns=empty_columns)
 
@@ -2496,7 +2575,8 @@ def regressor_set_frames(sets, target, roles=('tair', 'rh', 'sr'), weight_curve=
     return frames
 
 
-def sweep_trend_reg(train, valid, candidates, regressors, **model_kwargs):
+def sweep_trend_reg(train, valid, candidates, regressors, n_jobs=1,
+                    **model_kwargs):
     """
     Score a nowcast fit at each candidate trend regularisation (spec D7).
 
@@ -2516,6 +2596,12 @@ def sweep_trend_reg(train, valid, candidates, regressors, **model_kwargs):
         scale (see :func:`neuralprophet_backtest`'s ``trend_reg``).
     regressors : sequence of str
         Regressor columns registered on every fit.
+    n_jobs : int, optional
+        Passed to :func:`_parallel_map`: candidates are fit in separate
+        worker processes when greater than ``1``. Each candidate's fit is
+        independent of every other's, so this changes only how long the
+        sweep takes, never the scores it reports. Default ``1``, which
+        reproduces the original serial loop and never imports ``joblib``.
     **model_kwargs
         Passed unchanged to every :func:`neuralprophet_backtest` call beside
         ``train``, ``valid``, ``regressors``, ``task`` and ``trend_reg``,
@@ -2528,13 +2614,15 @@ def sweep_trend_reg(train, valid, candidates, regressors, **model_kwargs):
         ``chosen`` — ``True`` on the row of lowest ``mae_val``, the first
         such row on a tie, ``False`` everywhere else.
     """
-    rows = []
-    for candidate in candidates:
+    def _fit_candidate(candidate):
+        """Fit one trend_reg candidate; the unit _parallel_map dispatches."""
         _, out = neuralprophet_backtest(
             train, valid, regressors=regressors, task='nowcast',
             trend_reg=candidate, **model_kwargs)
-        rows.append({'trend_reg': float(candidate),
-                     'mae_val': float((out['y'] - out['yhat']).abs().mean())})
+        return {'trend_reg': float(candidate),
+                'mae_val': float((out['y'] - out['yhat']).abs().mean())}
+
+    rows = _parallel_map(_fit_candidate, candidates, n_jobs=n_jobs)
     table = pd.DataFrame(rows, columns=['trend_reg', 'mae_val'])
     table['chosen'] = False
     table.loc[table['mae_val'].idxmin(), 'chosen'] = True
@@ -2606,7 +2694,7 @@ def compare_daily_terms(train, valid, regressors, conditions, keep_min_share,
 
 def attribution_fits(frames, regressors, valid_p, n_changepoints,
                      study03_gains=None, diagnostic_lags=(1, 72, 216),
-                     weight_curve=None, **model_kwargs):
+                     weight_curve=None, n_jobs=1, **model_kwargs):
     """
     Fit Model A once per regressor set, for attribution (spec D7).
 
@@ -2643,6 +2731,15 @@ def attribution_fits(frames, regressors, valid_p, n_changepoints,
         216)``.
     weight_curve : dict or None, optional
         Stored on every fitted model as ``weight_curve_``. Default ``None``.
+    n_jobs : int, optional
+        Passed to :func:`_parallel_map`: regressor sets are fit in separate
+        worker processes when greater than ``1``. Each set's fit is
+        independent of every other's; the fitted model, its frames and its
+        derived tables are returned from the worker rather than mutated
+        onto a shared dict, so the ``fits`` mapping this function builds
+        keeps the same insertion order — ``frames``' own order — under
+        parallel execution as it does serially. Default ``1``, which
+        reproduces the original serial loop and never imports ``joblib``.
     **model_kwargs
         Passed unchanged to every :func:`neuralprophet_backtest` call beside
         ``train``, ``valid``, ``regressors``, ``task``, ``changepoints``,
@@ -2667,9 +2764,15 @@ def attribution_fits(frames, regressors, valid_p, n_changepoints,
         with ``'set'`` as the first column.
     """
     study03_gains = study03_gains or {}
-    fits = {}
-    shares_rows, gain_rows, diag_rows = [], [], []
-    for name, block in frames.items():
+
+    def _fit_set(item):
+        """Fit one regressor set; the unit _parallel_map dispatches.
+
+        Returns everything a worker computed rather than mutating a shared
+        ``fits`` dict or appending to a shared list, so the result survives
+        a round trip through a separate process unchanged.
+        """
+        name, block = item
         split_at = int(len(block) * (1 - valid_p))
         train, valid = block.iloc[:split_at], block.iloc[split_at:]
         changepoints = covered_changepoints(train.index, n_changepoints)
@@ -2679,21 +2782,30 @@ def attribution_fits(frames, regressors, valid_p, n_changepoints,
             validation=valid, **model_kwargs)
         model.weight_curve_ = weight_curve
         components = decompose_components(model, train, regressors=regressors)
-        fits[name] = {'model': model, 'train': train, 'valid': valid,
-                      'changepoints': changepoints, 'components': components}
+        fit = {'model': model, 'train': train, 'valid': valid,
+              'changepoints': changepoints, 'components': components}
 
         share_table = component_variance_shares(components)
         share_table.insert(0, 'set', name)
-        shares_rows.append(share_table)
 
         gain_table = regressor_gains(components, train, regressors)
         gain_table.insert(0, 'set', name)
         gain_table['study03_gain'] = [study03_gains.get((name, regressor), np.nan)
                                       for regressor in gain_table['regressor']]
-        gain_rows.append(gain_table)
 
         diag_table = residual_diagnostics(components['residual'], lags=diagnostic_lags)
         diag_table.insert(0, 'set', name)
+
+        return name, fit, share_table, gain_table, diag_table
+
+    results = _parallel_map(_fit_set, list(frames.items()), n_jobs=n_jobs)
+
+    fits = {}
+    shares_rows, gain_rows, diag_rows = [], [], []
+    for name, fit, share_table, gain_table, diag_table in results:
+        fits[name] = fit
+        shares_rows.append(share_table)
+        gain_rows.append(gain_table)
         diag_rows.append(diag_table)
 
     shares = pd.concat(shares_rows, ignore_index=True)
@@ -2738,7 +2850,7 @@ def _select_by_ds(block, ds):
 
 
 def fold_stability(fits, frames, regressors, n_changepoints, k, fold_pct,
-                   fold_overlap_pct, freq, gain_regressor='tair',
+                   fold_overlap_pct, freq, gain_regressor='tair', n_jobs=1,
                    **model_kwargs):
     """
     Component stability across NeuralProphet's own chronological folds
@@ -2779,6 +2891,14 @@ def fold_stability(fits, frames, regressors, n_changepoints, k, fold_pct,
     gain_regressor : str, optional
         The regressor whose learned gain is reported per fold. Default
         ``'tair'``.
+    n_jobs : int, optional
+        Passed to :func:`_parallel_map`: every ``(set, fold)`` pair is fit
+        in a separate worker process when greater than ``1``. Each fold's
+        refit is independent of every other's, so this changes only how
+        long the sweep across sets and folds takes, never the rows it
+        reports, which stay ordered set-major then fold-minor exactly as
+        the serial nested loop produced them. Default ``1``, which
+        reproduces the original serial loop and never imports ``joblib``.
     **model_kwargs
         Passed unchanged to every fold's :func:`neuralprophet_backtest` call
         beside ``fold_train``, ``fold_test``, ``regressors``, ``task``,
@@ -2799,7 +2919,31 @@ def fold_stability(fits, frames, regressors, n_changepoints, k, fold_pct,
     conditions = dict(model_kwargs.get('conditional_seasonality') or {})
     passthrough = tuple(regressors) + tuple(conditions.values())
     gain_column = f'{gain_regressor}_gain'
-    rows = []
+
+    def _fit_fold(spec):
+        """Refit one (set, fold) pair; the unit _parallel_map dispatches."""
+        name, fold_index, fold_train, fold_test = spec
+        changepoints = covered_changepoints(fold_train.index, n_changepoints)
+        model, out = neuralprophet_backtest(
+            fold_train, fold_test, regressors=regressors, task='nowcast',
+            changepoints=changepoints, n_changepoints=n_changepoints,
+            freq=freq, quantiles=(), **model_kwargs)
+        components = decompose_components(model, fold_train, regressors=regressors)
+        gain = float(regressor_gains(components, fold_train, (gain_regressor,))
+                    .loc[0, 'gain'])
+        _, rates = trend_parameters(model, fold_train, changepoints,
+                                    regressors=regressors)
+        yearly = (components['season_yearly']
+                 if 'season_yearly' in components.columns else None)
+        return {
+            'set': name, 'fold': fold_index, gain_column: gain,
+            'yearly_peak_to_peak': (float(yearly.max() - yearly.min())
+                                   if yearly is not None else np.nan),
+            'trend_rate': float(rates['rate_mdeg_per_year'].mean()),
+            'mae_val': float((out['y'] - out['yhat']).abs().mean()),
+        }
+
+    specs = []
     for name, block in frames.items():
         model0 = fits[name]['model']
         folds = model0.crossvalidation_split_df(
@@ -2808,25 +2952,9 @@ def fold_stability(fits, frames, regressors, n_changepoints, k, fold_pct,
         for fold_index, (fold_train_df, fold_test_df) in enumerate(folds, start=1):
             fold_train = _select_by_ds(block, fold_train_df['ds'])
             fold_test = _select_by_ds(block, fold_test_df['ds'])
-            changepoints = covered_changepoints(fold_train.index, n_changepoints)
-            model, out = neuralprophet_backtest(
-                fold_train, fold_test, regressors=regressors, task='nowcast',
-                changepoints=changepoints, n_changepoints=n_changepoints,
-                freq=freq, quantiles=(), **model_kwargs)
-            components = decompose_components(model, fold_train, regressors=regressors)
-            gain = float(regressor_gains(components, fold_train, (gain_regressor,))
-                        .loc[0, 'gain'])
-            _, rates = trend_parameters(model, fold_train, changepoints,
-                                        regressors=regressors)
-            yearly = (components['season_yearly']
-                     if 'season_yearly' in components.columns else None)
-            rows.append({
-                'set': name, 'fold': fold_index, gain_column: gain,
-                'yearly_peak_to_peak': (float(yearly.max() - yearly.min())
-                                       if yearly is not None else np.nan),
-                'trend_rate': float(rates['rate_mdeg_per_year'].mean()),
-                'mae_val': float((out['y'] - out['yhat']).abs().mean()),
-            })
+            specs.append((name, fold_index, fold_train, fold_test))
+
+    rows = _parallel_map(_fit_fold, specs, n_jobs=n_jobs)
     return pd.DataFrame(rows, columns=['set', 'fold', gain_column,
                                        'yearly_peak_to_peak', 'trend_rate',
                                        'mae_val'])
@@ -2921,7 +3049,7 @@ load_sensor_forcings`'s own names for those quantities.
 
 
 def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
-                   repetitions, seed, **model_kwargs):
+                   repetitions, seed, n_jobs=1, **model_kwargs):
     """
     Refit one specification rung by rung on a matched window (D4).
 
@@ -2966,6 +3094,14 @@ def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
     seed : int
         Passed to every rung's :func:`neuralprophet_backtest` call and to
         :func:`paired_mae_skill`.
+    n_jobs : int, optional
+        Passed to :func:`_parallel_map`: rungs are fit in separate worker
+        processes when greater than ``1``. Each rung's fit is independent
+        of every other's — the inter-rung skill comparisons below only read
+        each rung's already-computed error series — so this changes only
+        how long the ladder takes, never the ``ladder`` or ``errors`` it
+        returns. Default ``1``, which reproduces the original serial loop
+        and never imports ``joblib``.
     **model_kwargs
         Passed unchanged to every rung's :func:`neuralprophet_backtest` call
         beside ``regressors``, ``task``, ``changepoints``, ``n_changepoints``
@@ -2995,9 +3131,9 @@ def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
         prediction timestamp, so a caller can re-inspect a pairing the
         ``skill`` columns already summarised.
     """
-    ladder_rows = []
-    errors = {}
-    for label, columns, gate in rungs:
+    def _fit_rung(rung):
+        """Fit one ladder rung; the unit _parallel_map dispatches."""
+        label, columns, gate = rung
         columns = list(columns)
         block = current.dropna(subset=['y'] + columns)
         if gate is not None:
@@ -3014,14 +3150,20 @@ def channel_ladder(current, rungs, valid_p, n_changepoints, block_hours,
         gains = regressor_gains(components, train, tuple(columns))
         abs_error = (out['y'] - out['yhat']).abs()
         abs_error.index = pd.DatetimeIndex(out['ds'])
-        errors[label] = abs_error
         coverage = (float(((out['y'] >= out['q05']) & (out['y'] <= out['q95'])).mean())
                    if 'q05' in out else np.nan)
-        ladder_rows.append({
+        row = {
             'rung': label, 'rows': len(block), 'mae_val': float(abs_error.mean()),
             'coverage': coverage, 'gain_last': float(gains['gain'].iloc[-1]),
             'residual_r1': float(components['residual'].autocorr(1)),
-        })
+        }
+        return label, row, abs_error
+
+    ladder_rows = []
+    errors = {}
+    for label, row, abs_error in _parallel_map(_fit_rung, list(rungs), n_jobs=n_jobs):
+        ladder_rows.append(row)
+        errors[label] = abs_error
 
     ladder = pd.DataFrame(ladder_rows)
     labels = [label for label, _, _ in rungs]
