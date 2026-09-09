@@ -19,6 +19,18 @@ dependencies:
   # scipy, xgboost, statsmodels and pandas remain compiled against the numpy 2
   # ABI. The result is import-time crashes that look unrelated to numpy.
   - numpy>=1.25,<2
+
+  # The BLAS provider is pinned to OpenBLAS rather than left to the solver.
+  # Unconstrained, the solve pairs numpy 1.26.4 with the newest MKL, and on
+  # win-64 in September 2026 that is MKL 2026.1.0, whose ABI numpy 1.26.4 was
+  # not built against: every call into BLAS or LAPACK, down to a two-by-two
+  # `numpy.dot`, kills the interpreter with the delay-load exception
+  # 0xC06D007F and no Python traceback. Pinning the variant also makes both
+  # supported platforms compute through the same library, which is the
+  # cross-platform reproducibility this file exists to provide, and it removes
+  # the Intel OpenMP runtime that MKL would otherwise load alongside the one
+  # pip's torch wheel already carries.
+  - libblas=*=*openblas
   # pandas 3 is not supported by neuralprophet 0.8.0 (requires >=2.0,<3.0).
   - pandas>=2.0,<3
 

@@ -1,0 +1,717 @@
+% ---------------------------------------------------------------------------
+% Study report summary · Grey-box expectation and monitoring
+%
+% A short, non-specialist version of greybox_monitoring_report.tex. Every
+% number here is one of the full report's own; nothing is computed for this
+% document. Where the two disagree, the full report is right.
+%
+% Build: pdflatex greybox_monitoring_summary.tex
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\newcommand{\runninghead}{Monitoring the wall at Gubbio · a short guide}
+
+\input{../../_shared/reportstyle.tex}
+\graphicspath{{../outputs/}}
+
+\title{\vspace{-1.2cm}\textbf{Is the wall behaving as expected?}\\[2mm]
+\large A short guide to the grey-box monitoring of station 02, 2018 to 2026}
+\author{Study report summary · \texttt{studies/05\_greybox\_monitoring/}}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\section{The question}
+
+Every twenty minutes, the instrument package on the medieval wall of Gubbio, at
+station~02, records how far the wall is leaning --- its inclination --- together
+with the air temperature and the relative humidity beside it. Since February 2025
+it also records the temperature of the stone itself and the sunlight falling on
+it. The inclination is a relative measurement: its absolute value depends on how
+the instrument happened to sit in its mount on the day it was installed, so only
+its \emph{changes} carry information about the wall.
+
+Anyone watching that stream faces one practical question, and it is not ``is this
+reading large?'' but rather: \textbf{given the weather right now, is this the
+inclination the wall was expected to show --- and if not, what kind of departure
+is it?} A wall that leans further on a hot afternoon is behaving perfectly
+normally. A wall that leans further on a cool morning is not.
+
+Answering it takes two things. First, a model that turns the current weather into
+an \emph{expected} inclination, so that a reading can be compared against
+something other than a fixed threshold. Second, a set of alarms that can tell
+apart the different ways a structure can go wrong: a sudden jump, a change in the
+size or timing of its daily breathing, or a slow one-way drift. This document
+summarises how both were built and what they found over eight years of record,
+from July 2018 to August 2026. It is a plain-language digest of the full study
+report, which carries every table, test and caveat behind the numbers quoted
+here.
+
+\section{The record and its three weather sources}
+
+The wall's own sensors stop when the wall's own logger stops. Over these eight
+years the inclination returns a usable reading in only 67.7\,\% of its
+twenty-minute slots, and one single gap --- from April 2022 to June 2023, 437
+days --- accounts for most of the missing time. A monitoring system that depends
+entirely on the wall's own instruments therefore goes blind exactly when it is
+most needed.
+
+For that reason the same model is built three times over, on three different
+sources for the same three weather drivers (air temperature, humidity, solar
+radiation):
+
+\begin{itemize}
+    \item \textbf{On-structure} (\texttt{str}) --- the wall's own sensors. The
+    closest measurement of what the wall actually feels, and the one with the
+    worst coverage (71.1\,\%). Because the wall had no working sunlight sensor
+    for most of this history, this set borrows the town station's radiation.
+    \item \textbf{Ground station} (\texttt{gs}) --- the town's weather station, a
+    kilometre or so away. Nearly continuous: 91.8 to 94.8\,\% coverage.
+    \item \textbf{ERA5} (\texttt{era5}) --- a global climate reanalysis, a
+    computed weather record available anywhere on Earth. Effectively
+    uninterrupted, at 99.2\,\%, and the only one of the three that would be
+    available at a site with no local instruments at all.
+\end{itemize}
+
+The three are not redundant. They answer three different questions: what the site
+can achieve with its own hardware, what a cheap external proxy costs in accuracy,
+and whether the method transfers to a monument with no sensors but its own
+inclinometer.
+
+\subsection*{Where the sunlight measurement comes from}
+
+One detail in the figures needs stating plainly, because it is easy to misread.
+Every set carries a solar radiation channel, including the on-structure set --- yet
+for most of these eight years the wall carried no sunlight sensor at all. The
+radiation drawn in the on-structure panels is therefore \emph{not} the wall's own:
+it is the town station's measurement, borrowed, and the same column serves both
+the \texttt{str} and the \texttt{gs} sets.
+
+The reason is simply that no alternative existed. A pyranometer was installed on
+the wall only in February 2025, six and a half years into the record, and Study~01
+subsequently condemned 161 of the days it did produce. Fewer than two hundred
+usable days of on-structure sunlight cannot support a model fitted over eight
+years, so a substitute was required for the on-structure set or that set would
+have had to drop sunlight entirely.
+
+The town station was chosen over ERA5 for two reasons. It is the closer of the two
+proxies --- a kilometre from the wall rather than a reanalysis cell several
+kilometres across --- and Study~02 established that it tracks the wall's own
+conditions more tightly. Just as importantly, the station and ERA5 both report
+\emph{global horizontal irradiance}, which is the same physical quantity the wall's
+pyranometer measures; using that one quantity everywhere keeps the learned
+sunlight response directly comparable across all three sets and against the
+earlier studies, which a different definition of radiation would have destroyed.
+The borrowed channel is also among the best-covered in the study, present in
+94.8\,\% of the record's twenty-minute slots, against 71.1\,\% for the wall's own
+air temperature and humidity.
+
+The borrowing is a compromise, and it is declared as one: in the on-structure set
+the air temperature and the humidity are the wall's, and the sunlight is not.
+Every table in the full report that reports this set carries the same note. The
+choice is also vindicated after the fact --- when the wall's own pyranometer is
+finally substituted back in, on the one window where both exist, the prediction
+gets 2.3\,\% \emph{worse} rather than better (see \S\ref{sec:extra}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{GM_F01_regressor_sets.png}
+    \caption{The record and the three weather sources, 2018 to 2026. The top
+    panel is the inclination, with its gaps left as gaps --- including the
+    437-day outage of 2022--2023. Below it, air temperature, relative humidity
+    and solar radiation from each of the three sources. The wall's own channels
+    break wherever the inclination breaks; the station and ERA5 keep recording
+    through every outage, which is what allows the model to say what it expected
+    the wall to be doing while nobody was watching. The station's radiation is
+    drawn once and serves two sets: it is the station's own channel and the one
+    the on-structure set borrows, since the wall had no pyranometer of its own
+    until 2025.}
+    \label{fig:regressors}
+\end{figure}
+
+\section{How the wall's normal behaviour is modelled}
+
+The model is a \emph{grey box}. A white box would be a physical simulation of the
+masonry from first principles; a black box would be a neural network told only to
+predict the number. A grey box sits between them: the shape of the model is
+imposed by physics --- we know the wall responds to heat, that it has a yearly
+cycle and a daily cycle --- while the size of each response is learned from the
+data. The tool used here is \textit{NeuralProphet}, which splits the record into
+additive parts that can each be read, argued with, and plotted separately:
+
+\begin{itemize}
+    \item \textbf{Trend} --- the slow movement of the wall over months and years.
+    \item \textbf{Yearly cycle} --- the repeating annual swing.
+    \item \textbf{Daily cycle} --- the repeating day--night swing.
+    \item \textbf{Weather response} --- how far the wall moves in direct response
+    to the air temperature, humidity and sunlight of the moment.
+    \item \textbf{Residual} --- whatever is left over, which is the part the
+    monitoring alarms actually watch.
+\end{itemize}
+
+Adding the first four together gives the expected inclination. Subtracting that
+expectation from the reading gives the residual. Every alarm in this study is an
+alarm on the residual, never on the raw reading, and that is the whole point:
+weather is removed before anything is judged.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{GM_F06_decomposition.png}
+    \caption{The record split into its parts, on the wall's own sensors: from
+    top to bottom the trend, the yearly cycle, the daily cycle, the contribution
+    of humidity, of solar radiation and of air temperature, and finally the
+    residual. This is one fit on one weather source; the station and ERA5 sets
+    are separate fits, not extra panels here. The solar radiation panel is the
+    town station's channel, borrowed, for the reason given in \S2 --- the wall
+    itself carried no sunlight sensor over this window. The lines are broken
+    across the gaps, because no missing reading is ever invented.}
+    \label{fig:decomp}
+\end{figure}
+
+\section{What actually moves the wall}
+
+Table~\ref{tab:summary-shares} gives the answer on the wall's own sensors; the
+other two sources give the same picture, with the weather's share falling
+slightly the farther from the wall it is measured.
+
+\begin{table}[H]
+\centering
+\caption{What the record is made of, on the wall's own sensors. The share is the
+part of the record's ups and downs that each component accounts for; the swing is
+how many millidegrees that component moves between its extremes over the eight
+years. One millidegree is a thousandth of a degree of tilt. Numbers from
+Table~3 of the full report.}
+\label{tab:summary-shares}
+\begin{tabular}{lrr}
+\toprule
+Component & Share & Swing [mdeg] \\
+\midrule
+Slow trend                          & 60.1\,\% & 116.4 \\
+Air temperature                     & 24.1\,\% & 115.4 \\
+Yearly cycle                        & 12.2\,\% & 44.4 \\
+Residual (unexplained)              & 3.1\,\%  & 60.6 \\
+Humidity, sunlight and daily cycle  & 0.4\,\%  & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Four findings follow from it.
+
+\textbf{Net of its slow movement, the record is a thermometer.} Air temperature
+alone moves the inclination by 115 millidegrees across the range of temperatures
+the site sees. The wall leans a measured $-2.64$ millidegrees for every degree
+Celsius of warming: as the sun heats it, the wall tips towards the mountain, and
+it recovers overnight. That figure was learned by this study from eight years of
+levels, and it agrees to within 5\,\% with the $-2.79$ that Study~03 measured
+earlier by a completely different method --- which is the main reason to trust
+the rest of the decomposition.
+
+\textbf{The largest single component is the slow trend, and it is not a drift.}
+It carries three fifths of the movement, and it reverses: the level rose through
+2019 and 2020 at up to 104 millidegrees a year, fell through 2021 at up to 91,
+fell again after the 2023 resumption, then rose through 2024 and flattened in
+2025 (Figure~\ref{fig:trend}). A quantity that goes up for a year and then comes
+back down is a reversible process, not accumulating damage. Whether that process
+is the structure itself or a thermal memory of the masonry that the instrument's
+temperature correction does not capture is a question this study poses rather
+than settles.
+
+\textbf{The yearly cycle is the wall's delayed answer to the seasons.} It peaks
+at the equinoxes rather than at the solstices --- a quarter-cycle out of step with
+the air temperature (Figure~\ref{fig:seasonality}). That offset is the signature
+of a response that arrives late: the stone's bulk takes weeks to follow the air,
+and the part of the seasonal movement the instantaneous temperature reading
+cannot supply is exactly what this term picks up.
+
+\textbf{Sunlight and humidity add almost nothing --- but for a subtle reason.}
+Together with the daily cycle they account for less than half a per cent. This
+must not be read as ``sunlight does not move the wall''; it plainly does. It
+means that sunlight and air temperature rise and fall together, so once the air
+temperature has been credited with the daily swing there is nothing distinct left
+for the sunlight channel to explain. The study is candid that this is a failure
+to separate two effects rather than a measurement of one: the sunlight response
+it learns is small, and in the on-structure set it even comes out with the wrong
+sign --- from the same borrowed station channel that yields the right sign in the
+station set, which is itself a sign that the fit is dividing one shared effect
+between two channels rather than measuring either. What sunlight does to the wall
+is a question Study~03 answered on the daily swing, and this model is not the
+instrument for it.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{GM_F04_trend.png}
+    \caption{The slow trend, 2018 to 2025, with its rate over each segment. It
+    reverses direction twice. The straight segment across 2022--2023 is not a
+    measurement: it is the line drawn between the last reading before the long
+    gap and the first one after it.}
+    \label{fig:trend}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{GM_F05_seasonality.png}
+    \caption{The two cycles. Left: the yearly cycle, peaking near the equinoxes.
+    Right: the daily cycle left over once the temperature response has taken its
+    share --- small, at under four millidegrees from end to end.}
+    \label{fig:seasonality}
+\end{figure}
+
+\section{Is this reading the expected one?}
+
+Because the weather changes constantly and the wall drifts slowly, no fixed
+threshold can work. The expectation has to be rebuilt as the record grows.
+
+\subsection*{How the expectation is produced}
+
+The model is refitted every thirty days. Each refit is trained on the
+\textbf{trailing three years} of record ending at that moment, using only the
+slots where the inclination and all three of that set's weather channels are
+present. Three calendar years is not three years of data: a refit made in
+December 2025 looks back to late 2022, and the first six months of that window
+fall inside the 437-day outage and contribute no rows at all. A refit is refused
+outright if fewer than two years of usable history stand behind it, which is why
+the whole scheme only begins in November 2020.
+
+Between refits the model is frozen and asked for the inclination at every
+twenty-minute slot as it arrives. So every reading in the record is predicted by
+a model that has never seen that reading, from a fit at most thirty days old.
+
+One thing this is \emph{not} is a weather forecast, and the distinction matters
+for reading Figure~\ref{fig:obsexp}. The model is handed the \textbf{measured}
+air temperature, humidity and sunlight for each slot it predicts; it is never
+asked to guess the weather. Its whole job is the translation from weather to
+inclination. What is genuinely unseen is the wall's response, not the
+environment. Forecasting proper was ruled out earlier in the project, where it
+was found that beyond about six hours the environment adds nothing to a
+prediction that the wall's own recent movement does not already contain.
+
+\subsection*{What the 90\,\% band means}
+
+The shaded band is built in two stages. The model first fits, alongside its
+central prediction, two further predictions at the 5th and 95th percentiles,
+which gives a nominal 90\,\% band. That nominal band is then \emph{calibrated}
+against reality: at each refit, the previous six months of the model's own
+out-of-sample errors are used to rescale the band so that it actually contains
+the stated fraction of readings. The 90\,\% is therefore an empirical claim
+checked against the record, not an assumption inherited from a formula.
+
+Read it as follows: for any single twenty-minute reading, the band is the range
+within which that reading should fall nine times in ten if the wall is behaving
+as the model expects. It is a statement about one reading at a time. It is not a
+confidence band on the trend, not a statement about the model's own correctness,
+and emphatically not a damage threshold --- a reading inside the band is
+unremarkable, and a reading outside it is one unusual reading, not an alarm.
+Alarms are the business of the charts in the next section, which watch the
+accumulated pattern rather than the individual point.
+
+\subsection*{What the band achieves, and where it fails}
+
+The result is accurate, and it goes stale in a way worth stating plainly. In the
+week after a refit the expectation is wrong by 5.3 millidegrees on average; by
+the fourth week that has grown to 10.9. The band covers 96\,\% of readings in the
+first week and 82\,\% in the fourth --- 88\,\% over the month as a whole, against
+a nominal 90. For comparison, the previous study's band, calibrated once and
+never refreshed, achieved 68\,\%. The band's width does not change through the
+month, which is why it is too generous just after a refit and too tight just
+before the next one; refitting more often, or letting the band widen with age,
+would fix it, and both are deployment choices rather than findings.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{GM_F08_observed_expected.png}
+    \caption{One calendar month of readings against the rolling expectation and
+    its calibrated 90\,\% band, on-structure set, December 2025. December was
+    chosen because it is the first complete month after the autumn 2025 outage in
+    which all three weather channels are essentially unbroken; November still
+    carries a large radiation gap. The window is a calendar month rather than a
+    single refit cycle, so with a thirty-day refit interval it contains about one
+    refit boundary: the expectation on the right of the figure comes from a
+    fresher fit than the expectation on the left.}
+    \label{fig:obsexp}
+\end{figure}
+
+\subsection*{Reading the figure}
+
+Two features are worth pointing out, because both are informative rather than
+defects.
+
+\textbf{The two curves do not start from the same place, and nothing makes them.}
+There is no step in which the model is re-zeroed onto the last observed reading.
+The expectation is assembled from the trend, the yearly and daily cycles and the
+weather response, and whatever level that sum produces is the level it predicts.
+In this month the expected curve sits a few millidegrees \emph{above} the
+observed one for most of its length. That persistent offset is the slow
+wandering the model deliberately does not carry: an autoregressive term would
+absorb it, and would also swallow the daily structure the weather channels are
+supposed to explain, so it was left out and the decomposition stays readable as
+physics. Each refit re-anchors the level; between refits it drifts away again.
+That drift is precisely what the growth from 5.3 to 10.9 millidegrees over the
+month measures.
+
+\textbf{The daily cycle is followed in both timing and size.} The dashed
+expectation rises and falls with the solid record, day after day, which is the
+part of the wall's behaviour the weather channels genuinely explain. The mismatch
+is in the level, not in the shape --- and a level offset sustained across a whole
+refit month is exactly the kind of departure the band cannot judge, because the
+band asks only whether each individual reading is plausible. Judging a sustained
+offset is what the slow chart is built for.
+
+\section{Three alarms, one per kind of failure}
+
+Different structural problems announce themselves on different time scales, so
+one alarm cannot catch them all. Three charts run on the residual at once:
+
+\begin{enumerate}
+    \item \textbf{The fast chart}, at twenty-minute resolution, for sudden spikes
+    and steps --- the signature of an instrument fault or an abrupt shock.
+    \item \textbf{The daily chart}, on the size and the timing of each day's
+    thermal breathing, for a wall that starts swinging wider or later than the
+    weather explains.
+    \item \textbf{The slow chart}, on daily averages, for a steady one-way drift
+    building up over weeks.
+\end{enumerate}
+
+Each was tuned in advance against an explicit false-alarm budget --- one false
+alarm per ninety watched days on the fast and daily charts, one per year on the
+slow one --- on a quiet thirteen-month reference stretch in 2020--2021, chosen
+because it is the longest run of the record known to be in control.
+
+\subsection*{How the fast chart is built}
+
+The fast chart is the one drawn in Figure~\ref{fig:fastchart}, and it is worth
+following in four steps, because the line that is plotted is not the residual
+itself and the limit is not on the scale a reader first expects.
+
+\textbf{Step one: start from the residual}, the gap between the reading and the
+expectation, one value every twenty minutes.
+
+\textbf{Step two: ask what is new.} That residual is extremely sticky --- each
+twenty-minute value keeps 99.6\,\% of the one before it, because the wall's slow
+wandering carries over from slot to slot. Watching it directly would mean seeing
+a single departure repeated thousands of times over, and the alarm limit would
+have to be set absurdly high to survive it. So instead of asking ``how far from
+expectation are we?'' the chart asks ``\emph{how much did that gap change in the
+last twenty minutes?}'' --- each value minus 0.996 times the previous one. What
+remains is the genuinely new information in each slot. This step is called
+prewhitening, and it is what brought the alarm limit down from the 14.75 standard
+deviations the previous study needed to the 6.25 used here.
+
+\textbf{Step three: smooth.} A single noisy slot should not raise an alarm, but a
+run of them should. Each new value is therefore folded into a running average
+that keeps only a twentieth of the newest reading and nineteen twentieths of the
+history. One outlier barely moves the line; a persistent shift walks it steadily
+away from zero.
+
+\textbf{Step four: draw the limit on the smoothed line's own scale.} This is the
+step that explains the figure. Averaging shrinks noise, so the running average
+fluctuates far less than a single innovation does --- about six times less at this
+smoothing rate. A limit of 6.25 standard deviations of a single innovation is
+therefore drawn at roughly $\pm 1.0$ on the smoothed line's axis. The dashed line
+in Figure~\ref{fig:fastchart} sitting near $\pm 1$ and the limit of ``6.25
+standard deviations'' are the same limit, expressed on two different scales.
+That limit was not chosen by taste: it is the smallest value that met the stated
+budget, and on the reference stretch it achieved one false alarm per 135 days
+against a budget of 90.
+
+Two details of the drawing follow from this. Crossing the dashed line is not by
+itself an alarm --- a second statistic, which accumulates small persistent
+departures rather than averaging them, must agree within six hours before an
+episode is declared, which is why some excursions beyond the line are not shaded.
+And where the record is missing, the average has nothing to update itself with
+and simply holds its last value, which is why the line runs dead flat across
+every outage.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{GM_F09_fast_chart.png}
+    \caption{The fast chart over the monitored record, January 2022 to the end of
+    the archive. The line is the smoothed innovation of the residual, standardised
+    on the 2020--2021 reference window; the dashed lines are the tuned limit,
+    which is 6.25 standard deviations of a single innovation expressed on the
+    smoothed line's own scale. Flat stretches are outages, where the average holds
+    its last value. Shading marks the episodes where both statistics agreed.}
+    \label{fig:fastchart}
+\end{figure}
+
+\subsection*{Why the end of the record is almost all alarm}
+
+The dense cluster at the right-hand edge of Figure~\ref{fig:fastchart}, running
+from 18 June to 10 August 2026, is the most conspicuous feature of the whole
+chart, and it is not the wall.
+
+It holds 50 of the study's 75 fast-chart episodes, one or two a day for eight
+straight weeks. It begins the day after the archive resumed on 17 June 2026 from
+a 104-day outage. And every single one of those episodes is attributed by the
+monitor's own cross-check to the \textbf{instrument}, through the supply-voltage
+channel recorded in the same slots: the power supply is misbehaving, and the
+inclination readings misbehave with it. Study~01 had independently condemned this
+same stretch as a power or instrument artefact, by a different method, before this
+study looked at it.
+
+Two things follow. The first is reassuring: the chart did exactly what it was
+built to do, which is to notice that something changed and then say what. The
+second is a caution that belongs with it --- the limits on this chart were
+calibrated in 2020--2021, on the residual of the \emph{previous} instrument,
+which was replaced in February 2025. The current instrument is being judged
+against its predecessor's notion of normal, and that is one more reason to read
+this stretch as evidence about the measuring system rather than about the
+masonry. What the monitor found here is a failure of the equipment, correctly
+identified as such.
+
+\subsection*{How the daily chart is built}
+
+The daily chart asks a different question of the same residual, and it works one
+day at a time rather than one slot at a time.
+
+\textbf{Step one: fit a wave to each day.} For every calendar day that holds at
+least 60 of its 72 slots, a single 24-hour wave is fitted to that day's residual.
+That wave is summarised by two numbers: how \emph{big} it is, and \emph{when} it
+peaks. In physical terms, the first asks whether the wall is breathing harder
+than the weather accounts for, and the second whether it is breathing at a
+different hour than it used to. A crack that opens, or a mounting that loosens,
+changes one or both.
+
+\textbf{Step two: two series, two panels.} Those two numbers, day after day,
+become the two lines of Figure~\ref{fig:dailychart} --- amplitude on top, timing
+below. Both are standardised against the same quiet 2020--2021 reference window.
+
+\textbf{Step three: smooth, and set the limits.} As on the fast chart, each
+series is folded into a running average, here keeping a fifth of each new day
+rather than a twentieth of each new slot, because there are far fewer days than
+slots and the chart cannot afford to be as sluggish. The limits are again drawn
+on the smoothed scale: the amplitude chart's tuned limit of 3.75 standard
+deviations appears at about $\pm 1.25$, and the timing chart's limit of 1.00
+appears at about $\pm 0.33$. Those are the dashed lines in the figure.
+
+The two panels are not equally successful, and the figure shows why. The
+amplitude chart met its budget properly: it alarms about once every 102 days
+against a budget of 90, tuned on four separate episodes in the reference window.
+The timing chart did not. Its limit of 1.00 is the very bottom of the range
+searched, and even there it alarms only once every 406 days --- four and a half
+times \emph{less} often than its budget permits. The reason is that the limit on
+the smoothed line is no longer what gates it; a second statistic shared by all
+the charts is, and lowering the first further changes nothing. The chart built to
+catch a change in timing is therefore the least sensitive of the four, and its
+tuning rests on a single reference episode. That is a finding about the monitor,
+and it is why a two-hour timing shift ends up being caught by the amplitude
+panel instead of by the panel meant for it.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{GM_F10_daily_chart.png}
+    \caption{The daily chart. Top: the size of each day's residual daily wave.
+    Bottom: its timing. Both smoothed and standardised on the 2020--2021
+    reference window, with their tuned limits dashed and their episodes shaded.
+    As on the fast chart the line holds its last value across a gap, which is why
+    the amplitude episode of late 2024 appears to run for weeks: most of its days
+    are the outage itself.}
+    \label{fig:dailychart}
+\end{figure}
+
+The amplitude panel raised 12 episodes over the monitored record. The three long
+ones are the 33 days from 8 July 2023, at a mean of 3.8 standard deviations; the
+47 days from 24 August 2024, which mostly consist of the autumn outage held in
+alarm across the gap; and the 54 days from 20 June 2026, the summer-2026
+instrument stretch again, at a mean of 4.1. Three further single days stand out
+as sharp spikes rather than sustained shifts --- 5 November 2023, 29 December
+2024 and 28 April 2025, at 8.7, 7.0 and 8.4 standard deviations. The timing panel
+raised only three episodes: one day and then twenty-four days in October 2023,
+and forty-four days in the summer of 2026.
+
+\subsection*{How the slow chart is built}
+
+The slow chart is looking for the one thing the other two are built to ignore: a
+small bias that never goes away.
+
+\textbf{Step one: one number per day.} The residual is averaged over each whole
+day, which throws away all the daily structure the other charts watch and keeps
+only the level.
+
+\textbf{Step two: keep a running total, not an average.} This is the real
+difference. An average forgets: a small bias sustained for months barely moves it.
+So instead the chart keeps a \emph{running total} of how far each day sits above
+expectation, minus a small allowance --- half a standard deviation --- deducted
+every day so that ordinary noise cannot accumulate. If the residual is merely
+noisy the total is pushed back to zero repeatedly and stays near it. If there is a
+persistent one-way bias, however small, the allowance is exceeded day after day
+and the total climbs without limit. This is what makes a slow drift visible: it
+does not need any single day to be remarkable, only for many days to lean the
+same way.
+
+\textbf{Step three: the limits, and why the line goes so far above them.} The
+dashed line in Figure~\ref{fig:slowchart} is at 5, the level at which the running
+total is considered to have accumulated enough. The line itself reaches 105 ---
+twenty times that --- for months on end in 2023 and 2024. Yet only three short
+episodes are shaded. The reason is that an episode still requires a second,
+smoothed statistic to agree, and that gate is set at 13.25 standard deviations,
+which is a very high bar. The slow chart is deliberately the most conservative of
+the four, on a budget of one false alarm per year rather than per ninety days,
+and this is where the study's admitted blindness to slow drift comes from: on the
+reference window the tuning rests on a single episode, so the limit is a bound
+rather than a measurement.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{GM_F11_slow_chart.png}
+    \caption{The slow chart: the running total of the daily-mean residual against
+    its decision level, with episodes shaded. The total climbs whenever the wall
+    sits persistently above its expectation and is pushed back to zero when it
+    does not. The large excursions of 2023 and 2024 follow the two outages; only
+    the narrow shaded intervals met the full alarm condition.}
+    \label{fig:slowchart}
+\end{figure}
+
+The three episodes are 26 June to 12 July 2023, 23 October to 1 November 2024,
+and 10 to 12 August 2026. The first two are worth noting for where they fall:
+five days and fourteen days after the record resumed from the two long outages
+that the outage analysis later flags as having hidden a real movement. Two
+independent lines of evidence --- a control chart watching the residual, and a
+model asked what level it expected at resumption --- point at the same two
+events.
+
+\section{What the alarms can and cannot catch}
+
+Sensitivity was measured rather than asserted: departures of known size were
+injected artificially into a quiet stretch of the record, on four dates spread
+across the seasons, and the charts were scored on whether they found them. The
+honest answer has two halves.
+
+\textbf{What the monitor catches}, on all four injection dates:
+\begin{itemize}
+    \item an unexplained growth of the daily swing of 8 millidegrees, found
+    within about 18 hours even when the injection itself lasts only six --- and
+    of 16 millidegrees immediately;
+    \item a two-hour shift in the timing of the daily swing, within about eight
+    days, but on the amplitude panel rather than the timing one;
+    \item a slow drift of 200 millidegrees per year, within 47 days, and only
+    when scored over a full 90-day horizon.
+\end{itemize}
+
+\textbf{What it misses}, and these limits are as much a result as the successes:
+\begin{itemize}
+    \item a sudden step of any size below 16 millidegrees, at any duration --- and
+    even 16 millidegrees is found on only three of the four dates. The filtering
+    that makes the fast chart usable also compresses a permanent step into a
+    single twenty-minute blip, which the chart then averages away;
+    \item a timing shift of two hours or less \emph{on the chart built for it}.
+    The two-hour shift above is caught by the daily-size chart instead, because a
+    shifted daily cycle also looks bigger; the timing chart itself never finds any
+    shift on more than one date in four;
+    \item a growth of the daily swing of 4 millidegrees, which reaches three of
+    the four dates at a week or more but not all four, and 2 millidegrees, which
+    reaches at most two;
+    \item a drift slower than 200 millidegrees per year. At 100 per year the slow
+    chart finds it on half the dates over three months, and below that on one date
+    in four at every rate, which reads as one injection date already sitting near
+    the limit rather than as sensitivity to the rate at all.
+\end{itemize}
+
+A monitor that must catch a step of a few millidegrees within hours needs a
+fourth chart that this study did not build.
+
+\section{What the alarms actually reported}
+
+Over the monitored record, from January 2022 onward, the charts raised 93
+episodes: 75 on the fast chart, 12 on the daily-amplitude panel, 3 on the
+daily-timing panel and 3 on the slow chart. Each fast-chart alarm was
+automatically cross-checked against the air temperature, humidity and
+supply-voltage channels recorded in the same slot, so that every alarm carries an
+attribution rather than only a timestamp. Of the 75 fast-chart episodes, 68 are
+the instrument's own misbehaviour, visible in the supply voltage --- including
+all 50 episodes from the resumption of 17 June 2026 onward, a stretch already
+flagged as a power or instrument artefact by Study~01. Two are the weather. Five
+are left unattributed, and those are the ones a person should look at; they fall
+on four dates, and three of those four are within three weeks of a resumption
+after an outage.
+
+That result is worth stating for what it is. The monitor's main achievement over
+this record was to detect the measuring system failing and to say so, which is
+precisely what an operational monitor should do before it is trusted to speak
+about the structure.
+
+\section{What happened while the sensors were off}
+
+An outage is not merely missing data --- it is a period in which the wall could
+have moved unobserved. Because the ground station and ERA5 kept recording
+throughout, the model can be fitted on everything before an outage and asked what
+level it expects at the moment the readings resume. Nothing is ever written into
+the gap: the prediction is a hypothesis to be tested against the readings that
+come back, never a substitute for them.
+
+Five outages could be bridged this way. Two of them hid a real movement:
+\begin{itemize}
+    \item across the 437-day gap of 2022--2023 the wall came back roughly 45 to
+    54 millidegrees above the expected level, the largest departure in the
+    record;
+    \item across the autumn 2024 outage, roughly 33 to 36 millidegrees above.
+\end{itemize}
+The spring 2024 outage hid nothing at all --- the readings resumed riding the
+expectation through every daily cycle. The autumn 2025 shift, at 13 to 16
+millidegrees, is within the model's own margin of error and cannot be
+distinguished from it. The 2026 outage cannot be judged, because the readings
+resumed into the very stretch the supply voltage marks as an instrument fault.
+
+Independently, the three control charts raised episodes on every time scale in
+the weeks following those same two resumptions --- which is a genuine
+cross-confirmation, since the charts and the bridges use different evidence. What
+neither can decide is \emph{cause}: a bridge compares the level before a gap with
+the level after it, and cannot tell a wall that moved from an instrument that was
+re-seated. That question is left open, deliberately.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[height=0.72\textheight,keepaspectratio]{GM_F12_outage_bridges.png}
+    \caption{The outage bridges, one panel per outage. Each shows the readings
+    over the first week back, the level the pre-outage model expected there, and
+    that model's own uncertainty band; the shaded area marks the settle day and
+    the scored week. The expectation is drawn from the resumption onward, not
+    through the gap, because the model is never fitted on invented readings.}
+    \label{fig:outage}
+\end{figure}
+
+\section{Do the extra sensors help?}
+\label{sec:extra}
+
+The wall temperature probe and the wall's own sunlight sensor, installed in
+February 2025, were tested on the window where all channels exist at once. Neither
+improves the expectation. Replacing the town station's sunlight measurement with
+the wall's own makes the prediction 2.3\,\% \emph{worse}, and adding the stone
+temperature in the form a deployment could actually use changes nothing
+measurable. This is a useful negative result for anyone specifying a new
+installation: for the purpose of predicting the wall's inclination, an external
+weather feed is enough.
+
+\section{Conclusion, and what this does not tell us}
+
+Over eight years, the wall at station~02 is a structure whose short-term movement
+is almost entirely thermal and whose long-term movement is slow and reversing. By
+subtracting the expected environmental response from the raw record, the grey-box
+model turns a stream of numbers that nobody could judge by eye into a residual
+that three alarms can watch at three time scales, each with a stated sensitivity
+and a stated false-alarm rate.
+
+Four limits belong beside that conclusion.
+
+\begin{itemize}
+    \item \textbf{The instrument corrects for temperature before we see the
+    reading}, using the manufacturer's own procedure applied to the same air
+    temperature the model reads. Every response reported here is therefore what
+    remains \emph{after} that correction, not the wall's raw thermal response.
+    \item \textbf{The alarms are calibrated on thirteen quiet months} from
+    2020--2021, not the three years intended, because the rolling expectation
+    does not exist before then. The slow chart's tuning in particular rests on a
+    single reference episode, and the instrument installed in 2025 is being judged
+    against limits set on its predecessor.
+    \item \textbf{A departure is not a diagnosis.} Every result above says whether
+    a reading is the one the weather accounts for. Whether an unexplained movement
+    is masonry, foundation, mounting or instrument is not something this monitor
+    can answer, and it does not claim to.
+    \item \textbf{One sensor, one site, one archive.} The method is designed to
+    transfer to any static structural sensor with an environmental feed; the
+    numbers in this document are Gubbio's, and stay Gubbio's until another sensor
+    has been through the same procedure.
+\end{itemize}
+
+\end{document}

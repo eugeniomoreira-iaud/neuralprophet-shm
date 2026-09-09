@@ -372,15 +372,55 @@ The three figures that follow are the study's only two-dimensional ones and
 they carry most of what the tables cannot. This subsection says how to read
 them.
 
-\paragraph{What is drawn.} Each cell is one operator. Its horizontal position
-is a transport delay in hours, its vertical position a thermal time constant in
-hours, and its colour the $R^2$ of the driver---put through that delay and that
-time constant---regressed on the response, over the hours the two series share
-at that operator. Dark is a high $R^2$, following the project's rule that the
-meaningful end of a scalar map is the dark one. The dot marks the winning cell
-and the panel title repeats its coordinates and its $R^2$. The bottom-left cell,
-$(0,0)$, is the instantaneous case: no delay, no inertia, the driver exactly as
-recorded.
+\paragraph{What is drawn.} Each cell is one operator applied to the driver
+before the driver is regressed on the response, and the two axes are the
+operator's two parameters. They stand for the two distinct things a wall can do
+to a forcing before the inclinometer sees it: answer late, or answer slowly.
+
+The horizontal axis is the \emph{transport delay}, in hours. It shifts the
+driver in time without changing its shape: at a delay of $d$ hours the response
+now is paired with the driver as it was $d$ hours earlier. Physically it is
+travel time. Heat entering the exposed face needs time to reach the depth whose
+expansion governs the inclination, and the thermal front arrives there with its
+shape intact but late. A delay is what a forcing looks like after crossing a
+distance.
+
+The vertical axis is the \emph{thermal time constant} $\tau$, in hours. It does
+not shift the driver; it smooths and damps it. The driver is passed through a
+first-order low-pass filter, the discrete form of a lumped thermal mass: each
+hour the filtered value moves towards the current driver by the fraction
+$\Delta t/(\tau+\Delta t)$ of the distance still between them, so that a step
+in the driver is answered by an exponential approach that has covered about
+63\,\% of its way after $\tau$ hours and 95\,\% after $3\tau$. A body of time
+constant $\tau$ does not follow the forcing around it; it integrates it, with
+a memory of about $\tau$ hours, and its temperature is a rounded copy of the
+forcing whose fast swings are damped and whose peak arrives later the larger
+$\tau$ is. A time constant of zero returns the driver untouched. The filter is
+applied first and the delay second, following the physics: the mass integrates
+the forcing, and the resulting thermal state then takes time to reach the depth
+that moves the instrument.
+
+The two are easy to confuse on a single sinusoid and separable on a real
+record, which is why the grid scans them jointly rather than one at a time. On
+a pure 24-hour cycle a delay of $d$ hours and a time constant whose phase lag
+is $d$ hours are the same phase shift, and no correlation can tell them apart.
+What separates them is that a delay moves every frequency by the same time,
+whereas the filter lags and damps the fast components more than the slow ones:
+on the diurnal cycle with its harmonics, the multi-day weather swings and the
+sharp events such as a cold front or a clear day after cloud, a delayed driver
+stays sharp where a filtered one is blurred, and the regression can tell which
+shape the response follows. A scan over delay alone reads the two as one
+number; the grid reads them as a pair.
+
+The colour of a cell is the $R^2$ of the driver, put through that delay and
+that time constant, regressed on the response over the hours the two series
+share at that operator. Dark is a high $R^2$, following the project's rule that
+the meaningful end of a scalar map is the dark one. The dot marks the winning
+cell and the panel title repeats its coordinates and its $R^2$. The bottom-left
+cell, $(0,0)$, is the instantaneous case: no delay, no inertia, the driver
+exactly as recorded. Moving right along the bottom row asks whether the wall
+answers late but sharply; moving up the left column asks whether it answers on
+time but blurred; the interior asks both at once.
 
 \paragraph{Two things the panels do not say, and one they do.} The vertical
 axis is a list of chosen time constants drawn at equal spacing, not a linear

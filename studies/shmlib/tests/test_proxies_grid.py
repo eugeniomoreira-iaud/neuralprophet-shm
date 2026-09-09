@@ -100,6 +100,56 @@ class TestRegressorSets(unittest.TestCase):
         self.assertFalse(frame['sr_a_filled'].any())
         self.assertTrue(np.isnan(frame['y'].iloc[3]))   # the target is never filled
 
+    def test_the_delay_may_be_given_in_minutes_for_every_set(self):
+        record, mapping = self._record()
+        sets, _ = proxies.build_regressor_sets(
+            record, mapping, target='y', fill_max_gap='2h',
+            radiation_delay_min=60.0, freq='20min')
+        pd.testing.assert_series_equal(sets['a']['sr'], record['sr_a'].shift(3),
+                                       check_names=False)
+        pd.testing.assert_series_equal(sets['b']['sr'], record['sr_b'].shift(3),
+                                       check_names=False)
+
+    def test_each_set_may_carry_its_own_delay_in_minutes(self):
+        record, mapping = self._record()
+        sets, _ = proxies.build_regressor_sets(
+            record, mapping, target='y', fill_max_gap='2h',
+            radiation_delay_min={'a': 20.0, 'b': 40.0}, freq='20min')
+        pd.testing.assert_series_equal(sets['a']['sr'], record['sr_a'].shift(1),
+                                       check_names=False)
+        pd.testing.assert_series_equal(sets['b']['sr'], record['sr_b'].shift(2),
+                                       check_names=False)
+
+    def test_the_delay_in_minutes_rounds_to_whole_slots(self):
+        record, mapping = self._record()
+        sets, _ = proxies.build_regressor_sets(
+            record, mapping, target='y', radiation_delay_min=25.0,
+            freq='20min')
+        pd.testing.assert_series_equal(sets['a']['sr'], record['sr_a'].shift(1),
+                                       check_names=False)
+
+    def test_omitting_both_delays_keeps_the_documented_hour(self):
+        record, mapping = self._record()
+        sets, _ = proxies.build_regressor_sets(record, mapping, target='y',
+                                               freq='20min')
+        pd.testing.assert_series_equal(sets['a']['sr'], record['sr_a'].shift(3),
+                                       check_names=False)
+
+    def test_giving_the_delay_twice_is_refused(self):
+        record, mapping = self._record()
+        with self.assertRaises(ValueError):
+            proxies.build_regressor_sets(record, mapping, target='y',
+                                         radiation_delay_h=1.0,
+                                         radiation_delay_min=20.0,
+                                         freq='20min')
+
+    def test_a_per_set_delay_must_name_every_set(self):
+        record, mapping = self._record()
+        with self.assertRaises(KeyError):
+            proxies.build_regressor_sets(record, mapping, target='y',
+                                         radiation_delay_min={'a': 20.0},
+                                         freq='20min')
+
     def test_coverage_table_has_one_row_per_set_and_role_plus_the_target(self):
         record, mapping = self._record()
         sets, frame = proxies.build_regressor_sets(record, mapping, target='y',

@@ -247,11 +247,20 @@ def check_training():
         # into the working directory. Run the fit inside a temporary directory so
         # the repository is left untouched.
         with tempfile.TemporaryDirectory() as scratch:
-            os.chdir(scratch)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                model = NeuralProphet(epochs=1, n_lags=4, daily_seasonality=True)
-                model.fit(df, freq="h", progress=None)
+            try:
+                os.chdir(scratch)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    model = NeuralProphet(epochs=1, n_lags=4, daily_seasonality=True)
+                    model.fit(df, freq="h", progress=None)
+            finally:
+                # The working directory must be restored before the context
+                # manager removes the scratch directory. Windows refuses to
+                # remove a directory that is a process's working directory, and
+                # TemporaryDirectory's cleanup responds by retrying through a
+                # recursive call, which exhausts the stack and kills the
+                # interpreter with an access violation rather than an exception.
+                os.chdir(original_cwd)
 
         print(f"  [{OK}] NeuralProphet fitted a 1-epoch model successfully")
         print()

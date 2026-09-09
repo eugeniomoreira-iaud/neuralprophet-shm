@@ -25,7 +25,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import matplotlib.ticker as mticker
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 from . import compare, coupling, meteo, proxies, site, viz
 
@@ -1483,7 +1485,8 @@ def plot_agreement_stability(stability, quantity, title='', sources=None,
 
 
 def plot_lag_curves(curves, stratum, band, drivers=None, title='',
-                    height=2.6, width=None, save_path=None, filename=None):
+                    height=2.6, width=None, show_lag=False, save_path=None,
+                    filename=None):
     """
     The correlation of each driver against the response, at every lag scanned.
 
@@ -1513,6 +1516,12 @@ def plot_lag_curves(curves, stratum, band, drivers=None, title='',
         Figure height in inches. Default 2.6.
     width : float or None, optional
         Figure width in inches. Default ``None``, the manuscript column width.
+    show_lag : bool, optional
+        Whether the legend states the lag the scan chose for each driver,
+        alongside the time constant it already carries. Default ``False``,
+        which keeps every existing caller's legend exactly as it read before
+        this argument existed. A study reporting the lag in its own table
+        would otherwise leave a reader of the figure alone to find it there.
     save_path, filename : str or None, optional
         Output directory and base name. Both are needed before anything is
         written.
@@ -1539,6 +1548,15 @@ def plot_lag_curves(curves, stratum, band, drivers=None, title='',
             # time constant is a different curve.
             best_tau = float(curve.loc[curve['r'].abs().idxmax(), 'tau'])
             curve = curve[curve['tau'] == best_tau]
+        else:
+            best_tau = None
+
+        peak = curve.loc[curve['r'].abs().idxmax()]
+        if show_lag:
+            label = f'{viz.driver_label(driver)}, lag {peak[delay_column]:g} h'
+            if best_tau is not None:
+                label += f', $\\tau$ {best_tau:g} h'
+        elif best_tau is not None:
             label = f'{viz.driver_label(driver)}, $\\tau$ {best_tau:g} h'
         else:
             label = viz.driver_label(driver)
@@ -1546,19 +1564,217 @@ def plot_lag_curves(curves, stratum, band, drivers=None, title='',
         colour = viz.driver_colour(driver)
         ax.plot(curve[delay_column], curve['r'], color=colour, lw=1.2,
                 label=label)
-
-        peak = curve.loc[curve['r'].abs().idxmax()]
         ax.plot(peak[delay_column], peak['r'], marker='o', ms=3.5,
                 color=viz.MARK_COLOUR, zorder=5, ls='none')
 
     ax.axhline(0.0, color='0.6', lw=0.8, zorder=1)
     ax.axvline(0.0, color='0.6', lw=0.8, zorder=1)
     ax.set_xlabel('Transport delay applied to the driver [h]', fontsize='small')
-    ax.set_ylabel('Correlation with the response', fontsize='small')
+    ax.set_ylabel('Correlation $r$', fontsize='small')
     ax.legend(fontsize='x-small', ncol=2, loc='upper center',
-              bbox_to_anchor=(0.5, -0.22), frameon=False)
+              bbox_to_anchor=(0.5, -0.36), frameon=False)
     ax.set_title(title, fontsize='small', fontweight='bold')
     viz.format_spines(ax)
+    viz.finish(fig, save_path, filename)
+    return fig
+
+
+def plot_reference_shift_scan(scan, variables=('tair', 'sr'), pairs=None,
+                              variable_col='variable', pair_col='pair',
+                              shift_col='shift_minutes', r_col='r_daily',
+                              pair_styles=None, panel_height=2.4, title='',
+                              row_col=None, row_order=None, negate_x=False,
+                              x_label=None, mark_extreme=False,
+                              extreme_label='inline', pair_labels=None,
+                              save_path=None, filename=None):
+    """
+    Daily-anomaly correlation against a candidate reference displacement.
+
+    One panel per variable, each drawn in that variable's own identity
+    colour, with the source pairs scanned inside it told apart by line style
+    — colour is already spent on the variable, so the grouping the reader
+    needs next has to come from the stroke instead. A vertical accent line
+    marks zero, the vendor's own stamp, so the distance from it to a pair's
+    peak is legible at a glance rather than left for a caption to state.
+    Built for the long-format table :func:`shmlib.temporal_alignment.
+    reference_shift_scan` and :func:`shmlib.temporal_alignment.shift_summary`
+    are read from, tagged by variable and by pair before concatenation.
+
+    Parameters
+    ----------
+    scan : pd.DataFrame
+        Long-format shift scan holding one row per variable, pair and
+        candidate displacement.
+    variables : sequence of str, optional
+        Canonical quantity names, one panel each, in the order drawn. Default
+        ``('tair', 'sr')``.
+    pairs : sequence of str or None, optional
+        Pair labels, one line each, in legend order. Default ``None``, every
+        pair present in `scan`, in the order first seen.
+    variable_col, pair_col, shift_col, r_col : str, optional
+        Columns of `scan` carrying the variable name, the pair label, the
+        candidate displacement in minutes, and the correlation scanned.
+        Defaults ``'variable'``, ``'pair'``, ``'shift_minutes'``, ``'r_daily'``.
+    pair_styles : dict or None, optional
+        Pair label to matplotlib line style. Default ``None``, which assigns
+        ``('-', '--', ':', '-.')`` in the order `pairs` is drawn.
+    panel_height : float, optional
+        Panel height in inches. Default ``2.4``.
+    title : str, optional
+        Figure title.
+    row_col : str or None, optional
+        Column of `scan` to facet into rows, one row per value, in addition
+        to the one panel per variable already drawn in columns. Default
+        ``None``, a single row and the figure this function always drew
+        before this argument existed. A study screening more than one
+        instrument era, say, passes the column that names the era so that a
+        driver the earlier era cannot support is simply absent from that
+        row's panel rather than silently pooled with the era that can.
+    row_order : sequence or None, optional
+        Row values, in the order drawn top to bottom. Default ``None``, every
+        value of `row_col` present in `scan`, in the order first seen.
+        Ignored when `row_col` is ``None``.
+    negate_x : bool, optional
+        Plot the negative of `shift_col` instead of `shift_col` itself.
+        Default ``False``, which draws the raw displacement exactly as every
+        caller before this argument did. A study whose displacement is a
+        signed clock correction but whose reading is a delay of the response
+        behind the driver sets this so the axis reads as the delay directly,
+        without asking a reader to flip the sign in their head at every
+        point.
+    x_label : str or None, optional
+        Override for the panel x-axis label. Default ``None``, which keeps
+        ``'Reference displacement [min]'`` unchanged.
+    mark_extreme : bool, optional
+        Whether the extreme of ``|r|`` on each line is marked with an accent
+        dot. Default ``False``, which draws no marker, exactly as before this
+        argument existed.
+    extreme_label : {'inline', 'corner'}, optional
+        How the value at the marked extreme is written, when `mark_extreme`
+        is ``True``. ``'inline'`` is the default and reproduces this
+        function's original behaviour: one small text sits beside each dot,
+        which crowds together and can collide with a tick label once several
+        lines in one panel peak near the same x value. ``'corner'`` instead
+        collects one line per source into a single small text block in the
+        panel's upper-left corner, in the accent colour, ordered as `pairs`
+        and omitting a source with no curve in that panel — legible even
+        where several extremes coincide, at the cost of no longer pointing at
+        the exact point on the curve.
+    pair_labels : dict or None, optional
+        Pair label to the text shown for it in the legend. Default ``None``,
+        which shows the pair label itself unchanged, as every caller before
+        this argument did.
+    save_path, filename : str or None, optional
+        Where to save. Default ``None``, which saves nothing.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+
+    Notes
+    -----
+    Writes two image files (PNG and SVG) when `save_path` and `filename` are
+    both given. The legend belongs to the figure, not to either panel, and
+    its handles are drawn in a neutral grey rather than either panel's
+    identity colour, since the same set of pairs is read against two
+    different colours across the two panels. When `row_col` facets the
+    figure into more than one row, the panels in a row share their y-axis
+    with each other but not with the panels of another row, since a row
+    drawn from a thinner record can have a different range worth showing;
+    the row's own value is written beside its leftmost panel, rotated, so a
+    reader can tell which row is which without a caption doing it for them.
+    """
+    present_variables = [variable for variable in variables
+                         if variable in set(scan[variable_col])]
+    if pairs is None:
+        pairs = list(dict.fromkeys(scan[pair_col]))
+    default_styles = ('-', '--', ':', '-.')
+    if pair_styles is None:
+        pair_styles = {pair: default_styles[index % len(default_styles)]
+                      for index, pair in enumerate(pairs)}
+    pair_labels = pair_labels or {}
+
+    if row_col is None:
+        rows = [None]
+    else:
+        if row_order is None:
+            row_order = list(dict.fromkeys(scan[row_col]))
+        present_rows = set(scan[row_col])
+        rows = [row for row in row_order if row in present_rows] or [None]
+
+    ncols = max(len(present_variables), 1)
+    nrows = max(len(rows), 1)
+    x_column = '_negated_shift' if negate_x else shift_col
+    fig, axes = plt.subplots(
+        nrows, ncols,
+        figsize=viz.figsize(viz.FIGURE_WIDTH, panel_height * nrows),
+        squeeze=False, sharey='row' if nrows > 1 else True)
+
+    for row_index, row_value in enumerate(rows):
+        row_scan = scan if row_value is None else scan[scan[row_col] == row_value]
+        if negate_x:
+            row_scan = row_scan.assign(**{x_column: -row_scan[shift_col]})
+
+        for col_index, variable in enumerate(present_variables):
+            ax = axes[row_index, col_index]
+            colour = viz.QUANTITY_COLOUR.get(variable, '#000000')
+            subset = row_scan[row_scan[variable_col] == variable]
+            corner_lines = []
+            for pair_index, pair in enumerate(pairs):
+                block = subset[subset[pair_col] == pair].sort_values(x_column)
+                if block.empty:
+                    continue
+                ax.plot(block[x_column], block[r_col], color=colour, lw=1.3,
+                       ls=pair_styles.get(pair, '-'))
+                if mark_extreme and block[r_col].notna().any():
+                    extreme = block.loc[block[r_col].abs().idxmax()]
+                    ax.plot(extreme[x_column], extreme[r_col], marker='o',
+                            ms=3.5, color=viz.MARK_COLOUR, zorder=5, ls='none')
+                    if extreme_label == 'corner':
+                        value = extreme[x_column]
+                        minutes = '0' if value == 0 else f'{value:+.0f}'
+                        corner_lines.append(
+                            f'{pair_labels.get(pair, pair)} {minutes} min')
+                    else:
+                        above = extreme[r_col] >= 0
+                        offset = (8 + 8 * pair_index if above
+                                 else -(13 + 8 * pair_index))
+                        ax.annotate(f'{extreme[x_column]:+.0f}',
+                                   (extreme[x_column], extreme[r_col]),
+                                   textcoords='offset points', xytext=(0, offset),
+                                   fontsize='xx-small', color=viz.MARK_COLOUR,
+                                   ha='center')
+            if corner_lines:
+                ax.text(0.03, 0.95, '\n'.join(corner_lines),
+                       transform=ax.transAxes, fontsize='xx-small',
+                       color=viz.MARK_COLOUR, ha='left', va='top')
+            ax.axvline(0.0, color=viz.MARK_COLOUR, lw=0.9, zorder=1)
+            ax.axhline(0.0, color='0.6', lw=0.6, zorder=1)
+            if row_index == 0:
+                ax.set_title(proxies.QUANTITY_LABEL.get(variable, variable),
+                            fontsize='small')
+            if row_index == nrows - 1:
+                ax.set_xlabel(x_label or 'Reference displacement [min]',
+                             fontsize='x-small')
+            ax.tick_params(labelsize='xx-small')
+            viz.format_spines(ax)
+
+        if row_value is not None:
+            axes[row_index, 0].text(
+                -0.35, 0.5, f'{str(row_value).capitalize()} era',
+                transform=axes[row_index, 0].transAxes, rotation=90,
+                va='center', ha='center', fontsize='small', fontweight='bold')
+
+    for row_index in range(nrows):
+        axes[row_index, 0].set_ylabel('Daily-anomaly correlation $r$',
+                                      fontsize='small')
+
+    handles = [Line2D([0], [0], color='0.25', lw=1.3, ls=pair_styles[pair])
+              for pair in pairs]
+    labels = [pair_labels.get(pair, pair) for pair in pairs]
+    fig.legend(handles, labels, fontsize='small', ncol=len(pairs),
+              loc='upper center', bbox_to_anchor=(0.5, -0.02), frameon=False)
+    fig.suptitle(title, fontsize='small', fontweight='bold')
     viz.finish(fig, save_path, filename)
     return fig
 
@@ -1649,7 +1865,7 @@ def plot_coupling_scatter(frame, response, driver, lag, tau=0.0, gain=None,
 
 
 def plot_gain_stability(stability, drivers=None, title='', panel_height=1.5,
-                        width=None, save_path=None, filename=None):
+                        width=None, lags=None, save_path=None, filename=None):
     """
     Each driver's gain re-estimated window by window, one panel per driver.
 
@@ -1672,6 +1888,13 @@ def plot_gain_stability(stability, drivers=None, title='', panel_height=1.5,
         Height of one panel in inches. Default 1.5.
     width : float or None, optional
         Figure width in inches. Default ``None``, the manuscript column width.
+    lags : dict or None, optional
+        Driver to the lag, in hours, its stability was re-fitted at. Default
+        ``None``, which draws no corner text, exactly as before this argument
+        existed. Given, each panel whose driver has an entry carries a small
+        accent note naming that lag, so the fixed parameter behind the whole
+        re-fit is visible on the figure itself rather than only in the
+        caption or the notebook that chose it.
     save_path, filename : str or None, optional
         Output directory and base name.
 
@@ -1695,6 +1918,10 @@ def plot_gain_stability(stability, drivers=None, title='', panel_height=1.5,
         ax.plot(block['window'], block['slope'], color=colour, lw=1.2)
         ax.axhline(0.0, color='0.6', lw=0.8, zorder=1)
         ax.set_ylabel(viz.driver_label(driver), fontsize='x-small')
+        if lags is not None and driver in lags and not pd.isna(lags[driver]):
+            ax.text(0.02, 0.90, f'lag {lags[driver]:g} h',
+                    transform=ax.transAxes, fontsize='xx-small',
+                    color=viz.MARK_COLOUR, ha='left', va='top')
         viz.format_spines(ax)
 
     axes[-1].set_xlabel('Window', fontsize='small')
@@ -2992,5 +3219,416 @@ def plot_outage_bridge(paths, table, title='', save_path=None, filename=None):
         labels = [h.get_label() for h in handles]
         fig.legend(handles, labels, fontsize='small', ncol=len(handles),
                   loc='upper center', bbox_to_anchor=(0.5, -0.01), frameon=False)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_gap_size_histogram(inventory, freq='20min', ax=None, figsize=None,
+                            save_path=None, filename=None):
+    """
+    How large the missing runs are, one bar per order of magnitude of size.
+
+    Reads the per-gap table directly — one row per maximal missing run — and
+    bins it on ``n_slots``, the exact count of missing grid slots a gap
+    spans, never on the coarse duration classes that
+    :func:`shmlib.prediction.gap_inventory` also reports alongside it. Bins
+    are logarithmically spaced, starting at one slot (the smallest possible
+    gap) and running to the largest gap present, because gap sizes in this
+    record span several orders of magnitude — a single dropped reading to a
+    multi-week outage — and a linear axis would flatten every bar but the
+    very largest into invisibility.
+
+    Both axes are logarithmic, and both are labelled in the units a reader
+    recognises rather than in the underlying log or slot values. The x axis
+    is ticked at round physical durations (20 min, 1 h, 6 h, 1 d, 7 d, 30 d,
+    1 y — whichever of these fall inside the plotted range), converted from
+    slot counts through ``freq``, the spacing of the grid ``n_slots`` was
+    counted on; the binning variable stays the slot count throughout; only
+    the tick labels are converted to durations. The y axis is ticked in
+    plain gap counts (1, 10, 100, ...). Neither axis is ever drawn in
+    scientific notation or a bare exponent.
+
+    The bars are a single face colour, Okabe-Ito Blue
+    (:data:`shmlib.viz.INC_COLOUR`), since every gap here is a gap in the
+    target channel; no outline in a second colour is drawn.
+
+    Parameters
+    ----------
+    inventory : pd.DataFrame
+        Output of :func:`shmlib.prediction.gap_inventory`, one row per gap.
+        Must carry ``n_slots``; every other column (``start``, ``end``,
+        ``duration_h``, ``gap_class``) is ignored, since the histogram is
+        built on the per-gap table, not on the class aggregate.
+    freq : str, optional
+        Spacing of the grid ``inventory``'s ``n_slots`` was counted on, as a
+        pandas offset alias (e.g. ``'20min'``, ``'H'``); must match what was
+        passed to :func:`shmlib.prediction.gap_inventory` when it built
+        ``inventory``. Default ``'20min'``, the project's native sensor
+        cadence. Used only to convert slot counts to the physical durations
+        the x axis is labelled with — it does not affect the binning, which
+        stays in slot units throughout.
+    ax : matplotlib.axes.Axes or None, optional
+        Axes to draw into. Default ``None``, which creates a new figure and
+        axes sized by ``figsize``.
+    figsize : tuple of float or None, optional
+        Passed to :func:`shmlib.viz.figsize` when ``ax`` is ``None``.
+        Default ``None``, which uses ``viz.figsize(viz.FIGURE_WIDTH, 3.2)``.
+    save_path, filename : str or None, optional
+        Passed to :func:`shmlib.viz.finish`; nothing is written when either
+        is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+
+    Notes
+    -----
+    Draws no bars when ``inventory`` is empty — a fully complete window is a
+    legitimate result — but still returns a (blank) figure rather than
+    raising.
+    """
+    step_minutes = pd.Timedelta(freq) / pd.Timedelta(minutes=1)
+
+    if ax is None:
+        fig, ax = plt.subplots(
+            figsize=figsize or viz.figsize(viz.FIGURE_WIDTH, 3.2))
+    else:
+        fig = ax.figure
+
+    n_slots = pd.to_numeric(inventory['n_slots'], errors='coerce').to_numpy()
+    n_slots = n_slots[np.isfinite(n_slots) & (n_slots >= 1)]
+
+    if n_slots.size:
+        highest = max(float(n_slots.max()), 1.0)
+        if highest > 1.0:
+            edges = np.logspace(0.0, np.log10(highest), 31)
+        else:
+            edges = np.array([0.9, 1.1])
+        counts, edges = np.histogram(n_slots, bins=edges)
+        ax.bar(edges[:-1], counts, width=np.diff(edges), align='edge',
+              color=viz.INC_COLOUR, linewidth=0.0)
+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel('Gap duration')
+    ax.set_ylabel('Number of gaps')
+
+    # Round physical durations, in minutes, that a reader recognises. Only
+    # the ones landing inside the plotted range become ticks, so a window
+    # too short to ever contain a week-long gap does not draw a '7 d' tick
+    # at the empty far edge of the axes.
+    duration_ticks = (
+        (20.0, '20 min'), (60.0, '1 h'), (360.0, '6 h'), (1440.0, '1 d'),
+        (10080.0, '7 d'), (43200.0, '30 d'), (525600.0, '1 y'),
+    )
+    if n_slots.size:
+        x_low, x_high = ax.get_xlim()
+        positions, labels = [], []
+        for minutes, label in duration_ticks:
+            slots = minutes / step_minutes
+            if x_low <= slots <= x_high:
+                positions.append(slots)
+                labels.append(label)
+        if positions:
+            ax.set_xticks(positions)
+            ax.set_xticklabels(labels)
+        ax.xaxis.set_minor_formatter(mticker.NullFormatter())
+
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f'{y:,.0f}'))
+    ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+
+    viz.format_spines(ax)
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_regressor_coverage(coverage, total_slots, target_label=None, ax=None,
+                            figsize=None, save_path=None, filename=None):
+    """
+    Accepted and filled slots per regressor set and role, a report table
+    drawn instead of typeset.
+
+    Bars are grouped by source — the ``set`` column, in the order the
+    target first, then ``'str'``, ``'gs'`` and ``'era5'`` — and, within a
+    source group, one bar per role (``'tair'``, ``'rh'``, ``'sr'``),
+    coloured by the role's fixed identity so that a role reads the same
+    colour in every group. Each bar is a two-segment stack read from the
+    bottom up: the lower segment is ``accepted - filled``, slots the source
+    reported that were not also produced by interpolation, and the upper
+    segment is ``filled``, a subset of ``accepted`` by construction (a
+    filled slot is also an accepted slot), so the bar's total height is
+    exactly ``accepted``. The two segments share the role's identity colour
+    and are told apart only by opacity, never by a second colour or an
+    outline: the lower, accepted-only segment is drawn at 40% alpha, the
+    upper, filled segment at full alpha. The target's row
+    (``set == 'target'``) has no filled slots by construction, so its bar is
+    a single full-height segment at the lower alpha; it is coloured in the
+    inclination identity, Okabe-Ito Blue, since it carries the structural
+    response rather than an environmental role.
+
+    The left y axis reads raw slot counts; the right one reads the same
+    counts as a percentage of ``total_slots``. The two axes are exact
+    multiples of one another and so can never disagree — but only because
+    every source and the target share one analysis window and hence one
+    total slot count. That shared total is supplied here as ``total_slots``
+    rather than inferred from ``coverage``, which carries no column that
+    states it.
+
+    Parameters
+    ----------
+    coverage : pd.DataFrame
+        Output of :func:`shmlib.proxies.regressor_set_coverage`: one row per
+        (set, role) for sets ``'str'``, ``'gs'``, ``'era5'`` and roles
+        ``'tair'``, ``'rh'``, ``'sr'``, plus a final row with
+        ``set == 'target'`` whose ``role`` carries the target's own label.
+        Must carry ``set``, ``role``, ``accepted`` and ``filled``; the
+        ``coverage`` fraction column is not read here, since the two y axes
+        already show the same information in slots and in per cent.
+    total_slots : int
+        Number of slots in the shared analysis window — the same for every
+        source and the target. Fixes both the stacked bars' scale and the
+        right axis's percentage conversion.
+    target_label : str or None, optional
+        Display label under the target's bar. Default ``None``, which uses
+        the value already carried in the target row's ``role`` column.
+    ax : matplotlib.axes.Axes or None, optional
+        Axes to draw into. Default ``None``, which creates a new figure and
+        axes sized by ``figsize``.
+    figsize : tuple of float or None, optional
+        Passed to :func:`shmlib.viz.figsize` when ``ax`` is ``None``.
+        Default ``None``, which uses ``viz.figsize(viz.FIGURE_WIDTH, 3.4)``.
+    save_path, filename : str or None, optional
+        Passed to :func:`shmlib.viz.finish`; nothing is written when either
+        is ``None``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+
+    Notes
+    -----
+    The legend carries only the four colour identities (inclination, air
+    temperature, relative humidity, solar radiation) drawn at full opacity;
+    it does not repeat the accepted/filled distinction, which is opacity
+    alone and is spelled out above and in the figure's caption, so that the
+    legend keeps the single-row, unframed idiom the graphical guidelines
+    fix rather than growing a second, structural row.
+    """
+    accepted_alpha = 0.4
+    role_order = ('tair', 'rh', 'sr')
+    role_colour = {role: viz.CHANNEL_COLOUR[role] for role in role_order}
+    role_name = {role: viz.channel_name(role) for role in role_order}
+
+    target_row = coverage.loc[coverage['set'] == 'target'].iloc[0]
+    label = target_label if target_label is not None else target_row['role']
+
+    if ax is None:
+        fig, ax = plt.subplots(
+            figsize=figsize or viz.figsize(viz.FIGURE_WIDTH, 3.4))
+    else:
+        fig = ax.figure
+
+    def draw_bar(position, accepted, filled, colour):
+        base = max(accepted - filled, 0.0)
+        ax.bar(position, base, width=bar_width, color=colour,
+              alpha=accepted_alpha, linewidth=0.0)
+        if filled > 0:
+            ax.bar(position, filled, width=bar_width, bottom=base,
+                  color=colour, alpha=1.0, linewidth=0.0)
+
+    bar_width = 0.62
+    group_gap = 0.9
+    cursor = 0.0
+    group_centres, group_labels = [], []
+
+    draw_bar(cursor, float(target_row['accepted']), float(target_row['filled']),
+             viz.INC_COLOUR)
+    group_centres.append(cursor)
+    group_labels.append(label)
+    cursor += bar_width + group_gap
+
+    for source in proxies.SOURCES:
+        block = (coverage.loc[coverage['set'] == source]
+                .set_index('role').reindex(role_order))
+        positions = [cursor + i * bar_width for i in range(len(role_order))]
+        for position, role in zip(positions, role_order):
+            row = block.loc[role]
+            draw_bar(position, float(row['accepted']), float(row['filled']),
+                     role_colour[role])
+        group_centres.append(sum(positions) / len(positions))
+        group_labels.append(proxies.SOURCE_LABEL.get(source, source))
+        cursor = positions[-1] + bar_width + group_gap
+
+    ax.set_xticks(group_centres)
+    ax.set_xticklabels(group_labels)
+    ax.set_ylabel('Slots')
+    ax.set_ylim(0, total_slots * 1.05)
+    ax.spines['top'].set_visible(False)
+
+    ax2 = ax.twinx()
+    ax2.set_ylim(0, 105)
+    ax2.set_ylabel('Coverage [%]')
+    ax2.spines['top'].set_visible(False)
+
+    handles = [Patch(facecolor=viz.INC_COLOUR, alpha=1.0, label='Inclination')]
+    handles += [Patch(facecolor=role_colour[role], alpha=1.0,
+                      label=role_name[role]) for role in role_order]
+    ax.legend(handles=handles, fontsize='small', ncol=len(handles),
+             loc='upper center', bbox_to_anchor=(0.5, -0.25), frameon=False)
+
+    viz.finish(fig, save_path=save_path, filename=filename)
+    return fig
+
+
+def plot_radiation_filter_sweep(sweep, title='', save_path=None, filename=None):
+    """
+    D15's radiation-filter sweep: held-out skill above, the learned
+    radiation gain below, both against the candidate filter time constant
+    on a shared logarithmic x axis.
+
+    The question D15 asks is whether replacing the delay-only radiation
+    regressor with a one-pole thermal filter buys held-out skill, and the
+    rule fixed before the sweep ran is that a candidate counts only when
+    the bootstrap bounds on its skill exclude zero (``skill_q05 > 0``).
+    The top panel is built to make that rule legible at a glance rather
+    than to let a merely positive point estimate read as a win: the
+    ``skill`` point per candidate is drawn together with its
+    ``skill_q05``-``skill_q95`` bootstrap interval as a quantitative band
+    via :meth:`matplotlib.axes.Axes.fill_between` — the graphical
+    guidelines' black-at-5%-opacity span rule governs highlighted
+    intervals such as outage windows, not a confidence interval, so this
+    band is drawn in the inclination identity colour instead — and a zero
+    line is drawn in the guidelines' accent colour, Vermilion, because it
+    marks the decision boundary the rule is stated against, not a data
+    category. Each candidate is a filled marker when its own ``improves``
+    is ``True`` and a hollow marker (matching edge colour, no fill) when
+    it is not, so a reader never has to consult the interval to see which
+    candidates cleared the bar. The baseline row (``is_baseline == True``)
+    carries no skill of its own — it is what every candidate is scored
+    against — and is excluded from this panel entirely rather than plotted
+    at a meaningless position.
+
+    The bottom panel draws the learned radiation gain per candidate, in
+    radiation's own identity colour, Reddish Purple, against two
+    horizontal references in the same colour, told apart from the
+    candidate series and from each other by line style rather than by a
+    second colour, per the guidelines' rule that colour already spent on
+    identity cannot also carry a grouping: a dashed line for Study 03's
+    independently measured gain (``study03_gain``, present as a single
+    constant value repeated down the column, or absent as an all-``NaN``
+    column when the caller passed no comparison), and a dotted line for
+    the baseline row's own learned gain — the delay-only fit's answer to
+    the same question, and the one every candidate is really being
+    compared against, since the sweep's point is whether filtering moves
+    the gain away from what the delay-only fit learned.
+
+    Parameters
+    ----------
+    sweep : pd.DataFrame
+        Output of :func:`shmlib.prediction.radiation_filter_sweep`: one
+        row with ``is_baseline == True`` (``tau_h`` and every skill column
+        ``NaN``) and one row per candidate time constant, carrying
+        ``tau_h``, ``is_baseline``, ``mae_val``, ``skill``, ``skill_q05``,
+        ``skill_q95``, ``n``, ``gain``, ``study03_gain``,
+        ``sideband_amplitude``, ``n_warmup``, ``n_scored`` and
+        ``improves``. Only ``tau_h``, ``is_baseline``, ``skill``,
+        ``skill_q05``, ``skill_q95``, ``gain``, ``study03_gain`` and
+        ``improves`` are read here.
+    title : str, optional
+        Figure title. Default ``''``, which draws none.
+    save_path, filename : optional
+        Passed to :func:`shmlib.viz.finish`. Default ``None``, no save.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+
+    Notes
+    -----
+    Handles a single-candidate sweep (nothing about either panel assumes
+    more than one point) and an all-``NaN`` ``study03_gain`` column
+    (its reference line is simply not drawn) without raising.
+    """
+    is_baseline = sweep['is_baseline'].astype(bool)
+    candidates = sweep.loc[~is_baseline].sort_values('tau_h')
+    baseline_row = sweep.loc[is_baseline]
+
+    tau = candidates['tau_h'].to_numpy(dtype=float)
+    skill = candidates['skill'].to_numpy(dtype=float)
+    skill_q05 = candidates['skill_q05'].to_numpy(dtype=float)
+    skill_q95 = candidates['skill_q95'].to_numpy(dtype=float)
+    improves = candidates['improves'].fillna(False).astype(bool).to_numpy()
+
+    fig, (skill_ax, gain_ax) = plt.subplots(
+        2, 1, sharex=True, figsize=viz.figsize(viz.FIGURE_WIDTH, 4.6))
+
+    band_mask = np.isfinite(tau) & np.isfinite(skill_q05) & np.isfinite(skill_q95)
+    if band_mask.any():
+        skill_ax.fill_between(tau[band_mask], skill_q05[band_mask],
+                              skill_q95[band_mask], color=viz.INC_COLOUR,
+                              alpha=0.2, linewidth=0.0)
+    skill_ax.axhline(0.0, color=viz.MARK_COLOUR, linewidth=1.0)
+
+    filled = improves & np.isfinite(tau) & np.isfinite(skill)
+    hollow = (~improves) & np.isfinite(tau) & np.isfinite(skill)
+    if filled.any():
+        skill_ax.scatter(tau[filled], skill[filled], marker='o', s=36,
+                         facecolor=viz.INC_COLOUR, edgecolor=viz.INC_COLOUR,
+                         zorder=3)
+    if hollow.any():
+        skill_ax.scatter(tau[hollow], skill[hollow], marker='o', s=36,
+                         facecolor='none', edgecolor=viz.INC_COLOUR,
+                         zorder=3)
+    skill_ax.set_xscale('log')
+    skill_ax.set_ylabel('Skill over delay-only baseline [fraction]')
+    viz.format_spines(skill_ax)
+
+    radiation_colour = viz.CHANNEL_COLOUR['sr']
+    gain = candidates['gain'].to_numpy(dtype=float)
+    gain_mask = np.isfinite(tau) & np.isfinite(gain)
+    if gain_mask.any():
+        gain_ax.plot(tau[gain_mask], gain[gain_mask], marker='o',
+                    color=radiation_colour, linewidth=1.2)
+
+    study03 = sweep['study03_gain'].dropna()
+    study03_value = float(study03.iloc[0]) if len(study03) else None
+    if study03_value is not None and np.isfinite(study03_value):
+        gain_ax.axhline(study03_value, color=radiation_colour, linewidth=1.2,
+                        linestyle='--')
+    else:
+        study03_value = None
+
+    baseline_gain = None
+    if len(baseline_row):
+        candidate_value = float(baseline_row['gain'].iloc[0])
+        if np.isfinite(candidate_value):
+            baseline_gain = candidate_value
+    if baseline_gain is not None:
+        gain_ax.axhline(baseline_gain, color=radiation_colour, linewidth=1.2,
+                        linestyle=':')
+
+    gain_ax.set_xlabel('Filter time constant τ [h]')
+    gain_ax.set_ylabel('Radiation gain [mdeg per W/m²]')
+    viz.format_spines(gain_ax)
+
+    handles = [
+        Line2D([], [], marker='o', linestyle='none', markersize=6,
+              markerfacecolor=viz.INC_COLOUR, markeredgecolor=viz.INC_COLOUR,
+              label='Improves (90% CI excludes zero)'),
+        Line2D([], [], marker='o', linestyle='none', markersize=6,
+              markerfacecolor='none', markeredgecolor=viz.INC_COLOUR,
+              label='Does not improve'),
+    ]
+    if study03_value is not None:
+        handles.append(Line2D([], [], color=radiation_colour, linewidth=1.2,
+                              linestyle='--', label='Study 03 gain'))
+    if baseline_gain is not None:
+        handles.append(Line2D([], [], color=radiation_colour, linewidth=1.2,
+                              linestyle=':', label='Delay-only baseline gain'))
+    fig.legend(handles=handles, fontsize='small', ncol=len(handles),
+              loc='upper center', bbox_to_anchor=(0.5, -0.01), frameon=False)
+
+    if title:
+        fig.suptitle(title)
     viz.finish(fig, save_path=save_path, filename=filename)
     return fig

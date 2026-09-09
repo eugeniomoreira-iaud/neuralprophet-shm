@@ -36,15 +36,37 @@ conda activate neuralprophet_env
 
 If `conda activate` is not recognised, Conda has not been initialised for that shell yet. Run `conda init zsh` on macOS or `conda init powershell` on Windows, then close and reopen the terminal. This is a one-time step per machine.
 
-### 3. Run the watcher script
+### 3. Move into the repository root
 
-Once the environment is active, start the watcher from the repository root:
+The script lives in the **git repository**, not in the parent folder. The two folders share the name `neuralprophet-shm`, which makes it easy to land one level too high:
+
+```
+_UNIPG/
+└── neuralprophet-shm/          ← parent folder (no auto_watcher.py here)
+    └── neuralprophet-shm/      ← git repository — run the watcher from here
+        ├── auto_watcher.py
+        └── ...
+```
+
+If your prompt shows the parent folder, step down into the repository first:
+
+```bash
+cd neuralprophet-shm
+```
+
+A quick check: `ls auto_watcher.py` should list the file without an error.
+
+### 4. Run the watcher script
+
+Once the environment is active and you are inside the repository root, start the watcher:
 
 ```bash
 python auto_watcher.py
 ```
 
 You should see a message saying `Watching for file saves recursively... (Press Ctrl+C to stop)`.
+
+If you instead see `python: can't open file '.../auto_watcher.py': [Errno 2] No such file or directory`, you are in the wrong folder — go back to step 3.
 
 ### You're all set!
 

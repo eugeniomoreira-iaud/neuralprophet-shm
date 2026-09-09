@@ -221,6 +221,18 @@ Rows with a missing target are left out of every fit. Regressor gaps of at most 
 
 The native plots (`plot`, `plot_components`, `plot_parameters`, `conformal_plot`, `plot_latest_forecast`, the fit-metrics curve) run in the notebook as diagnostics with `set_plotting_backend("plotly-static")`. The report shows the same content redrawn by `shmlib.figures` under the binding rules of `instructions-pipeline.md`: Okabe–Ito channel colours, Cividis for scalars, legends below the axes, span highlights black at 5 %, PNG and SVG through `viz.finish`. Each redraw reads its data through NeuralProphet's public methods — `predict(decompose=True)`, `predict_trend`, `predict_seasonal_components`, the lagged-regressor weights, the conformal output columns — through one extractor per plot type in `shmlib.prediction`, and each extractor has a test asserting it reproduces the numbers the native plot draws.
 
+### D15 · Radiation as a filtered thermal state, swept as a diagnostic beside Model B
+
+**Added 2026-09-07, in the revision pass of Task 7.3.** D3 applies Study 03's operator to radiation as a transport delay alone. This decision tests whether the filter half of the same operator explains the wall better than the delay half does, and it does so as a diagnostic, without moving the main line.
+
+The reason to ask is a shape the delay cannot produce. The pyranometer's curve has a floor at zero every night; the inclination and the air temperature do not. What the wall feels is not the radiation but the heat stored in the stone, which rises while the sun is up and decays continuously, without a floor, once it sets. In a lumped heat balance that stored state obeys `tau · dx/dt = a · R(t) − x(t)`, whose solution is a causal exponential filter of the radiation with a single time constant, and the same `tau` governs heating and cooling because loss to the air is linear in the excess temperature. This is exactly the filter half of the delay-and-filter operator Study 03 identified and that D4's ladder already applies to the wall temperature at `tau = 4 h`. On the daily harmonic a one-hour delay and a filter of `tau` near one hour give the same phase lag and cannot be told apart, which is why Study 03's diurnal-band scan chose between them by neither; they differ in shape, the delay keeping the night-time floor and the filter drawing the tail across it. Model B's radiation weights, read as noise in Section 7, are also what a filter of `tau` well beyond twelve hours looks like when truncated at twelve: no peak, and a cumulative weight climbing almost linearly across the window.
+
+The sweep runs `TAU_SWEEP_H` over approximately 1, 2, 4, 8, 12, 24 and 48 hours, applied to the station radiation, with the transport delay set to zero once the filter is on so that the two halves of the operator are never charged for the same lag twice. The filter state is reset after every target gap longer than D13's fill limit, because a state carried across an outage is an interpolation rather than a measurement, and the first `3 · tau` of every segment is flagged as warm-up rather than silently included. Per `tau`, a new table `GM_10b` and one figure beside Model B report the held-out MAE with its paired block-bootstrap increment over the delay-only fit, the learned radiation gain beside Study 03's −0.035 mdeg per W m⁻², and the residual's daily-sideband power.
+
+**The rule is stated before the sweep runs: the filter counts as an improvement only if the bootstrap bounds on its skill exclude zero.** A gain that changes sign, or a lower MAE whose interval crosses zero, is not a result.
+
+This is a diagnostic under D9's own rule. Model A's main line stays on the delay operator, nothing in Sections 4 to 8 is re-derived from the filter, and promotion to the main line — should the sweep say yes with margin — belongs to Study 06 or to the paper's model choice, because it changes every attribution number in the study. The expectation is a modest gain at best: the wall probe measures this stored state directly, and D4's ladder found that the probe buys nothing. The likelier wins are elsewhere — the sign of the on-structure radiation gain, which the study currently reports as wrong, and the annual sidebands of the daily cycle left in the residual, which filtered radiation modulates six-fold across the year and air temperature does not. The caution is that filtered radiation is a smooth afternoon-peaking wave close in shape to air temperature, so the two gains compete, and held-out skill rather than the gain is the judge. Out of scope here and named as candidates for Study 06: night cooling by longwave loss to a clear sky, which the pyranometer cannot see and which ERA5's surface net thermal radiation could supply, and asymmetric heating and cooling constants.
+
 ---
 
 ## 4 · Metrics — what is measured, and why that metric
@@ -305,6 +317,26 @@ figures.plot_harmonic_diagnostics, plot_fit_metrics, plot_trend_parameters, plot
 figures.plot_impulse_response, plot_daily_harmonic_chart, plot_outage_bridge
 ```
 
+Added in the revision pass of Task 7.3 (2026-09-07):
+
+```
+coupling.reset_thermal_lag_filter(series, tau_hours, reset_gap, dt_hours=1.0, warmup_factor=3.0)
+                                                        # D15: the one-pole filter, its state cut at every long gap,
+                                                        #      returning the filtered driver and a warm-up mask
+prediction.radiation_filter_sweep(...)                  # D15: one fit per candidate tau, scored against the
+                                                        #      delay-only baseline by paired block bootstrap
+figures.plot_regressor_coverage(coverage, total_slots, target_label=None, ...)
+                                                        # GM_F15: the coverage inventory as grouped stacked bars
+figures.plot_gap_size_histogram(inventory, freq='20min', ...)
+                                                        # GM_F16: the gap inventory on logarithmic axes
+```
+
+Two of these adapt rather than add, under §5.2's additive rule: `proxies.build_regressor_sets` gained
+`radiation_delay_min`, taking a number or one delay per set, because the three sets no longer share a single
+delay; and `prediction.ladder_frame` gained the same keyword for D4's ladder. In both, the existing
+hours-based keyword keeps its meaning and every existing caller keeps its behaviour, passing both forms
+raises, and the delay still rounds to whole slots of the study's grid.
+
 Each new function carries a NumPy-style docstring and a unit test written before the implementation. Each extractor's test asserts that it reproduces the numbers NeuralProphet's own plot draws for the same fitted model.
 
 ### 5.4 Figure conventions
@@ -335,6 +367,7 @@ Tables in `outputs/`, LaTeX bodies alongside:
 | `GM_14_outage_bridges.csv` | Expected, observed, shift, interval and verdict per outage and proxy set |
 | `GM_15_run_metadata.csv` | Every parameter, seed and library version |
 | `GM_16_current_era_ladder.csv` | What `twall` and the pyranometer buy, rung by rung |
+| `GM_10b_radiation_filter_sweep.csv` | D15: per candidate `tau`, the held-out MAE, the paired bootstrap skill against the delay-only baseline, the learned radiation gain beside Study 03's, the residual's annual modulation of its daily cycle, and whether the skill's bounds exclude zero (added 2026-09-07) |
 
 Figures, each written as PNG and SVG:
 
@@ -352,6 +385,9 @@ Figures, each written as PNG and SVG:
 | `GM_F12` | — | Outage bridges: expected level and interval through each outage, observed at resumption |
 | `GM_F13` | — | Detectability per mechanism on its own chart |
 | `GM_F14` | — | Current-era ladder, rung by rung |
+| `GM_F15` | — | The window's coverage per source and role as grouped stacked bars, the target first, raw slots on the left axis and per cent on the right (added 2026-09-07, replaces a table) |
+| `GM_F16` | — | The target's gaps on logarithmic axes, binned on the exact count of missing slots, both axes labelled in real durations and counts (added 2026-09-07, replaces a table) |
+| `GM_F17` | — | D15: the radiation-filter sweep beside Model B, held-out skill and learned gain against the candidate time constants (added 2026-09-07) |
 
 ---
 

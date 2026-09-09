@@ -40,11 +40,17 @@
 # 4. **The common grid and the certified radiation window** — the clock each source keeps,
 #    measured by two independent tests, and the days on which the on-structure radiation survives
 #    both study 1's flags and its `sr_suspect` verdict. Measured, not assumed.
-# 5. **Air temperature, three sources compared** — level, common variation, and the structure of
+# 5. **Time-base harmonisation on the native grid** — a finer clock check on the archive's own
+#    20-minute grid: for every pair of sources, the residual reference-side displacement that
+#    best aligns their daily anomalies, scanned before and after correcting the ground station's
+#    own stamp.
+# 6. **The two external sources against each other** — pairwise agreement between the ground
+#    station and ERA5, over every quantity both report, resolved by season.
+# 7. **Air temperature, three sources compared** — level, common variation, and the structure of
 #    the difference by season and by time of day.
-# 6. **Solar radiation, three sources compared** — the same, plus the calibration against the
+# 8. **Solar radiation, three sources compared** — the same, plus the calibration against the
 #    certified window, which is the only stretch where a local reference exists.
-# 7. **Compatibility and substitution** — what each source is fit for, per quantity, with the
+# 9. **Compatibility and substitution** — what each source is fit for, per quantity, with the
 #    window its evidence covers and the limitation it carries.
 #
 # Steps 2 and 3 characterise every variable each source retains, not only the two forcings. A
@@ -74,7 +80,8 @@ from IPython.display import display
 sys.path.insert(0, os.path.abspath('..'))      # studies/, for shmlib
 sys.path.insert(0, os.path.abspath('../..'))   # heritageshm, at the repo root
 
-from shmlib import compare, figures, proxies, quality, site, solar, tables, viz
+from shmlib import (compare, figures, proxies, quality, site, solar, tables,
+                   temporal_alignment, viz)
 
 pd.set_option('display.width', 170)
 pd.set_option('display.max_columns', 40)
@@ -106,6 +113,12 @@ pd.set_option('display.max_rows', 80)
 # | `DIURNAL_QUANTITIES` | The channels each source's merged summer-and-winter figure draws, in the order it draws them, and the same list for both so that the two figures can be read against each other. The two forcings this study is about, the humidity that accompanies them, and the wind that ventilates the surface. What each source retains beyond these — dew point and precipitation in both, pressure at the station — is left to the complete-record figures and the diurnal tables, which still carry every channel: the figure selects what is worth reading hour by hour, it does not narrow the characterisation. |
 # | `DIURNAL_DAY_ALPHA` | Opacity of the individual days drawn in gray behind each mean. A climatology over eight years puts hundreds of days in one small panel, so the stroke has to be lighter than the one study 1 uses over a single season. |
 # | `CLOCK_REFERENCE`, `CLOCK_MIN_PEAK`, `CLOCK_THRESHOLD`, `CLOCK_MAX_LAG` | The clock tests. The reference is the source whose provider states UTC; the peak and threshold define a usable radiation day, matching study 1's values so the two studies cannot disagree about which day was usable; the maximum lag bounds the cross-correlation search. Twelve hours is deliberate — a longer window returns the 24-hour alias of a lead and reports it as a lag. |
+# | `NATIVE_FREQ` | The grid step 5's harmonisation scan runs on. The archive's own twenty minutes, finer than `ANALYSIS_FREQ`, because a residual timestamp displacement of a few minutes is invisible once everything has already been averaged into an hour. |
+# | `SHIFTS_MINUTES` | Candidate reference-side displacements step 5 scans, in minutes. Minus two hours to plus two hours in twenty-minute steps — wide enough to see a scan's shape flatten at its edges, which is the sign a true optimum sits inside the window rather than beyond it. |
+# | `HARMONISATION_PERIODS` | The two periods step 5 scans separately, because the ground station and the on-structure instrument package both changed at the February 2025 changeover: `legacy`, `site.ARCHIVE_START` to `site.LEGACY_END`, and `current`, `site.CURRENT_START` to the end of whatever is loaded (`end=None`). Study 1's `de_lib.last_archive_day` walks the raw `.adc` directory this study never opens, so the current period's end is left open rather than duplicating that walk over a path this notebook does not read. |
+# | `MIN_PAIRS`, `MIN_DAYS` | Support a shift's scanned correlation must have before step 5 reports it, in paired twenty-minute slots and in distinct UTC days. Matches `shmlib.temporal_alignment`'s own defaults; lowering either lets a thinly supported displacement outrank a well-supported one on noise alone. |
+# | `GROUND_STAMP_OFFSET` | The correction step 5 tests against the vendor stamp: `auxiliary/meteosystem_italy.py` documents a thirty-minute reporting interval but not whether a value is instantaneous or a mean, nor which edge of the interval a mean would be stamped at. Fifteen minutes is half the interval — the correction an interval mean stamped at its end requires to move it to the centre it actually describes. |
+# | `SHIFT_PAIRS` | The six sensor-reference pairs step 5 scans: air temperature and radiation, each between the on-structure housing and the station, the housing and ERA5, and the station and ERA5. The first name of each pair is `reference_shift_scan`'s `reference` argument, the one the scan displaces; the second, always the clock with the least doubt attached to it, is its `sensor` argument, held fixed. A positive displacement therefore always reads as "the first-named source's own stamp sits later than the second's". |
 # | `CROSS_SOURCE_LIMITS` | Bounds this comparison applies in place of a quantity's documented plausible range. Precipitation is capped at 20 mm in the hour, which excludes exactly one station reading — 30.1 mm, real weather, roughly twice the next largest, and the sole occupant of the upper two thirds of its panel. The hour is kept in the frame every other step uses and in the channel inventory; what this bound decides is the record the precipitation comparison describes, which is the ordinary behaviour of the two sources rather than one storm. Widen the bound to put the hour back, and the count of what each bound excluded is printed beside the table. |
 # | `CROSS_SOURCE_PLAUSIBLE_ONLY` | Whether the source-against-source scores are computed on values inside each quantity's documented plausible range. `True`: one impossible rainfall reading of order a billion millimetres dominates every mean square it enters, and an agreement table built from it looks like a result while being none. The reading is not deleted — it stays in the frame every other step uses, and stays counted in the channel inventory — and the number of values this step set aside is printed beside the table. Set `False` to see the unmasked scores. |
 # | `CROSS_SOURCE_REFERENCE`, `CROSS_SOURCE_COMPARED` | The two sides of the comparison between the external sources themselves, run over every quantity both of them report. The station is the reference, so that a positive bias reads as the reanalysis running high with respect to the local observation. Neither is a reference in the sense the on-structure record is; swapping them changes the sign of every bias and nothing else. |
@@ -183,6 +196,38 @@ CLOCK_REFERENCE = 'era5'   # the only source whose provider states UTC
 CLOCK_MIN_PEAK = 200.0     # W/m², matching study 1
 CLOCK_THRESHOLD = 50.0     # W/m², matching study 1
 CLOCK_MAX_LAG = 12         # hours; longer returns the 24-hour alias of a lead
+
+# Step 5's finer harmonisation scan, run on the archive's own native grid rather
+# than the hourly grid every other step shares — a residual displacement of a
+# few minutes is invisible once it has already been averaged into an hour.
+NATIVE_FREQ = '20min'
+SHIFTS_MINUTES = list(range(-120, 121, 20))
+HARMONISATION_PERIODS = [
+    {'name': 'legacy', 'start': site.ARCHIVE_START, 'end': site.LEGACY_END},
+    # `end=None` keeps whatever the loaded archive carries through; this study
+    # never opens the raw `.adc` directory `site.last_archive_day` would need
+    # to state that end explicitly.
+    {'name': 'current', 'start': site.CURRENT_START, 'end': None},
+]
+MIN_PAIRS = 200
+MIN_DAYS = 14
+GROUND_STAMP_OFFSET = '15min'   # half the station's documented 30-minute interval
+
+# The six sensor-reference pairs: (label, variable, sensor column, reference
+# column). The reference column is the one `reference_shift_scan` displaces;
+# the sensor column stays at its own timestamps. ERA5 plays the sensor
+# wherever it appears, and the station plays it against the housing, so that
+# the source with the least doubtful clock is always the one held fixed and a
+# positive displacement always reads as "the pair's first-named source is
+# stamped later than the second".
+SHIFT_PAIRS = (
+    ('str-gs', 'tair', 'tair_gs', 'tair_str'),
+    ('str-era5', 'tair', 'tair_era5', 'tair_str'),
+    ('gs-era5', 'tair', 'tair_era5', 'tair_gs'),
+    ('str-gs', 'sr', 'sr_gs', 'sr_str'),
+    ('str-era5', 'sr', 'sr_era5', 'sr_str'),
+    ('gs-era5', 'sr', 'sr_era5', 'sr_gs'),
+)
 
 # The two sides of the source-against-source comparison. The station is the
 # reference, so a positive bias reads as the reanalysis running high with respect
@@ -519,7 +564,7 @@ print(f'{len(gs_diurnal):,} rows: {gs_diurnal["channel"].nunique()} channels '
 # changeover, carries rejections of its own, and was condemned by study 1 on 161 days for having
 # no diurnal cycle at all. What survives both is short, but it is the only measurement in the
 # project that sees the sky this wall sees. Its extent is computed here, because every calibration
-# in step 7 is conditioned on it — and it is reported as runs and gaps rather than as a single
+# in step 8 is conditioned on it — and it is reported as runs and gaps rather than as a single
 # span, since a window advertised as five months that is in fact a dozen fragments supports a
 # different claim from one that is not.
 #
@@ -638,7 +683,167 @@ fig = figures.plot_certified_window(
     filename='PF_F07_certified_sr_window')
 
 # %% [markdown]
-# ## Step 5 · The two external sources against each other
+# ## Step 5 · Time-base harmonisation on the native grid
+#
+# The clock check above runs on the hourly grid, and an hourly mean absorbs a residual timestamp
+# error of a few minutes without a trace: two series stamped fifteen minutes apart still average
+# into the same hour. This step repeats the same kind of question — is a channel's clock where it
+# claims to be? — on the archive's own twenty-minute grid, fine enough to see a displacement that
+# small, and asks it of every pair the three sources can form rather than of one channel against
+# a fixed reference.
+#
+# For each of the six pairs — air temperature and radiation, each between the on-structure housing
+# and the station, the housing and ERA5, and the station and ERA5 — the second-named source, always
+# the one with the least doubt attached to its clock, is held at its own timestamps, and the first
+# is displaced by every candidate in `SHIFTS_MINUTES`, positive meaning its own stamp sits later
+# than the true observation time. The correlation of the two series' daily anomalies is scanned
+# across the candidates, separately for the legacy and the current instrument era, because the
+# on-structure package changed at the February 2025 changeover and its housing did not.
+#
+# The scan is run twice more than that: once against the ground station's export exactly as its
+# vendor stamps it, and once after moving that stamp back by `GROUND_STAMP_OFFSET`, the correction
+# a thirty-minute interval mean stamped at its end would need to sit at the centre it actually
+# describes. `auxiliary/meteosystem_italy.py` documents the interval but not which of those two
+# the export is, so both are scanned and the data are left to say which reading brings the station
+# closer to a clock it shares with nothing else.
+#
+# Two results are already known before the scan is drawn, from the same-logger split this study's
+# clock check performs at the hourly grid: air temperature is recorded by both the on-structure
+# housing and the ground station, so a pair that involves neither the housing nor the station's
+# stamping error — `str`-`era5` — isolates the housing's own physical lead over free air from any
+# clock question, because the reanalysis carries no reporting-interval ambiguity of its own. A pair
+# that changes noticeably once `GROUND_STAMP_OFFSET` is applied is a pair whose disagreement was, at
+# least in part, the station's stamp; a pair that does not move is telling a story the correction
+# cannot touch.
+#
+# ### Parameter Tuning Guidance
+#
+# `NATIVE_FREQ` is the grid this step scans on, finer than `ANALYSIS_FREQ` for the reason above.
+# `SHIFTS_MINUTES` bounds the candidates scanned; a curve still climbing at either edge is a sign
+# the window was drawn too narrow, the same warning `shmlib.figures.plot_lag_curves` carries for a
+# coupling scan. `HARMONISATION_PERIODS` splits the scan at the instrument changeover, since the
+# two packages are different hardware; the current period's end is left open (`end=None`) rather
+# than read from the raw archive, which this study never opens. `MIN_PAIRS` and `MIN_DAYS` are the
+# same support thresholds `shmlib.temporal_alignment` defaults to, named here so a reader of the
+# notebook does not have to open the library to learn them. `GROUND_STAMP_OFFSET` is the correction
+# tested against the vendor stamp; `SHIFT_PAIRS` names the six comparisons scanned and which side of
+# each is displaced.
+
+# %%
+sensor_native, sensor_native_provenance = proxies.load_sensor_forcings(
+    ARCHIVE_CSV, column_map=STR_MAP, freq=NATIVE_FREQ, tz=SITE_TZ,
+    honour_suspect=HONOUR_SUSPECT, min_count=1)
+
+# The station is natively half-hourly, and thirty minutes has no common multiple
+# with twenty short enough to grid it directly onto NATIVE_FREQ without a
+# periodic gap: two samples an hour land inside twenty-minute bins and the
+# third bin is permanently empty. Reading it first on a grid fine enough to
+# keep both the native sample and any sub-native stamp offset intact, then
+# bringing it onto NATIVE_FREQ by the same bridging interpolation ERA5 gets
+# below (and `shmlib.temporal_alignment.load_proxy_variants` gives the
+# station its own equivalent 'native_ground' variant), removes the artefact
+# rather than scanning through it.
+GS_FINE_FREQ = '5min'
+ground_fine_vendor = proxies.load_ground_station(
+    GROUND_STATION_CSV, column_map=GS_MAP, freq=GS_FINE_FREQ, min_count=1)
+ground_fine_offset = proxies.load_ground_station(
+    GROUND_STATION_CSV, column_map=GS_MAP, freq=GS_FINE_FREQ, min_count=1,
+    stamp_offset=GROUND_STAMP_OFFSET)
+ground_native_vendor = proxies.to_native_grid(ground_fine_vendor, freq=NATIVE_FREQ,
+                                              accumulations=())
+ground_native_offset = proxies.to_native_grid(ground_fine_offset, freq=NATIVE_FREQ,
+                                              accumulations=())
+
+era5_native_hourly = proxies.load_era5(ERA5_CSV, column_map=ERA5_MAP, freq='1h')
+era5_native = proxies.to_native_grid(era5_native_hourly, freq=NATIVE_FREQ,
+                                     accumulations=('sr',))
+
+print(f'On-structure, native grid: {len(sensor_native.columns)} channels, '
+      f'ambiguous timestamps dropped {sensor_native_provenance["ambiguous_timestamps_dropped"]}')
+print(f'Ground station: vendor stamp vs. stamp offset {GROUND_STAMP_OFFSET}, '
+      f'{len(ground_native_vendor.columns)} channels each')
+print(f'ERA5, native grid: {len(era5_native.columns)} channels, '
+      f'{era5_native.index.min()} to {era5_native.index.max()}')
+
+# %%
+native_vendor = proxies.harmonise(
+    [sensor_native, ground_native_vendor, era5_native], freq=NATIVE_FREQ)
+native_offset = proxies.harmonise(
+    [sensor_native, ground_native_offset, era5_native], freq=NATIVE_FREQ)
+
+shift_scan = temporal_alignment.scan_reference_pairs(
+    {'vendor': native_vendor, 'offset': native_offset}, SHIFT_PAIRS,
+    HARMONISATION_PERIODS, SHIFTS_MINUTES, freq=NATIVE_FREQ,
+    min_pairs=MIN_PAIRS, min_days=MIN_DAYS)
+shift_scan = shift_scan.rename(columns={'record': 'stamp_state'})
+display(shift_scan.head())
+shift_scan.to_csv(f'{OUTPUT_DIR}/PF_15_shift_scan.csv', index=False)
+
+# %%
+shift_summary_table = temporal_alignment.shift_summary(
+    shift_scan, group_cols=('period', 'stamp_state', 'pair', 'variable'))
+display(shift_summary_table)
+shift_summary_table.to_csv(f'{OUTPUT_DIR}/PF_16_shift_summary.csv', index=False)
+
+tables.write_table(
+    shift_summary_table, f'{OUTPUT_DIR}/PF_T15_shift_summary.tex',
+    columns=[
+        ('period', None),
+        ('stamp_state', None),
+        ('pair', tables.texttt),
+        ('variable', tables.texttt),
+        ('r_shift0', '.3f'),
+        ('shift_argmax', ','),
+        ('r_argmax', '.3f'),
+        ('gain', '.3f'),
+        ('sign', None),
+    ])
+
+# %%
+# The vendor stamp, current era: the headline case, since it is what every other step in this
+# study reads. The offset case and the legacy era are in `PF_15`/`PF_16` in full.
+current_vendor_scan = shift_scan.query(
+    "period == 'current' and stamp_state == 'vendor'")
+fig = figures.plot_reference_shift_scan(
+    current_vendor_scan, variables=('tair', 'sr'),
+    pairs=[pair[0] for pair in SHIFT_PAIRS[:3]],
+    title='Reference-side displacement scan, current era, vendor ground-station stamp',
+    save_path=OUTPUT_DIR, filename='PF_F19_shift_scan')
+
+# %% [markdown]
+# **Reading.** In the headline figure — the current era, the vendor stamp — air temperature's
+# `str`-`era5` pair peaks at -40 minutes (`r_daily` 0.937, against 0.915 with no displacement) and
+# carries no station stamping question at all: neither side of it is the ground station, so its
+# residual displacement is the on-structure housing's own physical lead over free air, not a clock
+# defect. The housing warms and cools measurably ahead of the reanalysis grid cell, which is a
+# property of a sun-exposed enclosure rather than a timing error to correct, and the same pair sits
+# at -60 minutes in the legacy era — a different instrument package, the same kind of housing.
+#
+# `str`-`gs` peaks further out, at -60 minutes (`r_daily` 0.934, against 0.886 with no displacement)
+# in the current era and -40 in the legacy one: the housing's own lead is still there, now added to
+# whatever the station's stamp contributes. Applying `GROUND_STAMP_OFFSET` moves this pair's peak
+# twenty minutes closer to zero in *both* eras — to -40 in the current era, -20 in the legacy one —
+# which is this scan's clearest evidence that part of what `str`-`gs` measures is not the housing at
+# all, but the station's own stamp.
+#
+# `gs`-`era5` isolates that station clock question directly, with no on-structure housing on either
+# side. In the vendor reading it peaks at +20 minutes in the current era (`r_daily` 0.964, a gain of
+# 0.007 over no displacement) and sits at zero already in the legacy one. `GROUND_STAMP_OFFSET`
+# collapses the current era's gain to 0.0002 — the curve goes essentially flat, meaning the
+# corrected stamp already explains almost all of what the +20 minute displacement was buying —
+# while the legacy era, whose vendor curve had nothing to correct, moves slightly the other way (to
+# -20 minutes, a gain of 0.002, noise-level next to the current era's collapse). Radiation tells the
+# same story at the interval that exists for it, the current era: `str`-`era5` sits at zero already,
+# `gs`-`era5`'s current-era gain shrinks from 0.011 to 0.002 under the correction, and its legacy
+# curve is flattened outright, to zero.
+#
+# Together the three pairs of each variable triangulate one physical effect, the housing's lead,
+# that the correction cannot touch (`str`-`era5` is unmoved by it in every case), and one stamping
+# question, the station's own, that the correction substantially resolves wherever the station
+# appears — a distinction a single lag scan against one fixed reference could not have drawn.
+
+# %% [markdown]
+# ## Step 6 · The two external sources against each other
 #
 # Both external sources are now on the common grid, and both have been characterised on their own
 # terms. Before either is measured against the wall, they are measured against each other, over
@@ -751,7 +956,7 @@ tables.write_table(
     ])
 
 # %% [markdown]
-# ## Step 6 · Air temperature, three sources compared
+# ## Step 7 · Air temperature, three sources compared
 #
 # The three sources are not replicates. A housing on a sun-exposed wall, a standard screen in town
 # and a nine-kilometre grid average are three different physical quantities that share a name, so
@@ -832,7 +1037,7 @@ fig = figures.plot_agreement_stability(
     save_path=OUTPUT_DIR, filename='PF_F11_tair_stability')
 
 # %% [markdown]
-# ## Step 7 · Solar radiation, three sources compared
+# ## Step 8 · Solar radiation, three sources compared
 #
 # The same four views, then the calibration the temperature comparison has no equivalent of.
 #
@@ -853,7 +1058,7 @@ fig = figures.plot_agreement_stability(
 #
 # `DAYLIGHT_ONLY` and `NIGHT_ELEVATION` set the daylight restriction and the elevation defining
 # it; turning the restriction off inflates every correlation and shrinks every bias, and measures
-# the night rather than the radiation. Everything else matches step 6, deliberately, so that the
+# the night rather than the radiation. Everything else matches step 7, deliberately, so that the
 # two quantities' tables can be read side by side.
 
 # %%
@@ -936,7 +1141,7 @@ fig = figures.plot_agreement_stability(
     save_path=OUTPUT_DIR, filename='PF_F15_sr_stability')
 
 # %% [markdown]
-# ## Step 8 · Compatibility and substitution
+# ## Step 9 · Compatibility and substitution
 #
 # The verdict, stated separately for each quantity and each source: whether it is a defensible
 # substitute for the on-structure measurement, what transformation that would require, the period

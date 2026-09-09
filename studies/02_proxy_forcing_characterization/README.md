@@ -11,8 +11,8 @@ This study characterises air temperature and solar radiation in each available s
 far apart the sources are, and calibrates them against the one stretch of on-structure radiation
 that study 1 certified as trustworthy.
 
-**Status: in progress.** The notebook runs and writes `PF_01` to `PF_14` and `PF_F01` to
-`PF_F18` into `outputs/`; the report's source characterisation sections are written, and its
+**Status: in progress.** The notebook runs and writes `PF_01` to `PF_16` and `PF_F01` to
+`PF_F19` into `outputs/`; the report's source characterisation sections are written, and its
 comparison, compatibility and conclusion sections are still to be written from those artefacts.
 
 ## The question, in three parts
@@ -48,6 +48,26 @@ while the sun is more than six degrees below the horizon is set to zero, which i
 unmeasured number in any `_ok` column. On top of that, `sr_suspect` marks 161 days on which the
 channel has no diurnal cycle at all. The usable radiation window is what survives both, and
 measuring its true extent is the first result this study produces rather than a number it assumes.
+
+## What the native-grid scan found
+
+Step 5 repeats the clock check on the archive's own twenty-minute grid, fine enough to see a
+timestamp displacement an hourly mean would average away, and asks it of all six pairs the three
+sources can form for air temperature and for radiation, each scanned before and after moving the
+ground station's own stamp back by half its documented reporting interval. The on-structure
+housing against ERA5 — the one pair with no station stamping question on either side — settles on
+a residual displacement of forty minutes for air temperature in the current era (sixty in the
+legacy one) and zero for radiation, unmoved by the station correction in every case: the
+same-logger split reads this as the housing itself running ahead of free air, a physical property
+of a sun-exposed enclosure rather than a clock defect. The housing against the station combines
+that same lead with whatever the station's own stamp adds, and correcting the station's stamp
+moves this pair's residual twenty minutes closer to zero in both eras. The station against ERA5
+isolates the station's own clock question directly: its current-era air-temperature gain from
+displacement collapses from 0.007 to 0.0002 once the station's export is read as an interval mean
+stamped at its end rather than an instantaneous reading — the curve goes essentially flat, which is
+the signature of a correction that already explains the discrepancy — and its legacy radiation
+curve is flattened outright, to zero. `PF_15_shift_scan.csv` carries the full scan and
+`PF_16_shift_summary.csv` the one-row-per-pair-per-period reading of it.
 
 ## What it writes
 

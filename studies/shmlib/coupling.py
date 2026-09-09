@@ -109,6 +109,126 @@ def thermal_lag_filter(series, tau_hours, dt_hours=1.0):
     return bridged.ewm(alpha=alpha, adjust=False).mean().where(series.notna())
 
 
+def reset_thermal_lag_filter(series, tau_hours, reset_gap, dt_hours=1.0,
+                             warmup_factor=3.0):
+    """
+    A thermal lag filter that stops remembering across a long outage.
+
+    :func:`thermal_lag_filter` bridges every gap it is handed, because a
+    filter that restarted from nothing after every missing hour would be
+    worse than one that trusts a short interpolation. That bridge is a
+    fiction the filter believes without reservation, though, and the
+    fiction stops being harmless once the gap runs long: after many time
+    constants of missing data, what the filter is integrating is an
+    interpolation across an outage rather than a measurement of anything
+    that happened during it, and the state it carries out of the gap is
+    contaminated by however that interpolation happened to run. This
+    function draws the line the plain filter cannot draw for itself. Past
+    `reset_gap`, the missing stretch is not bridged but cut: the driver is
+    split into the segments that cut separates, and
+    :func:`thermal_lag_filter` is run on each of them independently, so
+    that no heat is carried across an outage longer than the wall could
+    plausibly have held onto by itself.
+
+    A segment run this way starts cold. Its very first sample is also
+    :func:`thermal_lag_filter`'s own state at that point — the same
+    start-up condition every call of it carries at the beginning of
+    whatever series it is given, here made to recur at every reset instead
+    of arising once at the start of the record — so whatever level the
+    driver actually held just before the outage is not reflected in it.
+    The stretch over which that start-up assumption still dominates the
+    output, roughly `warmup_factor` time constants, is exactly the stretch
+    a comparison against the response should treat with suspicion, and
+    this function reports it as a mask rather than deciding for the
+    caller whether to act on it.
+
+    Parameters
+    ----------
+    series : pd.Series
+        Driver on a regular ``DatetimeIndex``, ``NaN`` where a slot is
+        missing.
+    tau_hours : float
+        Thermal time constant in hours, as in :func:`thermal_lag_filter`.
+        ``0`` disables the filter and returns the driver untouched with an
+        all-``False`` warm-up mask, matching that function's convention
+        that the zero-inertia case is the zero member of the family rather
+        than a case treated specially here.
+    reset_gap : str or pd.Timedelta
+        The longest run of consecutive missing slots the filter's state is
+        allowed to survive, given as anything :func:`pandas.Timedelta`
+        accepts — a ``pd.Timedelta`` itself or an offset string such as
+        ``'3D'``. A run's length is counted as the number of missing slots
+        it covers, times `dt_hours`; a run of exactly `reset_gap` is still
+        bridged, and only a run strictly longer splits the driver.
+    dt_hours : float, optional
+        Sampling interval in hours, matching the spacing of `series`'s
+        index. Default 1.0.
+    warmup_factor : float, optional
+        Length of a segment's warm-up stretch, in multiples of
+        `tau_hours`. Default 3.0.
+
+    Returns
+    -------
+    filtered : pd.Series
+        The driver, filtered independently within each segment, on the
+        index `series` arrived with. ``NaN`` wherever `series` was
+        ``NaN``, which includes every slot inside a reset gap: a slot the
+        filter was cut away from is not one it has an opinion about.
+    warmup : pd.Series of bool
+        ``True`` for the first `warmup_factor` time constants of every
+        segment, ``False`` elsewhere, on the same index. This function
+        never drops or otherwise treats those rows specially — it only
+        flags them, so that a study comparing a record with several
+        outages against a response can exclude or report the flagged
+        hours explicitly, rather than have them silently inflate or
+        deflate whatever the comparison measures.
+
+    Notes
+    -----
+    A gap is counted in consecutive missing slots of the regular grid, not
+    in elapsed calendar time, which assumes `series` carries no duplicate
+    or missing timestamps of its own — the same assumption every function
+    in this module makes about the grid it is handed.
+    """
+    if tau_hours <= 0:
+        return series.copy(), pd.Series(False, index=series.index)
+
+    reset_gap_hours = pd.Timedelta(reset_gap) / pd.Timedelta(hours=1)
+    warmup_samples = int(np.ceil(warmup_factor * tau_hours / dt_hours))
+
+    missing = series.isna().to_numpy()
+    n = len(missing)
+    change = np.flatnonzero(np.diff(missing.astype(int)) != 0) + 1
+    run_starts = np.concatenate(([0], change))
+    run_ends = np.concatenate((change, [n]))
+
+    # A run of missing slots becomes a reset boundary once it outlasts
+    # `reset_gap`; every position inside such a run is excluded from every
+    # segment, so that neither side of it can bridge across it.
+    reset = np.zeros(n, dtype=bool)
+    for start, end in zip(run_starts, run_ends):
+        if missing[start] and (end - start) * dt_hours > reset_gap_hours:
+            reset[start:end] = True
+
+    filtered = pd.Series(np.nan, index=series.index, name=series.name)
+    warmup = pd.Series(False, index=series.index)
+
+    position = 0
+    while position < n:
+        if reset[position]:
+            position += 1
+            continue
+        start = position
+        while position < n and not reset[position]:
+            position += 1
+        segment = series.iloc[start:position]
+        filtered.iloc[start:position] = thermal_lag_filter(
+            segment, tau_hours, dt_hours=dt_hours).to_numpy()
+        warmup.iloc[start:start + min(warmup_samples, position - start)] = True
+
+    return filtered, warmup
+
+
 def thermal_operator(series, delay=0, tau=0.0, dt_hours=1.0):
     """
     A driver put through the two things that can delay a response, in order.

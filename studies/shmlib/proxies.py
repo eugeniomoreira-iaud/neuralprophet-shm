@@ -40,6 +40,8 @@ DataFrames. No function here reads a path of its own or writes one that was not
 passed to it.
 """
 
+from collections.abc import Mapping
+
 import numpy as np
 import pandas as pd
 
@@ -263,7 +265,7 @@ def _resample_quantity(series, quantity, freq, circular, min_count):
 
 
 def _read_proxy(path, column_map, source, freq, circular, unit_factor,
-                min_count):
+                min_count, stamp_offset=None):
     """
     Read one external proxy export and put it on the analysis grid.
 
@@ -289,16 +291,26 @@ def _read_proxy(path, column_map, source, freq, circular, unit_factor,
         ``(source, quantity)`` to multiplicative factor applied on load.
     min_count : int
         Non-missing samples a bin must carry to produce a value.
+    stamp_offset : str, pandas.Timedelta or None, optional
+        A pandas-parsable offset subtracted from every raw timestamp before
+        anything is resampled. Default ``None``, which leaves the file's own
+        stamp untouched. Exists for a provider that stamps an interval mean at
+        the interval's end rather than its centre: passing half the interval
+        (``'15min'`` for a half-hourly mean) moves the label back to the centre
+        the mean actually describes, before the grid is built on it.
 
     Returns
     -------
     pd.DataFrame
         Columns named ``{quantity}_{source}``, on the analysis grid. Carries in
         ``attrs`` the measured native step, the duplicate count, the raw extent,
-        and the names in ``column_map`` that the file did not contain.
+        the stamp offset applied (if any), and the names in ``column_map`` that
+        the file did not contain.
     """
     raw = pd.read_csv(path, index_col=0, parse_dates=True, low_memory=False)
     raw = raw.sort_index()
+    if stamp_offset is not None:
+        raw.index = raw.index - pd.Timedelta(stamp_offset)
 
     n_duplicates = int(raw.index.duplicated().sum())
     raw = raw[~raw.index.duplicated(keep='first')]
@@ -335,6 +347,8 @@ def _read_proxy(path, column_map, source, freq, circular, unit_factor,
     gridded.attrs['raw_extent'] = (raw.index.min(), raw.index.max())
     gridded.attrs['raw_rows'] = int(len(raw))
     gridded.attrs['columns_absent'] = missing
+    gridded.attrs['stamp_offset'] = (str(pd.Timedelta(stamp_offset))
+                                     if stamp_offset is not None else None)
     return gridded
 
 
@@ -380,7 +394,8 @@ def load_era5(path, column_map=None, freq=site.ANALYSIS_FREQ, circular=CIRCULAR,
 
 
 def load_ground_station(path, column_map=None, freq=site.ANALYSIS_FREQ,
-                        circular=CIRCULAR, unit_factor=None, min_count=1):
+                        circular=CIRCULAR, unit_factor=None, min_count=1,
+                        stamp_offset=None):
     """
     Load the ground-station export onto the analysis grid.
 
@@ -407,6 +422,16 @@ def load_ground_station(path, column_map=None, freq=site.ANALYSIS_FREQ,
     min_count : int, optional
         Non-missing samples an hour must carry. Default ``1``, which lets a
         half-hour that lost its partner still report the hour it was in.
+    stamp_offset : str, pandas.Timedelta or None, optional
+        A pandas-parsable offset subtracted from the raw timestamps before
+        anything is resampled. Default ``None``, which keeps the vendor's own
+        stamp. The station's export documents a 30-minute reporting interval
+        but is silent on whether a value is instantaneous or an interval mean,
+        and, if a mean, on which edge of the interval it is stamped at; a
+        study that reads the stamp as the interval's end rather than its
+        centre passes ``'15min'`` here to move it back before any grid is
+        built on it. This is a timestamp correction only — no value is
+        recomputed.
 
     Returns
     -------
@@ -417,7 +442,7 @@ def load_ground_station(path, column_map=None, freq=site.ANALYSIS_FREQ,
     return _read_proxy(path, GS_MAP if column_map is None else column_map,
                        'gs', freq, circular,
                        UNIT_FACTOR if unit_factor is None else unit_factor,
-                       min_count)
+                       min_count, stamp_offset=stamp_offset)
 
 
 def load_sensor_forcings(path, column_map=None, freq=site.ANALYSIS_FREQ,
@@ -827,8 +852,8 @@ def fill_short_gaps(frame, columns, max_gap='2h', flag=True):
 
 
 def build_regressor_sets(record, mapping, target='y', roles=('tair', 'rh', 'sr'),
-                         fill_max_gap='2h', radiation_delay_h=1.0, freq='20min',
-                         delayed_role='sr'):
+                         fill_max_gap='2h', radiation_delay_h=None, freq='20min',
+                         delayed_role='sr', radiation_delay_min=None):
     """
     Assemble the regressor sets of one model specification from a joined record.
 
@@ -836,11 +861,19 @@ def build_regressor_sets(record, mapping, target='y', roles=('tair', 'rh', 'sr')
     The set's columns are renamed to the roles, regressor dropouts up to
     ``fill_max_gap`` are filled and flagged with :func:`fill_short_gaps`, and
     the delayed role (radiation) is passed through
-    :func:`shmlib.coupling.thermal_operator` as a pure transport delay of
-    ``radiation_delay_h`` with no inertia, so the driver enters the model
-    already shifted by the delay Study 03 measured. Its ``_filled`` flag is
-    shifted with it, so a flag keeps marking the value it belongs to. The
-    target is copied, never filled.
+    :func:`shmlib.coupling.thermal_operator` as a pure transport delay with no
+    inertia, so the driver enters the model already shifted by the delay
+    Study 03 measured. Its ``_filled`` flag is shifted with it, so a flag keeps
+    marking the value it belongs to. The target is copied, never filled.
+
+    The delay is given either in hours for every set at once
+    (``radiation_delay_h``) or in minutes, per set or for all of them
+    (``radiation_delay_min``). Two sets whose delayed role reads different
+    source columns need different delays — Study 03's native-resolution scan
+    measures the inclination twenty minutes behind the ground station's
+    radiation and forty behind ERA5's — and only the per-set form can express
+    that. Both forms round to whole slots of the ``freq`` grid, so a delay
+    finer than one slot is not representable and is rounded, not refused.
 
     Parameters
     ----------
@@ -855,12 +888,19 @@ def build_regressor_sets(record, mapping, target='y', roles=('tair', 'rh', 'sr')
         Roles every set must map. Default ``('tair', 'rh', 'sr')``.
     fill_max_gap : str or pd.Timedelta, optional
         Longest regressor dropout bridged. Default ``'2h'``.
-    radiation_delay_h : float, optional
-        Transport delay applied to ``delayed_role``, in hours. Default ``1.0``.
+    radiation_delay_h : float or None, optional
+        Transport delay applied to ``delayed_role`` in every set, in hours.
+        Default ``None``, which means one hour unless ``radiation_delay_min``
+        is given instead. Passing both is an error.
     freq : str, optional
         Grid spacing of ``record``. Default ``'20min'``.
     delayed_role : str, optional
         Role that receives the delay. Default ``'sr'``.
+    radiation_delay_min : float, dict or None, optional
+        Transport delay in minutes. A number applies to every set; a dict
+        ``{set_name: minutes}`` gives one delay per set and must name every set
+        of ``mapping``. Default ``None``, which leaves ``radiation_delay_h`` in
+        charge.
 
     Returns
     -------
@@ -870,12 +910,40 @@ def build_regressor_sets(record, mapping, target='y', roles=('tair', 'rh', 'sr')
     frame : pd.DataFrame
         ``target`` plus every set's role columns suffixed ``_<set_name>`` and
         their ``_filled`` flags, on ``record``'s index.
+
+    Raises
+    ------
+    ValueError
+        If both ``radiation_delay_h`` and ``radiation_delay_min`` are given.
+    KeyError
+        If ``radiation_delay_min`` is a dict that does not name every set.
     """
+    if radiation_delay_h is not None and radiation_delay_min is not None:
+        raise ValueError(
+            'give the radiation delay once: radiation_delay_h in hours for '
+            'every set, or radiation_delay_min in minutes, not both')
+
     step_hours = pd.Timedelta(freq) / pd.Timedelta(hours=1)
-    slots = int(round(radiation_delay_h / step_hours))
+    step_minutes = step_hours * 60.0
+
+    if radiation_delay_min is None:
+        hours = 1.0 if radiation_delay_h is None else float(radiation_delay_h)
+        delay_minutes = {name: hours * 60.0 for name in mapping}
+    elif isinstance(radiation_delay_min, Mapping):
+        missing = [name for name in mapping if name not in radiation_delay_min]
+        if missing:
+            raise KeyError(
+                'radiation_delay_min names no delay for the set(s) '
+                + ', '.join(repr(name) for name in missing))
+        delay_minutes = {name: float(radiation_delay_min[name])
+                         for name in mapping}
+    else:
+        delay_minutes = {name: float(radiation_delay_min) for name in mapping}
+
     roles = list(roles)
     sets = {}
     for name, columns in mapping.items():
+        slots = int(round(delay_minutes[name] / step_minutes))
         block = record[[columns[role] for role in roles]].copy()
         block.columns = roles
         block = fill_short_gaps(block, roles, max_gap=fill_max_gap, flag=True)

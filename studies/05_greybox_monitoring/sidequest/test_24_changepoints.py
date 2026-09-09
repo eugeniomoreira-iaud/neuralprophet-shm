@@ -123,22 +123,6 @@ viz.apply_report_style()
 # `'../../data/raw/proxies/meteosystem_gubbio.csv'`. Loaded through
 # `shmlib.proxies.load_ground_station`.
 #
-# **`GROUND_STAMP_OFFSET`** — how far back the station's raw timestamps are
-# moved before anything is resampled, as a pandas offset; default `'15min'`,
-# the value Study 02 settles on. The station reports every thirty minutes,
-# and its values are interval means; the vendor's documentation gives the
-# interval but never says which edge of it a mean is stamped at. Read as a
-# mean stamped at the end of its interval, the correction to the centre it
-# actually describes is half the interval, and Study 02 supports that reading
-# empirically: the station's current-era air-temperature gain from
-# displacement collapses from 0.007 to 0.0002 once the correction is applied,
-# which is the signature of a correction that explains the discrepancy rather
-# than one that merely moves it. Accepted values: any pandas-parsable offset,
-# or `None` to keep the vendor's own stamp. This matters beyond the `'gs'`
-# set, because the `'str'` set borrows `sr_gs` as its radiation driver and
-# inherits the correction with it; every gain, interval and threshold that
-# reads the station moves when it changes.
-#
 # **`ERA5_CSV`** — path to the Oikolab ERA5 reanalysis export; default
 # `'../../data/raw/proxies/oikolab_weather.csv'`. Loaded through
 # `shmlib.proxies.load_era5`.
@@ -171,9 +155,8 @@ viz.apply_report_style()
 # %%
 ARCHIVE_CSV = '../../data/interim/archive/gubbio_archive_20min.csv'
 STATION_CSV = '../../data/raw/proxies/meteosystem_gubbio.csv'
-GROUND_STAMP_OFFSET = '15min'
 ERA5_CSV = '../../data/raw/proxies/oikolab_weather.csv'
-OUTPUT_DIR = Path('outputs')
+OUTPUT_DIR = Path('sidequest/outputs')
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 NATIVE_FREQ = '20min'
@@ -189,10 +172,9 @@ WINDOW_END = None            # None: the archive's own end
 # One model specification runs through three regressor sets — on-structure,
 # station and ERA5 — mapping each of three roles (air temperature, relative
 # humidity, solar radiation) to its source column (D2, D3). Radiation is
-# global horizontal in every set, delayed by its source's entry in
-# `RADIATION_DELAY_MIN` and passed through
-# `shmlib.coupling.thermal_operator`; air temperature and humidity enter
-# instantaneous.
+# global horizontal in every set, delayed by `RADIATION_DELAY_H` and passed
+# through `shmlib.coupling.thermal_operator`; air temperature and humidity
+# enter instantaneous.
 #
 # ### Parameter Tuning Guidance
 #
@@ -226,30 +208,10 @@ WINDOW_END = None            # None: the archive's own end
 # which columns Phase 1's loaders are asked to join, and therefore every
 # downstream gain and coverage number for that set.
 #
-# **`RADIATION_DELAY_MIN`** — the transport delay applied to each set's
-# radiation column before it enters Model A, in minutes, one entry per set;
-# default `{'str': 20, 'gs': 20, 'era5': 40}` (D3). These are Study 03's
-# native-resolution figures for the current era, read from
-# `TR_08_native_delay_summary.csv`: the inclination sits twenty minutes
-# behind the ground station's radiation, which the `'str'` and `'gs'` sets
-# both read, and forty minutes behind ERA5's. They are not the hourly
-# figures of `TR_02_coupling_all.csv`, which gives one hour for `sr_str` and
-# zero for `sr_gs` and `sr_era5`; Study 03 states that an hourly scan can
-# only ever land on the hour, and its native step is what resolves the
-# delay below it. In the legacy era the station's optimum sits at forty
-# rather than twenty minutes, one slot later, which is the scan's own
-# resolution; a single delay per source is kept, taken from the era the
-# monitor runs on, rather than switching the delay by era. Applied through
-# `shmlib.coupling.thermal_operator` as a pure transport delay with no
-# inertia, never inside the model itself. Each value rounds to whole slots
-# of `NATIVE_FREQ`, so a change smaller than twenty minutes changes nothing.
-#
-# **`LADDER_RADIATION_DELAY_MIN`** — the same delay for the current-era
-# ladder of D4, in minutes; default `20`. The ladder's radiation rung reads
-# the wall's own pyranometer `sr_str`, whose native-resolution optimum is
-# also twenty minutes in the current era, so the rung differs from the
-# main line's `'str'` set in the radiation source alone and not in its
-# delay.
+# **`RADIATION_DELAY_H`** — the delay applied to every radiation source
+# before it enters Model A, in hours; default `1`, the diurnal-band optimum
+# measured in Study 03 for all three radiation sources (D3). Applied through
+# `shmlib.coupling.thermal_operator`, never inside the model itself.
 #
 # **`REGRESSOR_FILL_MAX_GAP`** — the longest regressor gap filled by linear
 # interpolation before the row is dropped from a set's fit; default `'2h'`
@@ -281,8 +243,7 @@ REGRESSOR_SETS = {
     'gs': {'tair': 'tair_gs', 'rh': 'rh_gs', 'sr': 'sr_gs'},
     'era5': {'tair': 'tair_era5', 'rh': 'rh_era5', 'sr': 'sr_era5'},
 }
-RADIATION_DELAY_MIN = {'str': 20.0, 'gs': 20.0, 'era5': 40.0}
-LADDER_RADIATION_DELAY_MIN = 20.0
+RADIATION_DELAY_H = 1
 REGRESSOR_FILL_MAX_GAP = '2h'
 ERA5_SR_IS_ACCUMULATION = True
 
@@ -357,12 +318,24 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 #
 # ### Parameter Tuning Guidance
 #
-# **`N_CHANGEPOINTS`** — trend changepoints, placed on covered time through
-# `prediction.covered_changepoints`; default `12`, Study 04's value, swept
-# in Phase 2 against the whole-record window rather than assumed unchanged.
+# **`N_CHANGEPOINTS`** — ignored by this sidequest, and kept only so that
+# `LADDER_N_CHANGEPOINTS` below still has a number to divide. The parent
+# study places this many changepoints at quantiles of covered time through
+# `prediction.covered_changepoints`; here the placement is the calendar's
+# instead. `season_changepoints`, defined beside the fits in Movement 2,
+# puts a changepoint on every astronomical season boundary the training
+# window spans — the March equinox, the June solstice, the September
+# equinox and the December solstice — snapped to the nearest covered
+# timestamp and dropped when the nearest covered timestamp is more than half
+# a season away. How many changepoints a fit gets is therefore decided by
+# the length of its own training window, and is reported by the notebook
+# when it runs.
 #
 # **`CHANGEPOINTS_RANGE`** — fraction of the training range eligible to
-# carry a changepoint; default `0.95`.
+# carry a changepoint; default `0.95`. Inert here: NeuralProphet 0.8.0
+# ignores both `changepoints_range` and `n_changepoints` whenever an
+# explicit `changepoints` list is supplied, which is the case for every fit
+# in this sidequest.
 #
 # **`TREND_REG`** — regularization on the trend's rate changes; default
 # `0.0`, the value `GM_05c`'s sweep chose on the on-structure set's held-out
@@ -464,18 +437,15 @@ ANNUAL_MODULATION_MIN_GAIN = 0.01
 # **`N_JOBS`** — worker processes `prediction.rolling_nowcast`,
 # `fold_stability`, `sweep_trend_reg`, `attribution_fits` and
 # `channel_ladder` fit their independent origins, folds, candidates, sets
-# and rungs across; default `32`. `1` reproduces the serial run bit for
-# bit (`_parallel_map` never imports `joblib` at that value). The useful
-# ceiling is the length of the longest loop — about seventy walk-forward
-# origins — rather than the machine's core count, and `_parallel_map`
-# caps its pool at the number of items, so a value above the loop length
-# only pays to start worker processes that go straight to idle. Each
+# and rungs across; default `8`. `1` reproduces the serial run bit for bit
+# (`_parallel_map` never imports `joblib` at that value); values above the
+# machine's core count gain nothing once every core is already busy; each
 # worker holds its own copy of the frame, about one gigabyte, so raising
 # this alongside a much larger record is a memory decision as much as a
 # speed one.
 
 # %%
-N_CHANGEPOINTS = 12
+N_CHANGEPOINTS = 24
 CHANGEPOINTS_RANGE = 0.95
 TREND_REG = 0.0                # GM_05c: chosen by the sweep on the on-structure held-out tail
 TREND_REG_CANDIDATES = (0.0, 0.5, 1.0, 2.0, 5.0)
@@ -745,13 +715,7 @@ LADDER_RUNGS = [
 # `1.0` gives the smallest-limit search room below the old edge; only a
 # chart previously tuned to `2.00` can change, since the smallest limit
 # meeting the budget is chosen and the achieved run length only rises with
-# the limit. With the floor at `1.0` the daily-phase chart lands on the
-# floor again, at the same run length of 203 days on the same two
-# reference episodes: its joint alarm is gated by the CUSUM's decision
-# interval (`CUSUM_H`), which every chart shares by D10, so below about
-# two standard deviations the EWMA limit no longer sets the chart's
-# sensitivity and lowering the floor further would change nothing. The
-# floor is left at `1.0` and the report states the gate.
+# the limit.
 #
 # **`DETECT_MAGNITUDES`, `DETECT_DURATIONS`** — injected amplitude-growth
 # magnitudes (millidegrees) and durations swept for detectability; default
@@ -810,22 +774,6 @@ LADDER_RUNGS = [
 # against before it is called a structural departure; default `('tair',
 # 'rh', 'batt')` (D10). An alarm coincident with a swing on one of these is
 # attributed to the environment or the instrument rather than to the wall.
-#
-# **`ATTRIBUTION_WINDOW`** — width of `channel_coincidence`'s centred
-# rolling median, the baseline each channel's departure is measured
-# against; default `'2h'`. The function's own default, `'24h'`, spans an
-# entire diurnal cycle, so on air temperature the "departure from the
-# median" is the diurnal cycle itself — a MAD of about 6 °C against a
-# threshold near 31 °C that no realistic swing reaches, which is why every
-# one of the first run's 75 fast-chart episodes came back `unattributed`.
-# The coincidence test is built to catch a twenty-minute-scale swing
-# against its own local background, not a slow cycle the median should
-# already track out, so the window is shortened to two hours instead.
-#
-# **`ATTRIBUTION_THRESHOLD`** — number of scaled departures a channel must
-# exceed to count as in excursion, passed to `channel_coincidence`;
-# default `5.0`, the function's own default, unchanged — only the window
-# needed correcting.
 
 # %%
 REFERENCE_START = '2020-11-21'
@@ -854,8 +802,6 @@ MECHANISM_CHARTS = {'amplitude': ('daily_amplitude', 'daily_amplitude'),
                     'drift': ('slow', 'daily_mean'),
                     'step': ('fast', 'innovation')}
 ATTRIBUTION_CHANNELS = ('tair', 'rh', 'batt')
-ATTRIBUTION_WINDOW = '2h'
-ATTRIBUTION_THRESHOLD = 5.0
 
 # %% [markdown]
 # ## Parameters · Outage bridges
@@ -942,8 +888,7 @@ sensor_legacy, _ = proxies.load_sensor_forcings(
     tz=site.SITE_TZ, honour_suspect=True, min_count=1)
 sensor = proxies.join_eras([sensor_current, sensor_legacy])
 
-station_hourly = proxies.load_ground_station(STATION_CSV,
-                                             stamp_offset=GROUND_STAMP_OFFSET)
+station_hourly = proxies.load_ground_station(STATION_CSV)
 era5_hourly = proxies.load_era5(ERA5_CSV)
 print(f'target {target.notna().sum():,} accepted slots of {len(target):,}; '
       f'station {len(station_hourly):,} h; ERA5 {len(era5_hourly):,} h')
@@ -983,7 +928,7 @@ record = proxies.harmonise([sensor, station, era5, target.to_frame('y')],
 
 sets, frame = proxies.build_regressor_sets(
     record, REGRESSOR_SETS, target='y', fill_max_gap=REGRESSOR_FILL_MAX_GAP,
-    radiation_delay_min=RADIATION_DELAY_MIN, freq=NATIVE_FREQ)
+    radiation_delay_h=RADIATION_DELAY_H, freq=NATIVE_FREQ)
 
 # %% [markdown]
 # ### Coverage and the anatomy of the target's gaps
@@ -1006,28 +951,6 @@ gaps.to_csv(OUTPUT_DIR / 'GM_02_gap_inventory.csv', index=False)
 tables.write_table(gap_classes, str(OUTPUT_DIR / 'GM_02_body.tex'),
                    [('gap_class', tables.texttt), ('gaps', ',d'),
                     ('hours', ',.0f')])
-
-# %% [markdown]
-# The same two inventories are drawn rather than tabulated, because both are
-# read for shape rather than for individual values. `GM_F15` puts the target's
-# coverage first and then one group of bars per source, each bar stacked into
-# the slots a channel accepted and the share of them that was filled across a
-# short dropout; the right axis is in per cent, which is meaningful only
-# because every source is measured over the same window and therefore over the
-# same total number of slots. `GM_F16` draws the target's gaps on logarithmic
-# axes, binned on the exact count of missing twenty-minute slots rather than on
-# the broad classes the inventory labels, so that the thousands of short gaps
-# and the handful of multi-month ones are legible in one picture; both axes are
-# labelled in real durations and real counts.
-
-# %%
-figures.plot_regressor_coverage(
-    coverage, total_slots=len(frame), target_label=TARGET_COLUMN,
-    save_path=str(OUTPUT_DIR), filename='GM_F15_window_coverage')
-
-figures.plot_gap_size_histogram(
-    gaps, freq=NATIVE_FREQ,
-    save_path=str(OUTPUT_DIR), filename='GM_F16_gap_histogram')
 
 # %%
 figures.plot_regressor_sets(
@@ -1160,7 +1083,109 @@ def_frames = prediction.regressor_set_frames(
 split_at = int(len(def_frames['str']) * (1 - VALID_P))
 train_str = def_frames['str'].iloc[:split_at]
 valid_str = def_frames['str'].iloc[split_at:]
-changepoints_str = prediction.covered_changepoints(train_str.index, N_CHANGEPOINTS)
+SEASON_BOUNDARIES = (('03', '21'), ('06', '21'), ('09', '23'), ('12', '21'))
+
+
+def season_changepoints(index, n_changepoints=None, observed_mask=None):
+    """
+    Trend changepoints at the astronomical season boundaries.
+
+    A signature-compatible replacement for
+    :func:`shmlib.prediction.covered_changepoints`, which spaces changepoints
+    at quantiles of covered time. Here the candidate locations are fixed by
+    the calendar instead — the March equinox, the June solstice, the
+    September equinox and the December solstice of every year the index
+    spans, taken at local midnight — so that each trend segment covers one
+    season and its rate is the rate of that season.
+
+    Every candidate is snapped to the nearest covered timestamp, because a
+    changepoint placed inside an outage is constrained by no observation and
+    leaves the trend free to move arbitrarily across it — the property
+    ``covered_changepoints`` exists to guarantee and which this function must
+    not give up. A candidate whose nearest covered timestamp lies further
+    away than half the spacing to its neighbouring boundary is dropped rather
+    than snapped: a boundary moved more than halfway towards the next one no
+    longer marks the season it was named for.
+
+    Parameters
+    ----------
+    index : pd.DatetimeIndex
+        Full analysis grid, covered and uncovered alike.
+    n_changepoints : int or None, optional
+        Ignored. Accepted, and accepted positionally, only so that this
+        function can stand in for ``covered_changepoints`` at call sites that
+        pass a count. How many changepoints come back is decided by the
+        calendar and by how much of it the record covers, never by a count.
+    observed_mask : pd.Series or array-like or None, optional
+        Boolean per timestamp, true where a value is present. ``None`` (the
+        default) treats every timestamp as covered.
+
+    Returns
+    -------
+    pd.DatetimeIndex
+        Increasing, unique changepoint locations, every one of them a
+        timestamp the record actually covers.
+    """
+    index = pd.DatetimeIndex(index)
+    if observed_mask is None:
+        covered = index
+    else:
+        mask = pd.Series(np.asarray(observed_mask), index=index).fillna(False).astype(bool)
+        covered = index[mask.to_numpy()]
+    if len(covered) == 0:
+        return pd.DatetimeIndex([])
+
+    covered = covered.sort_values()
+    first, last = covered[0], covered[-1]
+
+    # One extra year on each side so that the first and last in-range
+    # candidate still have a neighbour to measure their tolerance against.
+    candidates = []
+    for year in range(first.year - 1, last.year + 2):
+        for month, day in SEASON_BOUNDARIES:
+            stamp = pd.Timestamp(f'{year}-{month}-{day}')
+            if first.tz is not None:
+                stamp = stamp.tz_localize(first.tz)
+            candidates.append(stamp)
+    candidates = pd.DatetimeIndex(sorted(candidates))
+
+    kept = []
+    for position, stamp in enumerate(candidates):
+        if not first < stamp < last:
+            continue
+        tolerance = min(abs(candidates[position + step] - stamp)
+                        for step in (-1, 1)
+                        if 0 <= position + step < len(candidates)) / 2
+        slot = covered.searchsorted(stamp)
+        nearest = min((covered[p] for p in (slot - 1, slot)
+                       if 0 <= p < len(covered)),
+                      key=lambda c: abs(c - stamp))
+        if abs(nearest - stamp) <= tolerance:
+            kept.append(nearest)
+
+    return pd.DatetimeIndex(sorted(set(kept)))
+
+
+# `prediction.attribution_fits` and `prediction.fold_stability` take a
+# changepoint *count* and place the changepoints themselves, by calling
+# `covered_changepoints` as a bare global from inside the closure they
+# dispatch to their workers (prediction.py:2900 and :3056). Rebinding the
+# module attribute is therefore the only way to reach the fit that draws
+# GM_F04 without editing `shmlib`, which this sidequest may not touch. It
+# does reach the workers: cloudpickle captures that global by value when it
+# pickles the closure, so a replacement defined here in `__main__` is
+# serialised into each loky process.
+#
+# The proper fix, for whenever the no-touch constraint lifts, is a
+# `changepoints=` passthrough on both functions, matching the one
+# `sweep_trend_reg` and `compare_daily_terms` already have.
+prediction.covered_changepoints = season_changepoints
+
+changepoints_str = season_changepoints(train_str.index)
+N_CHANGEPOINTS = len(changepoints_str)
+print(f'season changepoints on the on-structure training head: {N_CHANGEPOINTS}')
+for stamp in changepoints_str:
+    print('   ', stamp)
 
 # %% [markdown]
 # ### Trend regularisation swept on the held-out tail
@@ -1359,760 +1384,3 @@ tables.write_table(rates, str(OUTPUT_DIR / 'GM_04d_body.tex'),
 figures.plot_trend_parameters(trend, rates, changepoints_str, freq=NATIVE_FREQ,
                               title='Trend on covered time',
                               save_path=str(OUTPUT_DIR), filename='GM_F04_trend')
-curves = prediction.seasonal_parameters(
-    model_str, list(SEASONAL_CURVE_DATES) if CONDITIONS else [SEASONAL_CURVE_DATES[0]],
-    freq=NATIVE_FREQ, conditions=CONDITIONS, regressors=('tair', 'rh', 'sr'))
-curves.to_csv(OUTPUT_DIR / 'GM_05d_seasonal_curves.csv', index=False)
-figures.plot_seasonal_parameters(curves, title='Yearly and daily terms',
-                                 save_path=str(OUTPUT_DIR), filename='GM_F05_seasonality')
-figures.plot_decomposition_stack(components_a['str'], freq=NATIVE_FREQ,
-                                 title='Decomposition, on-structure set',
-                                 save_path=str(OUTPUT_DIR), filename='GM_F06_decomposition')
-figures.plot_regressor_gains(gains, title='Learned gains against Study 03',
-                             save_path=str(OUTPUT_DIR), filename='GM_F06b_gains')
-
-# %% [markdown]
-# ## Movement 2b · What the wall temperature and the pyranometer buy
-#
-# The current era only (D4). The same specification, refitted rung by rung
-# on a matched window; each rung reports its held-out error and the paired
-# block-bootstrap increment over the rung below. The movement writes the
-# table `GM_16` and the figure `GM_F14`.
-
-# %% [markdown]
-# ### The ladder's window and its four rungs
-#
-# `prediction.ladder_frame` cuts the record to the current era and adds the
-# wall probe, the delayed on-structure pyranometer, the probe's
-# thermal-inertia and lead variants, and the conditional-seasonality
-# weights. `prediction.channel_ladder` then fits `LADDER_RUNGS` in order on
-# a matched held-out split, one specification per rung, gated to the same
-# rows on every rung — the window where the pyranometer and the probe are
-# both present — so that a rung's held-out error differs from the rung
-# below's in its added channel alone, never in a training window of a
-# different size (D4). It pairs each rung's held-out error against both
-# the rung immediately below it and the first rung directly, with the same
-# block bootstrap Study 04 uses for its own route comparisons.
-
-# %%
-current = prediction.ladder_frame(
-    frame, sensor, CURRENT_ERA_START, twall_tau_h=TWALL_TAU_H,
-    twall_lead_h=TWALL_LEAD_H, radiation_delay_h=None,
-    radiation_delay_min=LADDER_RADIATION_DELAY_MIN,
-    freq=NATIVE_FREQ, weight_curve=WEIGHT_CURVE)
-ladder, ladder_errors = prediction.channel_ladder(
-    current, LADDER_RUNGS, VALID_P, LADDER_N_CHANGEPOINTS,
-    block_hours=LADDER_BOOTSTRAP_BLOCK_HOURS,
-    repetitions=LADDER_BOOTSTRAP_REPETITIONS, seed=SEED, n_jobs=N_JOBS,
-    epochs=EPOCHS, freq=NATIVE_FREQ, growth='linear',
-    changepoints_range=CHANGEPOINTS_RANGE,
-    trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
-    conditional_seasonality=CONDITIONS, quantiles=QUANTILES,
-    learning_rate=LEARNING_RATE)
-display(ladder)
-
-# %% [markdown]
-# ### The ladder table and figure
-#
-# `GM_16` records, per rung, the matched block's size, the held-out mean
-# absolute error, interval coverage, the newest regressor's learned gain
-# and the fit's residual lag-1 autocorrelation, alongside two paired
-# skills: over the rung immediately below (the chain) and over the first
-# rung directly, each with its bootstrap interval — the second reads a
-# rung's total gain over the ladder's starting specification without
-# compounding it through every rung in between. `GM_F14` draws the
-# held-out MAE and the chain skill, one bar or marker per rung.
-
-# %%
-ladder.to_csv(OUTPUT_DIR / 'GM_16_current_era_ladder.csv', index=False)
-tables.write_table(ladder, str(OUTPUT_DIR / 'GM_16_body.tex'),
-                   [('rung', tables.texttt), ('rows', ',d'), ('mae_val', '.2f'),
-                    ('skill', '.3f'), ('skill_q05', '.3f'), ('skill_q95', '.3f'),
-                    ('skill_vs_first', '.3f'), ('skill_vs_first_q05', '.3f'),
-                    ('skill_vs_first_q95', '.3f'), ('coverage', tables.percent),
-                    ('gain_last', '.3f'), ('residual_r1', '.3f')])
-figures.plot_ladder(ladder, title='What each on-structure channel buys',
-                    save_path=str(OUTPUT_DIR), filename='GM_F14_ladder')
-
-# %% [markdown]
-# ## Movement 3 · Is this reading the expected one?
-#
-# A walk-forward expectation, refitted every `REFIT_EVERY` on the trailing
-# `TRAIN_WINDOW` with the trend on (D5), and a conformal interval calibrated
-# on the previous `CONFORMAL_CALIBRATION_WINDOW` of out-of-sample residuals
-# (D8). Scored per set and per days since refit. The movement writes the
-# table `GM_09` and the figure `GM_F08`.
-
-# %% [markdown]
-# ### The rolling expectation, per regressor set
-#
-# `prediction.rolling_nowcast` refits on the `REFIT_EVERY` schedule inside
-# the trailing `TRAIN_WINDOW`, with `changepoints_per_window=True` so that
-# no window's trend changepoints fall inside that window's own outages
-# (Task 3.1). `prediction.rolling_conformal` then recalibrates each row's
-# `q05`/`q95` against the rolling output's own out-of-sample residuals in
-# the preceding `CONFORMAL_CALIBRATION_WINDOW`, one calibration set per
-# refit origin rather than a single split fixed for the whole record (D8).
-# Each row is labelled by its regressor set and by which `STALENESS_EDGES_D`
-# bin its own `staleness_d` falls into.
-
-# %%
-rolling_sets = {}
-for name, block in def_frames.items():
-    rolling = prediction.rolling_nowcast(
-        block, regressors=('tair', 'rh', 'sr'), refit_every=REFIT_EVERY,
-        min_train=MIN_TRAIN, train_window=TRAIN_WINDOW,
-        changepoints_per_window=True, freq=NATIVE_FREQ, n_jobs=N_JOBS,
-        epochs=EPOCHS, growth='linear', n_changepoints=N_CHANGEPOINTS,
-        changepoints_range=CHANGEPOINTS_RANGE, trend_reg=TREND_REG,
-        yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
-        conditional_seasonality=CONDITIONS, quantiles=QUANTILES, seed=SEED,
-        learning_rate=LEARNING_RATE)
-    rolling = prediction.rolling_conformal(
-        rolling, alpha=CONFORMAL_ALPHA, window=CONFORMAL_CALIBRATION_WINDOW,
-        method=CONFORMAL_METHOD)
-    rolling['set'] = name
-    rolling['staleness'] = pd.cut(rolling['staleness_d'], STALENESS_EDGES_D,
-                                  labels=['0-7 d', '8-14 d', '15-21 d', '22-30 d'])
-    rolling_sets[name] = rolling
-    print(f'{name}: {len(rolling):,} rows from {rolling["origin"].nunique()} refits')
-
-# %% [markdown]
-# ### Scored by set and by staleness
-#
-# `prediction.score_predictions` pools every set's rolling predictions and
-# scores each set-by-staleness group on its own out-of-sample rows: mean
-# absolute error, bias, the interval's coverage and median width against
-# the nominal `CONFORMAL_ALPHA`, and the Winkler interval score. `GM_09`
-# records the table.
-
-# %%
-all_rolling = pd.concat(rolling_sets.values(), ignore_index=True)
-nowcast = prediction.score_predictions(
-    all_rolling.dropna(subset=['q05', 'q95']), ['set', 'staleness'],
-    alpha=CONFORMAL_ALPHA)
-display(nowcast)
-nowcast.to_csv(OUTPUT_DIR / 'GM_09_nowcast_metrics.csv', index=False)
-tables.write_table(nowcast, str(OUTPUT_DIR / 'GM_09_body.tex'),
-                   [('set', tables.texttt), ('staleness', tables.texttt), ('n', ',d'),
-                    ('mae', '.2f'), ('rmse', '.2f'), ('bias', '.2f'),
-                    ('coverage_q05_q95', tables.percent), ('width_q05_q95', '.1f'),
-                    ('interval_score', '.1f')])
-
-# %% [markdown]
-# ### Observed against expected, on-structure set, December 2025
-#
-# `GM_F08`: the on-structure rolling expectation and its conformal band
-# against the measured record, drawn over the first full calendar month
-# after the archive's 2025 outage (26 September – 12 October 2025) whose
-# on-structure regressors are actually complete. November 2025 still
-# carries a residual on-structure solar-radiation gap the outage table does
-# not list separately — 82 % of `n_sr_ok` missing that month — which
-# `regressor_set_frames` drops rows for outright, so it is skipped in
-# favour of December 2025, whose three roles are essentially complete
-# (under 0.5 % missing each).
-
-# %%
-view = rolling_sets['str'].set_index('ds').loc['2025-12-01':'2026-01-01']
-figures.plot_prediction_band(
-    view['y'], view['yhat'], view['q05'], view['q95'], freq=NATIVE_FREQ,
-    title='Observed against expected, on-structure set, December 2025',
-    save_path=str(OUTPUT_DIR), filename='GM_F08_observed_expected')
-
-# %% [markdown]
-# ### Native conformal diagnostic, on-structure set only
-#
-# NeuralProphet's own `conformal_predict`/`conformal_plot`, run once on the
-# on-structure fit as a diagnostic counterpart to `GM_F08` (D14) rather than
-# a second scored result — an 80/20 split of that fit's own training frame
-# stands in for the calibration and evaluation data respectively, distinct
-# from the rolling calibration `GM_09` and `GM_F08` use. As in Movement 2's
-# native diagnostics, the plot is requested in NeuralProphet's plain
-# `'plotly'` backend and rendered to PNG inline through `viz.show_static`,
-# never the whole-record-as-SVG `'plotly-static'` backend. `conformal_plot`
-# reads every retained interval width, not only the one `'cqr'` keeps by
-# default, so `conformal_predict` is called with `show_all_PI=True`.
-
-# %%
-model_str, train_str_fit, _ = models_a['str']
-split = int(len(train_str_fit) * 0.8)
-passthrough = ('tair', 'rh', 'sr') + (tuple(CONDITIONS.values()) if CONDITIONS else ())
-native = model_str.conformal_predict(
-    prediction._model_frame(def_frames['str'].iloc[len(train_str_fit):], passthrough),
-    calibration_df=prediction._model_frame(train_str_fit.iloc[split:], passthrough),
-    alpha=CONFORMAL_ALPHA, method=CONFORMAL_METHOD, show_all_PI=True)
-native_fig = model_str.conformal_plot(native, plotting_backend='plotly')
-if native_fig is not None:
-    viz.show_static(native_fig)
-else:
-    print('conformal_plot returned None under the plotly backend; '
-         'native diagnostic skipped rather than embedding SVG.')
-
-# %% [markdown]
-# ## Movement 4 · Does the wall answer with a delay the 20-minute grid can resolve?
-#
-# The same specification as Model A's on-structure fit, except that air
-# temperature and radiation (`LAGGED_REGRESSORS`) enter as lagged
-# regressors over `LAGGED_N_LAGS` slots of the native 20-minute grid rather
-# than as contemporaneous ones (D9). The weight the fit learns at every lag
-# is the impulse response itself; its first moment and its one-pole fit are
-# read back and set beside `STUDY03_OPERATOR`, the delay-and-time-constant
-# operator Study 03 measured by scanning rather than by learning. The
-# movement writes the weights and summary tables in `GM_10` and the figure
-# `GM_F07`. Phase 0's `test_neuralprophet_capabilities.
-# TestLaggedRegressorWithoutAutoregression` already confirmed that
-# NeuralProphet 0.8.0 carries lagged regressors at `n_lags=0`, so
-# `MODEL_B_FALLBACK_FREQ`'s hourly fallback is not taken and this movement
-# runs at the native grid throughout.
-
-# %% [markdown]
-# ### The lagged-regressor fit
-#
-# One nowcast fit on the on-structure set, sharing every specification
-# choice already fixed for Model A (`N_CHANGEPOINTS`, `CHANGEPOINTS_RANGE`,
-# `TREND_REG`, `YEARLY_ORDER`, `DAILY_ORDER`, `CONDITIONS`): the only
-# difference is that air temperature and radiation are registered through
-# `lagged_regressors` instead of `regressors`, carrying `LAGGED_N_LAGS`
-# slots of their own recent history into the fit, while relative humidity
-# stays a contemporaneous regressor exactly as in Model A.
-# `prediction.lagged_regressor_weights` reads the fitted weight at every
-# lag straight back from the model, called with `physical=True` so that
-# every weight is rescaled from the model's own internal normalisation
-# into millidegrees per unit of the driver — the units `STUDY03_GAINS`
-# and Study 03's operator are both stated in — rather than left in
-# standard deviations of the (also normalised) target per unit of
-# whatever normalisation the driver itself happened to receive.
-# `prediction.impulse_response_summary` reduces that physical-units table
-# to one row per driver — gain, delay and time constant — with Study 03's
-# own operator attached alongside for the comparison the movement exists
-# to make; delay and time constant are shape quantities read off the
-# response's own timing, not its scale, so they are identical whichever
-# units the weights themselves are read in.
-
-# %%
-block_b = def_frames['str']
-slots_per_hour = int(pd.Timedelta(hours=1) / pd.Timedelta(NATIVE_FREQ))
-model_b, _ = prediction.neuralprophet_backtest(
-    block_b, block_b, regressors=('rh',), task='nowcast', epochs=EPOCHS,
-    freq=NATIVE_FREQ, growth='linear',
-    changepoints=prediction.covered_changepoints(block_b.index, N_CHANGEPOINTS),
-    n_changepoints=N_CHANGEPOINTS, changepoints_range=CHANGEPOINTS_RANGE,
-    trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
-    conditional_seasonality=CONDITIONS, quantiles=(), seed=SEED,
-    learning_rate=LEARNING_RATE, lagged_regressors=LAGGED_REGRESSORS,
-    lagged_n_lags=LAGGED_N_LAGS, lagged_regularization=LAGGED_REG)
-weights_b = prediction.lagged_regressor_weights(model_b, physical=True)
-summary_b = prediction.impulse_response_summary(weights_b, dt_hours=1.0 / slots_per_hour)
-summary_b['study03_delay_h'] = [STUDY03_OPERATOR[r]['delay_h'] for r in summary_b['regressor']]
-summary_b['study03_tau_h'] = [STUDY03_OPERATOR[r]['tau_h'] for r in summary_b['regressor']]
-
-# %% [markdown]
-# ### `GM_10` · the learned response beside Study 03's operator
-#
-# One row per driver: the learned gain, delay and time constant, and
-# Study 03's own delay and time constant for the same driver, so the
-# margin between what was imposed and what the model found is on record
-# rather than merely visible in the figure below.
-
-# %%
-display(summary_b)
-weights_b.to_csv(OUTPUT_DIR / 'GM_10_impulse_response_weights.csv', index=False)
-summary_b.to_csv(OUTPUT_DIR / 'GM_10_impulse_response.csv', index=False)
-tables.write_table(summary_b, str(OUTPUT_DIR / 'GM_10_body.tex'),
-                   [('regressor', tables.texttt), ('gain', '.3f'), ('delay_h', '.2f'),
-                    ('tau_h', '.2f'), ('r2_onepole', '.3f'),
-                    ('study03_delay_h', '.1f'), ('study03_tau_h', '.1f')])
-
-# %% [markdown]
-# ### `GM_F07` and the native diagnostic
-#
-# The learned weight per lag in millidegrees per unit of the driver, one
-# panel per driver, with Study 03's operator overlaid as a gain-matched
-# one-pole response. Beside it, NeuralProphet's own lagged-regressor
-# parameter plot runs once as a diagnostic counterpart (D14) — in the
-# model's own internal normalisation rather than physical units, since
-# that plot reads the raw tensor directly — requested in the plain
-# `'plotly'` backend and rendered to PNG inline through `viz.show_static`
-# rather than embedded as SVG; if that backend returns no figure, the
-# diagnostic is skipped and said so in print rather than falling back to
-# SVG.
-
-# %%
-figures.plot_impulse_response(weights_b, summary_b, reference=STUDY03_OPERATOR,
-                              dt_hours=1.0 / slots_per_hour,
-                              unit_label='Weight [mdeg per unit]',
-                              title='Learned impulse response, on-structure set',
-                              save_path=str(OUTPUT_DIR), filename='GM_F07_impulse_response')
-native_params = model_b.plot_parameters(components=['lagged_regressors'],
-                                        plotting_backend='plotly')
-if native_params is not None:
-    viz.show_static(native_params)
-else:
-    print('plot_parameters returned None under the plotly backend; '
-         'native diagnostic skipped rather than embedding SVG.')
-
-# %% [markdown]
-# ### `GM_10b` · radiation as a filtered thermal state (D15)
-#
-# A diagnostic beside Model B, under D9's own rule: it is read, and it does
-# not move the main line. The pyranometer's curve has a floor at zero every
-# night and the inclination does not; what the wall feels is not the
-# radiation but the heat stored in the stone, which rises while the sun is
-# up and decays continuously once it sets. That stored state is a causal
-# exponential filter of the radiation with a single time constant, which is
-# the filter half of the operator D3 applies only as a delay.
-#
-# `prediction.radiation_filter_sweep` fits Model A once per candidate in
-# `TAU_SWEEP_H`, each on the on-structure set's frame with its radiation
-# column replaced by the station's radiation put through
-# `coupling.reset_thermal_lag_filter` — the delay set to zero once the
-# filter is on, so that the two halves of the operator are never charged for
-# the same lag twice. The baseline is the same frame unchanged, the
-# delay-only fit of the main line. Each candidate is scored against that
-# baseline by the same paired block bootstrap the ladder uses.
-#
-# The radiation handed to the filter is the station's column with its short
-# dropouts filled exactly as D13 fills them and with no delay applied, which
-# is the same driver the main line reads, one step earlier. Filling first
-# matters: without it the filter would treat every twenty-minute dropout as
-# an outage and restart on dust the design says to interpolate across. What
-# the filter still cannot produce is a value inside a reset gap or where the
-# driver is genuinely absent, and those rows leave the candidate's fit
-# rather than being imputed into it — the same rule D13 applies to the
-# target, and the reason each candidate reports its own `n_scored`.
-#
-# The rule is fixed before the sweep runs: `improves` is true only where the
-# bootstrap bounds on the skill exclude zero. A lower point estimate whose
-# interval crosses zero is not a result, and nothing in Movements 0 to 3 is
-# refitted whatever the answer turns out to be.
-#
-# ### Parameter Tuning Guidance
-#
-# **`TAU_SWEEP_H`** — the candidate time constants in hours; default
-# `(1, 2, 4, 8, 12, 24, 48)`. The range is chosen to bracket both readings
-# of Model B's radiation weights: a filter of about an hour, which on the
-# daily harmonic is indistinguishable from D3's one-hour delay, and one of
-# well beyond twelve hours, which is what a cumulative weight climbing
-# almost linearly across a twelve-hour window looks like when truncated.
-# Each candidate costs one Model A fit, and the fits run in parallel across
-# `N_JOBS`.
-#
-# **`FILTER_RESET_GAP`** — the longest gap in the radiation the filter's
-# state may survive; default `REGRESSOR_FILL_MAX_GAP`, the same two hours
-# D13 allows a regressor dropout to be filled across. Past it the driver is
-# cut and the filter restarts, because a state carried across a longer
-# outage integrates an interpolation rather than a measurement. Note that
-# the cut is made at gaps in the **radiation**, not in the target: it is
-# missing driver data that corrupts a filter's state, and the target's own
-# gaps are already handled by D13's rule that the target is never filled.
-#
-# **`FILTER_WARMUP_FACTOR`** — how many time constants after each reset are
-# flagged as warm-up and excluded from that candidate's scoring; default
-# `3.0`. A row where the filter is still cold measures the start-up
-# condition rather than the filter, so scoring it would charge the filter
-# for the reset. Each candidate is therefore paired against the baseline on
-# its own surviving rows, and `n_scored` records how many those were.
-
-# %%
-TAU_SWEEP_H = (1.0, 2.0, 4.0, 8.0, 12.0, 24.0, 48.0)
-FILTER_RESET_GAP = REGRESSOR_FILL_MAX_GAP
-FILTER_WARMUP_FACTOR = 3.0
-
-filter_radiation = proxies.fill_short_gaps(
-    record[[REGRESSOR_SETS['str']['sr']]], [REGRESSOR_SETS['str']['sr']],
-    max_gap=REGRESSOR_FILL_MAX_GAP, flag=False)[REGRESSOR_SETS['str']['sr']]
-
-tau_sweep = prediction.radiation_filter_sweep(
-    def_frames['str'], filter_radiation, TAU_SWEEP_H,
-    ('tair', 'rh', 'sr'), VALID_P, N_CHANGEPOINTS,
-    reset_gap=FILTER_RESET_GAP, freq=NATIVE_FREQ,
-    block_hours=LADDER_BOOTSTRAP_BLOCK_HOURS,
-    repetitions=LADDER_BOOTSTRAP_REPETITIONS, seed=SEED,
-    warmup_factor=FILTER_WARMUP_FACTOR,
-    study03_gain=STUDY03_GAINS.get(('str', 'sr')),
-    weight_curve=WEIGHT_CURVE, n_jobs=N_JOBS, epochs=EPOCHS,
-    growth='linear', changepoints_range=CHANGEPOINTS_RANGE,
-    trend_reg=TREND_REG, yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
-    conditional_seasonality=CONDITIONS, quantiles=QUANTILES,
-    learning_rate=LEARNING_RATE)
-display(tau_sweep)
-print('candidates whose skill bounds exclude zero:',
-      int(tau_sweep['improves'].sum()))
-tau_sweep.to_csv(OUTPUT_DIR / 'GM_10b_radiation_filter_sweep.csv', index=False)
-tables.write_table(tau_sweep, str(OUTPUT_DIR / 'GM_10b_body.tex'),
-                   [('tau_h', '.0f'), ('mae_val', '.3f'), ('skill', '.3f'),
-                    ('skill_q05', '.3f'), ('skill_q95', '.3f'),
-                    ('gain', '.4f'), ('sideband_amplitude', '.3f'),
-                    ('n_scored', ',d'), ('improves', tables.yes_no)])
-
-figures.plot_radiation_filter_sweep(
-    tau_sweep, title='Radiation as a filtered thermal state (D15)',
-    save_path=str(OUTPUT_DIR), filename='GM_F17_radiation_filter_sweep')
-
-# %% [markdown]
-# ## Movement 5 · What departure does each chart catch?
-#
-# The rolling residual of the on-structure set (`rolling_sets['str']`) is
-# charted three ways (D10): prewhitened innovations at twenty minutes,
-# built for a sudden departure; the amplitude and phase of its daily
-# cycle, built for a changed daily response; and its daily mean, built for
-# drift. Reference statistics are estimated on the fixed window
-# `REFERENCE_START` to `REFERENCE_END` — the rolling residual's own
-# history begins partway through the record, so this window is shorter
-# than first planned, and the report states why. Each chart's control
-# limit is swept to its own false-alarm budget; the fast chart's alarms
-# are cross-checked against the on-structure environment and supply
-# channels; and detectability is measured per damage mechanism on the
-# chart and statistic each one is actually scored on — every mechanism on
-# every chart, not only its own — with injections sized by the wall's own
-# measured daily response (D11). Writes `GM_11` and `GM_12` (the alarm
-# episodes and the tuned run lengths), `GM_13` (the full detectability
-# sweep) and `GM_13b` (the detection threshold read off each mechanism's
-# own chart), and `GM_F09`–`GM_F11` and `GM_F13_amplitude`, `GM_F13_phase`,
-# `GM_F13_drift`, `GM_F13_step`.
-
-# %% [markdown]
-# ### The charted series
-#
-# `monitoring.chart_series` reduces the on-structure rolling residual to
-# the four series the fast, daily and slow charts are actually built on —
-# prewhitened innovations, the daily harmonic's amplitude and phase, and
-# the daily mean. The per-chart budget, smoothing constant and coincidence
-# window each carries come from the parameter cell, attached alongside its
-# series so that `charts` states everything one chart needs in one place.
-
-# %%
-rolling_str = rolling_sets['str'].set_index('ds').sort_index()
-residual = (rolling_str['y'] - rolling_str['yhat']).asfreq(NATIVE_FREQ)
-
-series_by_name, phi = monitoring.chart_series(
-    residual, NATIVE_FREQ, DAILY_HARMONIC_MIN_SLOTS, REFERENCE_START, REFERENCE_END)
-chart_specs = {
-    'fast': dict(freq=NATIVE_FREQ, budget=BUDGET_FAST_DAYS, lam=EWMA_LAMBDA,
-                joint=JOINT_WINDOW),
-    'daily_amplitude': dict(freq='1D', budget=BUDGET_DAILY_DAYS,
-                            lam=EWMA_LAMBDA_DAILY, joint=JOINT_WINDOW_DAILY),
-    'daily_phase': dict(freq='1D', budget=BUDGET_DAILY_DAYS,
-                        lam=EWMA_LAMBDA_DAILY, joint=JOINT_WINDOW_DAILY),
-    'slow': dict(freq='1D', budget=BUDGET_SLOW_DAYS, lam=EWMA_LAMBDA_SLOW,
-                joint=JOINT_WINDOW_DAILY),
-}
-charts = {name: {**spec, 'series': series_by_name[name]}
-         for name, spec in chart_specs.items()}
-print(f'phi = {phi:.4f}; reference-window residual sd '
-     f'{residual.loc[REFERENCE_START:REFERENCE_END].std():.2f}, '
-     f'innovation sd {series_by_name["fast"].loc[REFERENCE_START:REFERENCE_END].std():.2f}')
-
-# %% [markdown]
-# ### Tuning each chart to its false-alarm budget, and running it
-#
-# `monitoring.tune_limit_to_budget` sweeps `LIMIT_CANDIDATES` on the
-# reference stretch alone and returns the smallest control limit whose
-# average run length meets that chart's budget, with the full sweep table
-# alongside it; `monitoring.run_chart` then runs the EWMA and CUSUM charts
-# and their joint alarm on the monitored stretch at that limit and
-# collapses the alarm into episodes. `GM_12` records, for every chart, the
-# limit chosen and the run length it actually achieves against the budget
-# it was tuned to.
-
-# %%
-tuned = {}
-for name, spec in charts.items():
-    reference = monitoring.reference_stats(
-        spec['series'], start=REFERENCE_START, end=REFERENCE_END)
-    L, sweep = monitoring.tune_limit_to_budget(
-        spec['series'], REFERENCE_START, REFERENCE_END, spec['budget'],
-        LIMIT_CANDIDATES, spec['lam'], CUSUM_K, CUSUM_H, spec['joint'], spec['freq'])
-    run = monitoring.run_chart(
-        spec['series'], reference, L, spec['lam'], CUSUM_K, CUSUM_H,
-        spec['joint'], MONITORED_START, spec['freq'])
-    tuned[name] = {'reference': reference, 'L': L, 'sweep': sweep, **run}
-
-runs = pd.DataFrame([
-    {'chart': name, 'L': tuned[name]['L'], 'budget_days': charts[name]['budget'],
-     'achieved_arl_days': tuned[name]['sweep'].loc[
-         tuned[name]['sweep']['L'] == tuned[name]['L'], 'arl_days'].item(),
-     'episodes_in_reference': tuned[name]['sweep'].loc[
-         tuned[name]['sweep']['L'] == tuned[name]['L'], 'n_episodes'].item()}
-    for name in charts])
-display(runs)
-runs.to_csv(OUTPUT_DIR / 'GM_12_run_lengths.csv', index=False)
-tables.write_table(runs, str(OUTPUT_DIR / 'GM_12_body.tex'),
-                   [('chart', tables.texttt), ('L', '.2f'), ('budget_days', '.0f'),
-                    ('achieved_arl_days', '.0f'), ('episodes_in_reference', ',d')])
-
-# %% [markdown]
-# ### Attribution of the fast chart's alarms
-#
-# `monitoring.channel_coincidence` reduces air temperature, relative
-# humidity and supply voltage — the raw on-structure channels, from
-# `sensor`, before any dust-gap filling — to their departure from a
-# centred rolling median at `ATTRIBUTION_WINDOW`, scaled on the reference
-# window by `ATTRIBUTION_THRESHOLD`, and labels every fast-chart alarm slot
-# by whichever of them was also in excursion. The window is two hours, not
-# the function's own twenty-four: at a full day the "departure from the
-# median" on air temperature is the diurnal cycle itself, whose own swing
-# swamps the threshold and left every episode of the first run
-# `unattributed` — the coincidence test is built to catch a twenty-minute
-# swing against its own local background, not a cycle the median should
-# already track out. `monitoring.attribute_episodes` reduces those slot
-# labels to one attribution per episode: the mode of the labels falling
-# inside its span. `GM_11` carries every chart's episodes, with the
-# attribution filled in for the fast chart and the table's missing marker
-# elsewhere — the daily and slow charts are not cross-checked against
-# these channels, since a swing over a day or a year is not what a
-# twenty-minute coincidence test is built to catch.
-
-# %%
-attribution_channels = sensor[[f'{c}_str' for c in ATTRIBUTION_CHANNELS]].rename(
-    columns={f'{c}_str': c for c in ATTRIBUTION_CHANNELS}).reindex(residual.index)
-labels = monitoring.channel_coincidence(
-    tuned['fast']['joint'], attribution_channels,
-    scale_start=REFERENCE_START, scale_end=REFERENCE_END,
-    window=ATTRIBUTION_WINDOW, threshold=ATTRIBUTION_THRESHOLD)
-fast_episodes = monitoring.attribute_episodes(
-    tuned['fast']['episodes'], labels).assign(chart='fast')
-other_episodes = pd.concat(
-    [tuned[name]['episodes'].assign(chart=name) for name in charts if name != 'fast'],
-    ignore_index=True)
-episodes = pd.concat([fast_episodes, other_episodes], ignore_index=True)
-display(episodes)
-episodes.to_csv(OUTPUT_DIR / 'GM_11_alarm_episodes.csv', index=False)
-tables.write_table(episodes, str(OUTPUT_DIR / 'GM_11_body.tex'),
-                   [('chart', tables.texttt), (tables.date_cell('start'), None),
-                    (tables.date_cell('end'), None), ('duration_h', ',.0f'),
-                    ('mean_z', '.2f'), ('attribution', tables.texttt)])
-
-# %% [markdown]
-# ### `GM_F09`–`GM_F11`: the three charts
-#
-# The fast and slow charts reuse `figures.plot_control_chart`, drawing the
-# EWMA and CUSUM statistics respectively against their tuned limits with
-# every alarm episode shaded; the daily chart reuses the same colours and
-# shading through `figures.plot_daily_harmonic_chart`, stacking the
-# amplitude and phase EWMA panels on one clock.
-
-# %%
-figures.plot_control_chart(
-    tuned['fast']['ewma'], statistic='ewma', episodes=tuned['fast']['episodes'],
-    freq=NATIVE_FREQ, title='Fast chart: prewhitened innovations',
-    save_path=str(OUTPUT_DIR), filename='GM_F09_fast_chart')
-figures.plot_daily_harmonic_chart(
-    tuned['daily_amplitude']['ewma'], tuned['daily_phase']['ewma'],
-    episodes=pd.concat([tuned['daily_amplitude']['episodes'],
-                        tuned['daily_phase']['episodes']], ignore_index=True),
-    title='Daily chart: amplitude and phase of the daily cycle',
-    save_path=str(OUTPUT_DIR), filename='GM_F10_daily_chart')
-figures.plot_control_chart(
-    tuned['slow']['cusum'], statistic='cusum_high', episodes=tuned['slow']['episodes'],
-    freq='1D', title='Slow chart: daily-mean residual',
-    save_path=str(OUTPUT_DIR), filename='GM_F11_slow_chart')
-
-# %% [markdown]
-# ### Detectability per mechanism, on every chart
-#
-# `monitoring.daily_response_amplitude` reads the wall's own fitted daily
-# response — the air-temperature component plus every daily seasonal term
-# — on the injection dates, so the phase mechanism's timing shifts
-# (`DETECT_PHASE_SHIFTS_H`) are converted to a residual amplitude by
-# `monitoring.phase_shift_amplitude` against a response the model actually
-# learned rather than an arbitrary figure. The drift mechanism sweeps
-# `DETECT_DRIFT_HORIZONS` rather than `DETECT_DURATIONS` — a drift needs
-# weeks, not hours, to accumulate into anything a chart could see —
-# assembled into a per-mechanism `durations` dict by a comprehension over
-# `MECHANISM_CHARTS` with the drift key replaced. `monitoring.
-# detectability_by_mechanism` then sweeps each mechanism not only on its
-# own chart but on every chart named in `MECHANISM_CHARTS` (`all_charts=
-# True`), over the reference window's own residual — the only stretch
-# known to be in control — so the report can say what a chart built for
-# one mechanism does or does not catch of the other three. Before the
-# sweep, the notebook prints, for each injection date, how much of the
-# following twenty days the reference residual actually covers, since a
-# date sitting against a gap would understate what the sweep could find.
-
-# %%
-for date in DETECT_INJECTION_DATES:
-    window = residual.loc[pd.Timestamp(date):pd.Timestamp(date) + pd.Timedelta(days=20)]
-    print(f'{date}: {window.notna().mean():.1%} of the following 20 days covered')
-
-response_amplitude = monitoring.daily_response_amplitude(
-    components_a['str'], DETECT_INJECTION_DATES, window=72,
-    min_slots=DAILY_HARMONIC_MIN_SLOTS, driver='future_regressor_tair')
-phase_magnitudes = tuple(
-    monitoring.phase_shift_amplitude(response_amplitude, h) for h in DETECT_PHASE_SHIFTS_H)
-detect_magnitudes = {'amplitude': DETECT_MAGNITUDES, 'phase': phase_magnitudes,
-                     'drift': DETECT_DRIFT_RATES, 'step': DETECT_MAGNITUDES}
-detect_durations = {name: DETECT_DURATIONS for name in MECHANISM_CHARTS}
-detect_durations['drift'] = DETECT_DRIFT_HORIZONS
-injection_starts = [d for d in DETECT_INJECTION_DATES
-                    if REFERENCE_START <= d <= REFERENCE_END] or None
-
-detectability = monitoring.detectability_by_mechanism(
-    residual.loc[REFERENCE_START:REFERENCE_END], tuned, charts, MECHANISM_CHARTS,
-    detect_magnitudes, detect_durations, NATIVE_FREQ, CUSUM_K, CUSUM_H, phi,
-    DETECT_RESPONSE_WINDOW, injection_starts, DAILY_HARMONIC_MIN_SLOTS, seed=SEED,
-    all_charts=True)
-display(detectability)
-detectability.to_csv(OUTPUT_DIR / 'GM_13_detectability.csv', index=False)
-primary_detectability = detectability[detectability['primary']]
-tables.write_table(primary_detectability, str(OUTPUT_DIR / 'GM_13_body.tex'),
-                   [('mechanism', tables.texttt), ('chart', tables.texttt),
-                    ('magnitude', '.2f'), ('duration_h', '.0f'), ('detected', '.2f'),
-                    ('delay_h', '.1f')])
-figures.plot_detectability(
-    primary_detectability[primary_detectability['mechanism'] == 'amplitude'],
-    title='Amplitude growth on the daily chart',
-    save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_amplitude')
-figures.plot_detectability(
-    primary_detectability[primary_detectability['mechanism'] == 'phase'],
-    title='Phase change on the daily chart',
-    save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_phase')
-figures.plot_detectability(
-    primary_detectability[primary_detectability['mechanism'] == 'drift'],
-    title='Drift on the slow chart',
-    save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_drift')
-figures.plot_detectability(
-    primary_detectability[primary_detectability['mechanism'] == 'step'],
-    title='Step on the fast chart',
-    save_path=str(OUTPUT_DIR), filename='GM_F13_detectability_step')
-
-# %% [markdown]
-# ### `GM_13b`: the detection threshold read off each mechanism's own chart
-#
-# `monitoring.detection_thresholds` reduces the full sweep to one number a
-# reader actually wants: at the longest horizon swept, the smallest
-# magnitude a chart catches at all and the smallest it catches on every
-# injection, for every mechanism-and-chart pair — not only the primary
-# ones, so a chart's blindness to a mechanism it was not built for is on
-# the record too.
-
-# %%
-thresholds = monitoring.detection_thresholds(detectability)
-display(thresholds)
-thresholds.to_csv(OUTPUT_DIR / 'GM_13b_detection_thresholds.csv', index=False)
-tables.write_table(thresholds, str(OUTPUT_DIR / 'GM_13b_body.tex'),
-                   [('mechanism', tables.texttt), ('chart', tables.texttt),
-                    ('horizon_h', '.0f'), ('smallest_any', '.2f'),
-                    ('smallest_all', '.2f'), ('delay_h_at_smallest_all', '.1f'),
-                    ('primary', lambda value: tables.texttt('yes' if value else 'no'))])
-
-# %% [markdown]
-# ## Movement 6 · What happened across each outage?
-#
-# `prediction.outage_bridge` asks the question an outage cannot answer on
-# its own: whether the missing days hid a real movement of the wall, or
-# were simply a gap in an otherwise unremarkable record (D12). For each of
-# the seven whole-day outages the function fits a model on everything
-# before the gap, carries its expectation and its own quantile band
-# through the gap on the proxies that kept recording, and compares the
-# level the station reports over `OUTAGE_WINDOW_DAYS` once it resumes —
-# past `OUTAGE_SETTLE_DAYS`'s restart transient — against that
-# expectation. Nothing is written into the gap on either side of the fit,
-# and the interval quoted through it is the fitted model's own band from
-# before the outage, since no conformal calibration exists inside a gap to
-# draw one from instead. Writes `GM_14` (the bridge table, every outage
-# and both sets) and `GM_F12` (the station set's bridges, drawn panel by
-# panel).
-
-# %% [markdown]
-# ### Bridging every outage on the station and ERA5 sets
-#
-# `runner=None` asks `outage_bridge` to fit its own bridge through
-# `neuralprophet_backtest` at `task='nowcast'`, with changepoints kept off
-# the very gap the pre-outage training data does not cover
-# (`covered_changepoints`) and every other setting carried from the
-# parameter cells the same way Movement 3's rolling expectation carries
-# them. `MIN_TRAIN` guards an outage sitting too close to the start of a
-# set's own usable history, reporting it `'no data'` without a fit rather
-# than fitting on a training window this study would not otherwise trust;
-# `BRIDGE_SETS` excludes the on-structure set outright rather than relying
-# on that guard alone, since the on-structure package is exactly what
-# every outage took down and so it has no regressor data of its own inside
-# a gap to bridge with. The loop over outages inside `outage_bridge` runs
-# at `N_JOBS`, one worker process per outage.
-
-# %%
-bridge_rows, bridge_paths = [], []
-for name in BRIDGE_SETS:
-    block = def_frames[name]
-    table, paths = prediction.outage_bridge(
-        None, block, OUTAGES, settle_days=OUTAGE_SETTLE_DAYS,
-        window_days=OUTAGE_WINDOW_DAYS, regressors=('tair', 'rh', 'sr'),
-        min_train=MIN_TRAIN, n_jobs=N_JOBS, epochs=EPOCHS, freq=NATIVE_FREQ,
-        growth='linear', n_changepoints=N_CHANGEPOINTS,
-        changepoints_range=CHANGEPOINTS_RANGE, trend_reg=TREND_REG,
-        yearly_order=YEARLY_ORDER, daily_order=DAILY_ORDER,
-        conditional_seasonality=CONDITIONS, quantiles=QUANTILES, seed=SEED,
-        learning_rate=LEARNING_RATE)
-    bridge_rows.append(table.assign(set=name))
-    bridge_paths.append(paths.assign(set=name))
-bridges = pd.concat(bridge_rows, ignore_index=True)
-display(bridges)
-bridges.to_csv(OUTPUT_DIR / 'GM_14_outage_bridges.csv', index=False)
-tables.write_table(bridges, str(OUTPUT_DIR / 'GM_14_body.tex'),
-                   [('set', tables.texttt), ('outage', 'd'),
-                    (tables.date_cell('start'), None), (tables.date_cell('end'), None),
-                    ('expected', '.1f'), ('observed', '.1f'), ('shift', '.1f'),
-                    ('lower', '.1f'), ('upper', '.1f'), ('verdict', tables.texttt)])
-
-# %% [markdown]
-# ### `GM_F12`: the station set's bridges
-#
-# `figures.plot_outage_bridge` draws the first set of `BRIDGE_SETS` — the
-# station set, the proxy source physically closest to the wall — one
-# panel per outage, the observed target against the expected level and
-# its band, with the post-resumption window the verdict is judged over
-# shaded.
-
-# %%
-figures.plot_outage_bridge(bridge_paths[0], bridge_rows[0],
-                           title=f'Outage bridges, {BRIDGE_SETS[0]} set',
-                           save_path=str(OUTPUT_DIR), filename='GM_F12_outage_bridges')
-
-# %% [markdown]
-# ## Movement 7 · Run metadata
-#
-# `tables.run_metadata` closes the study's record of itself: every
-# parameter cell the notebook declared, in the order it declared them,
-# followed by the versions of the four libraries this run's numbers
-# depend on — so that a reader who wants to reproduce a result, or to
-# tell whether a later run changed it, can read one table rather than
-# scroll the whole notebook. Writes `GM_15`.
-
-# %%
-parameters = {
-    'window_start': WINDOW_START, 'window_end': str(frame.index.max().date()),
-    'native_freq': NATIVE_FREQ, 'target_column': TARGET_COLUMN,
-    'regressor_sets': ';'.join(f"{k}:{v}" for k, v in REGRESSOR_SETS.items()),
-    'ground_stamp_offset': str(GROUND_STAMP_OFFSET),
-    'radiation_delay_min': ';'.join(f"{k}:{v:g}"
-                                    for k, v in RADIATION_DELAY_MIN.items()),
-    'ladder_radiation_delay_min': LADDER_RADIATION_DELAY_MIN,
-    'tau_sweep_h': ';'.join(f'{t:g}' for t in TAU_SWEEP_H),
-    'filter_reset_gap': str(FILTER_RESET_GAP),
-    'filter_warmup_factor': FILTER_WARMUP_FACTOR,
-    'regressor_fill_max_gap': REGRESSOR_FILL_MAX_GAP,
-    'yearly_order': YEARLY_ORDER, 'daily_order': DAILY_ORDER,
-    'conditional_daily_kept': keep_conditional, 'weight_curve': str(WEIGHT_CURVE),
-    'n_changepoints': N_CHANGEPOINTS, 'changepoints_range': CHANGEPOINTS_RANGE,
-    'trend_reg': TREND_REG, 'epochs': EPOCHS, 'learning_rate': LEARNING_RATE,
-    'seed': SEED, 'min_train': MIN_TRAIN, 'refit_every': REFIT_EVERY,
-    'train_window': TRAIN_WINDOW, 'conformal_alpha': CONFORMAL_ALPHA,
-    'conformal_method': CONFORMAL_METHOD,
-    'conformal_calibration_window': CONFORMAL_CALIBRATION_WINDOW,
-    'cv_folds': CV_FOLDS, 'lagged_n_lags': LAGGED_N_LAGS, 'lagged_reg': LAGGED_REG,
-    'reference_window': f'{REFERENCE_START} to {REFERENCE_END}',
-    'monitored_start': MONITORED_START, 'phi': round(phi, 5),
-    'budgets_days': f'{BUDGET_FAST_DAYS}/{BUDGET_DAILY_DAYS}/{BUDGET_SLOW_DAYS}',
-    'limits_L': ';'.join(f"{k}:{v['L']}" for k, v in tuned.items()),
-    'n_jobs': N_JOBS, 'attribution_window': ATTRIBUTION_WINDOW,
-    'attribution_threshold': ATTRIBUTION_THRESHOLD,
-    'detect_drift_horizons': DETECT_DRIFT_HORIZONS,
-    'outage_settle_days': OUTAGE_SETTLE_DAYS, 'outage_window_days': OUTAGE_WINDOW_DAYS,
-    'bridge_sets': BRIDGE_SETS,
-}
-metadata = tables.run_metadata(parameters)
-display(metadata)
-metadata.to_csv(OUTPUT_DIR / 'GM_15_run_metadata.csv', index=False)
-tables.write_table(metadata, str(OUTPUT_DIR / 'GM_15_body.tex'),
-                   [('parameter', tables.texttt), ('value', tables.texttt)])

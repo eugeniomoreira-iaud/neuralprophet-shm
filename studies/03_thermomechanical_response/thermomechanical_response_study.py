@@ -72,13 +72,14 @@
 import os
 import sys
 
+import numpy as np
 import pandas as pd
 from IPython.display import display
 
 sys.path.insert(0, os.path.abspath('..'))      # studies/, for shmlib
 sys.path.insert(0, os.path.abspath('../..'))   # heritageshm, at the repo root
 
-from shmlib import coupling, figures, meteo, proxies, site, tables, viz
+from shmlib import coupling, figures, meteo, proxies, site, tables, temporal_alignment, viz
 
 pd.set_option('display.width', 170)
 pd.set_option('display.max_columns', 40)
@@ -116,6 +117,11 @@ pd.set_option('display.max_rows', 80)
 # | `OPERATOR_R2_STEP` | Granularity the shared colour scale of the three delay-by-time-constant figures is rounded up to. The scale itself is not a parameter: it is taken from the strongest panel those figures draw, so that all three can be read against one another and none of them is clipped. A display choice; it changes no statistic. |
 # | `FIGURE_DRIVERS_*` | The drivers each lag-curve figure draws. A figure with more than about six lines is unreadable; the tables still carry every driver. |
 # | `FIGSIZE_WIDTH` | Figure width in inches, fixed at the manuscript column width. |
+# | `NATIVE_FREQ` | The grid step 7.5's delay scan runs on, independent of `ANALYSIS_FREQ`. Twenty minutes: the archive's own sampling step, fine enough to resolve a delay the hourly grid above can only round to the nearest hour. |
+# | `DELAY_SHIFTS_MINUTES` | Candidate reference displacements step 7.5 scans, in minutes, at multiples of `NATIVE_FREQ`. Four hours either way: wide enough to bracket the twelve-hour bound `MAX_LAG_EXTERNAL` states in whole hours, narrow enough that the scan stays on the transport delay and does not wander into the next day's cycle. |
+# | `DELAY_PERIODS` | The two instrument eras, scanned separately in step 7.5 because a driver such as `sr_str` exists only in the current one and a pooled scan would silently answer for whichever era carries more days. |
+# | `GROUND_STAMP_OFFSET` | The station's half-hourly export is not documented as instantaneous or as an interval mean, nor, if a mean, which edge it is stamped at; this moves it back before step 7.5's scan sees it, on the same value and the same reasoning as study 2's own `GROUND_STAMP_OFFSET`. Revisable if study 2's own value changes. |
+# | `MIN_PAIRS`, `MIN_DAYS` | The support a displacement must clear in step 7.5 before it is scored — the same two-part rule `MIN_PAIRED_HOURS` states for the hourly scan above, restated here because the native grid's finer step carries three times the samples over the same calendar window. |
 
 # %%
 ARCHIVE_CSV = '../../data/interim/archive/gubbio_archive_20min.csv'
@@ -212,6 +218,21 @@ FIGURE_DRIVERS_GS = ('tair_gs', 'sr_gs', 'rh_gs', 'tdew_gs', 'pres_gs')
 # Its top is computed from the panels themselves in step 7 and rounded up to this step, rather
 # than chosen here, so that the strongest panel sets the range and nothing is clipped.
 OPERATOR_R2_STEP = 0.05
+
+# Step 7.5's native-resolution delay scan. It runs on the archive's own twenty-minute grid,
+# independent of ANALYSIS_FREQ, precisely to resolve a delay finer than the hour the coupling
+# table above rounds to.
+NATIVE_FREQ = '20min'
+DELAY_SHIFTS_MINUTES = range(-240, 241, 20)
+DELAY_PERIODS = (
+    {'name': 'legacy', 'start': site.ARCHIVE_START, 'end': site.LEGACY_END},
+    {'name': 'current', 'start': site.CURRENT_START, 'end': None},
+)
+# Same value and meaning as study 2's own GROUND_STAMP_OFFSET; kept as one parameter here rather
+# than imported, since a study never reads another study's choice off its own name.
+GROUND_STAMP_OFFSET = '15min'
+MIN_PAIRS = 200
+MIN_DAYS = 14
 
 FIGSIZE_WIDTH = viz.FIGURE_WIDTH
 viz.apply_report_style()
@@ -358,6 +379,18 @@ print('Strata and the hours each carries:')
 for name, mask in strata.items():
     print(f'  {name:10s} {int(mask.sum()):>8,} hours')
 
+# %% [markdown]
+# **How to read TR_F01.** Both panels show the same days of the compensated inclination. The top
+# panel is the level as recorded, in millidegrees; its absolute value carries no information,
+# because it is set by how the instrument sits in its mount and by the anchors Study 01 applied,
+# and only its changes matter. The bottom panel is the diurnal band, obtained by subtracting from
+# the level its own centred 24-hour rolling mean, so that everything slower than a day is removed
+# and what remains oscillates about zero. Every diurnal-band statistic in this study is computed
+# on the series of the bottom panel and every level statistic on the top one. What to look for: the
+# daily cycle, high at night and low by day with a sharp fall and a slower recovery, which is the
+# negative sign against heating that the site's structural convention predicts, and the absence of
+# any trend in the band across the week, which is what makes a lag scan on it meaningful.
+
 # %%
 # One week of the response, level and band, so that what the filter does is visible before any
 # number rests on it. The week is the first the response carries; `BAND_FIGURE_DAYS` sets how
@@ -406,12 +439,34 @@ table_str, scans_str = coupling.couple(
     hac_maxlags=HAC_MAXLAGS)
 display(table_str[table_str['stratum'] == 'all'])
 
+# %% [markdown]
+# **How to read TR_F02 to TR_F04.** One curve per driver and one figure per source family. The
+# horizontal axis is the transport delay applied to the driver before it is correlated with the
+# response's diurnal band: at a delay of h hours the driver's value h hours earlier is paired with
+# the response now, so a curve whose extreme sits at a positive delay says the wall answers that
+# driver h hours after it moves. The vertical axis is the Pearson correlation of the two diurnal
+# bands. The site's structural convention predicts a negative correlation with every heating
+# driver, so for air temperature, radiation and wall temperature the reading is the minimum of the
+# curve, not its peak; humidity, which moves against temperature, and the supply voltage, the
+# negative control, are read at their own extremes. The accent dot marks the delay the scan chose
+# for each driver, and the legend repeats it. The curves are close to cosines with a 24-hour period
+# because the diurnal band is near-periodic: a lag of 24 hours minus h is indistinguishable from a
+# lead of h, which is why the external forcings are scanned only from 0 to 12 hours, the physical
+# bound `MAX_LAG_EXTERNAL`, and why an optimum beyond 12 hours would be read as the alias of a
+# lead. Wall temperature alone is scanned over signed delays from −24 to +24 hours, because it is
+# an internal state at an unknown depth rather than a forcing and may legitimately lag the
+# deformation; a negative optimum for it means the wall-temperature probe reacts after the
+# inclination does. The "τ 0 h" in every legend entry records that the thermal time constant is
+# pinned to zero on the diurnal band, where a time constant and a delay are the same phase shift
+# and scanning both would fit one number twice.
+
 # %%
 figures.plot_lag_curves(
     scans_str, 'current', coupling.BAND_DIURNAL,
     drivers=[driver for driver in FIGURE_DRIVERS_STR if driver in DRIVERS_STR],
     title='Round 1 · on-structure drivers, diurnal band, current era',
-    width=FIGSIZE_WIDTH, save_path=OUTPUT_DIR, filename='TR_F02_lag_curves_str')
+    width=FIGSIZE_WIDTH, show_lag=True, save_path=OUTPUT_DIR,
+    filename='TR_F02_lag_curves_str')
 
 # %% [markdown]
 # ## Step 5 · Round 2 · ERA5
@@ -444,7 +499,8 @@ figures.plot_lag_curves(
     scans_era5, 'all', coupling.BAND_DIURNAL,
     drivers=[driver for driver in FIGURE_DRIVERS_ERA5 if driver in DRIVERS_ERA5],
     title='Round 2 · ERA5, diurnal band, whole record',
-    width=FIGSIZE_WIDTH, save_path=OUTPUT_DIR, filename='TR_F03_lag_curves_era5')
+    width=FIGSIZE_WIDTH, show_lag=True, save_path=OUTPUT_DIR,
+    filename='TR_F03_lag_curves_era5')
 
 # %% [markdown]
 # ## Step 6 · Round 3 · the town station
@@ -475,7 +531,8 @@ figures.plot_lag_curves(
     scans_gs, 'all', coupling.BAND_DIURNAL,
     drivers=[driver for driver in FIGURE_DRIVERS_GS if driver in DRIVERS_GS],
     title='Round 3 · Gubbio station, diurnal band, whole record',
-    width=FIGSIZE_WIDTH, save_path=OUTPUT_DIR, filename='TR_F04_lag_curves_gs')
+    width=FIGSIZE_WIDTH, show_lag=True, save_path=OUTPUT_DIR,
+    filename='TR_F04_lag_curves_gs')
 
 # %% [markdown]
 # ## Step 7 · Across the rounds
@@ -499,6 +556,31 @@ figures.plot_lag_curves(
 # What to look for is the *shape* before the maximum. An optimum sitting inside the grid is a
 # measurement; a surface that climbs to the top row and stops there is a time constant the record
 # does not identify, and the scan was stopped by the bound rather than by the physics.
+#
+# **How to read TR_F07 to TR_F09.** Each cell is one operator applied to the driver before the
+# regression, and the two axes are its two parameters, standing for the two things a wall can do
+# to a forcing: answer late, or answer slowly. The horizontal axis is the *transport delay* in
+# hours: the driver shifted in time with its shape intact, the travel time of a thermal front from
+# the exposed face to the depth whose expansion moves the instrument. The vertical axis is the
+# *thermal time constant* τ in hours: the driver passed through a first-order low-pass filter, the
+# lumped thermal mass, which each hour moves its state towards the current driver by the fraction
+# Δt/(τ+Δt) of the distance left, so that a step is answered by an exponential approach about
+# 63 % complete after τ hours; the driver comes out rounded and damped, its fast swings smoothed
+# and its peak later the larger τ is, and τ = 0 leaves it untouched. The filter is applied first
+# and the delay second. On a single sinusoid the two are the same phase shift and cannot be told
+# apart; on the real record they can, because a delay moves every frequency by the same time
+# while the filter lags and damps the fast components more than the slow ones, so a cold front or
+# a clear day after cloud reaches the response sharp under a delay and blurred under a time
+# constant. The colour is the fraction of the response's level variance that the operated driver
+# explains. Dark is good, and the scale is shared by the three figures. The accent dot is the best
+# cell and the panel title repeats its coordinates. The bottom-left cell is the instantaneous
+# case; moving right asks whether the wall answers late but sharply, moving up whether it answers
+# on time but blurred, the interior both. Read the shape before the number: a dark spot inside the grid means both parameters are identified; a dark band that runs
+# to the top row means the record does not pin the time constant down and the scan was stopped by
+# its bound; a dark band that runs the full width means the delay does no work and the time
+# constant does all of it, which is what a slow integration of a fast driver such as radiation
+# looks like on the level. Wall temperature has a signed horizontal axis and a two-lobed surface
+# because its curve, like every diurnal one, repeats every 24 hours.
 
 # %%
 GRID_PANELS = [
@@ -556,6 +638,18 @@ for band, artefact in ((coupling.BAND_LEVEL, 'TR_T03_coupling_level'),
                  ('expected_sign', tables.yes_no)])
     block.to_csv(f'{OUTPUT_DIR}/{artefact.replace("_T0", "_0")}.csv', index=False)
 
+# %% [markdown]
+# **How to read TR_F05.** The leading driver overall against the response, both on the diurnal
+# band and with the driver delayed by the lag the scan chose. Each hexagon is a bin of paired
+# hours; its colour is the number of hours it holds, on a logarithmic scale, dark where the record
+# is dense and pale where a few hours sit. The line is the least-squares gain, in millidegrees of
+# inclination per unit of the driver, with a 95 % confidence interval computed from a
+# heteroskedasticity- and autocorrelation-consistent covariance, because consecutive hours are not
+# independent; r and n are the correlation and the number of paired hours. A negative slope is the
+# expected sign. What to look for: whether the cloud is a straight band, which supports a single
+# linear gain, and whether its width grows at the extremes, which is where one gain starts to
+# under-describe the response.
+
 # %%
 # The response against the strongest surviving driver, at the lag the scan chose.
 admitted = pooled[(pooled['band'] == coupling.BAND_DIURNAL)
@@ -574,6 +668,168 @@ else:
     print('No driver cleared the control with a significant gain; no scatter drawn.')
 
 # %% [markdown]
+# ## Step 7.5 · Diurnal delay at native resolution
+#
+# Step 3's diurnal band and step 7's coupling table both run on the hourly grid, and a delay read
+# off an hourly scan can only ever land on the hour: `TR_02_coupling_all.csv` reports zero to one
+# hour for the strongest radiation drivers, and that range is the rounding an hourly grid imposes
+# on the true delay, not a statement that the delay itself is unresolved below the hour. The
+# archive is twenty-minute native, and the same question — how far behind its drivers does the
+# wall run — resolved on that finer grid answers to the nearest twenty minutes instead.
+#
+# The scan is a daily-demeaned Pearson correlation between the response, held at its own
+# timestamps, and each driver read at a candidate displacement —
+# `shmlib.temporal_alignment.reference_shift_scan`, written for study 5's clock-alignment question
+# and reused here for a physical delay instead of a clock correction. A positive displacement `d`
+# reads the driver later than the response's own timestamp; where the driver genuinely leads the
+# response by some delay, the best alignment is found by reading the driver *earlier* than the
+# response, which is a negative `d`, so the delay this step reports is `-d`. Demeaning each day
+# before correlating removes the response's own drift and its arbitrary anchor first, for the same
+# reason step 3 separates the diurnal band from the level before either is read.
+#
+# The two instrument eras are scanned separately rather than pooled. `sr_str` and every other
+# current-only channel exist from 2025-02-21 on, and a pooled scan across both eras would silently
+# answer for whichever era carries more days rather than reporting that the legacy era has nothing
+# to say about radiation at all. A cell without `MIN_PAIRS` paired samples or `MIN_DAYS` distinct
+# days is reported as insufficient rather than as a number that happens to have very little behind
+# it.
+#
+# ### Parameter Tuning Guidance
+#
+# `NATIVE_FREQ` is the grid this step runs on. `DELAY_SHIFTS_MINUTES` bounds the scan and must be
+# multiples of `NATIVE_FREQ`; every candidate here is at twenty-minute steps out to four hours
+# either way. `DELAY_PERIODS` names the two eras and their bounds. `GROUND_STAMP_OFFSET` corrects
+# the station's stamp exactly as study 2 does, before the scan ever sees it. `MIN_PAIRS` and
+# `MIN_DAYS` are the same two-part support rule `MIN_PAIRED_HOURS` applies to the hourly scan
+# above, restated for the finer grid.
+
+# %%
+sensor_native_current, _ = proxies.load_sensor_forcings(
+    ARCHIVE_CSV, column_map=STR_MAP_CURRENT, freq=NATIVE_FREQ, tz=SITE_TZ,
+    honour_suspect=HONOUR_SUSPECT, min_count=1)
+sensor_native_legacy, _ = proxies.load_sensor_forcings(
+    ARCHIVE_CSV, column_map=STR_MAP_LEGACY, freq=NATIVE_FREQ, tz=SITE_TZ,
+    honour_suspect=HONOUR_SUSPECT, min_count=1)
+sensor_native = proxies.join_eras([sensor_native_current, sensor_native_legacy])
+
+era5_native_hourly = proxies.load_era5(ERA5_CSV, column_map=ERA5_MAP, freq='1h')
+era5_native = proxies.to_native_grid(era5_native_hourly, freq=NATIVE_FREQ,
+                                     accumulations=('sr',))
+
+ground_native_half_hourly = proxies.load_ground_station(
+    GROUND_STATION_CSV, column_map=GS_MAP, freq='30min', min_count=1,
+    stamp_offset=GROUND_STAMP_OFFSET)
+ground_native = proxies.to_native_grid(ground_native_half_hourly, freq=NATIVE_FREQ,
+                                       accumulations=())
+
+response_native, _ = proxies.load_response(
+    ARCHIVE_CSV, column=RESPONSE_COLUMN, honour_spike=HONOUR_INC_SPIKE,
+    freq=NATIVE_FREQ, tz=SITE_TZ, min_count=1)
+
+native_frame = proxies.harmonise([sensor_native, ground_native, era5_native],
+                                 freq=NATIVE_FREQ)
+native_frame, n_masked_native = proxies.mask_implausible(native_frame)
+native_frame[RESPONSE_COLUMN] = response_native.reindex(native_frame.index)
+print(f'Native frame: {len(native_frame):,} slots at {NATIVE_FREQ}, '
+      f'implausible values masked: {int(n_masked_native.sum())}')
+
+# %%
+# One pair per driver: the response, unmoved, against each candidate displaced. The pair label
+# carries the source (line style in the figure below) and the variable carries the quantity
+# (colour), matching `shmlib.figures.plot_reference_shift_scan` exactly.
+DELAY_PAIRS = (
+    ('str', 'tair', RESPONSE_COLUMN, 'tair_str'),
+    ('gs', 'tair', RESPONSE_COLUMN, 'tair_gs'),
+    ('era5', 'tair', RESPONSE_COLUMN, 'tair_era5'),
+    ('str', 'sr', RESPONSE_COLUMN, 'sr_str'),
+    ('gs', 'sr', RESPONSE_COLUMN, 'sr_gs'),
+    ('era5', 'sr', RESPONSE_COLUMN, 'sr_era5'),
+)
+native_scan = temporal_alignment.scan_reference_pairs(
+    {'native': native_frame}, DELAY_PAIRS, DELAY_PERIODS, DELAY_SHIFTS_MINUTES,
+    freq=NATIVE_FREQ, min_pairs=MIN_PAIRS, min_days=MIN_DAYS)
+native_scan['status'] = np.where(
+    (native_scan['n_pairs'] >= MIN_PAIRS) & (native_scan['n_days'] >= MIN_DAYS),
+    'ok', 'insufficient_support')
+native_scan.to_csv(f'{OUTPUT_DIR}/TR_07_native_delay_scan.csv', index=False)
+display(native_scan[native_scan['shift_minutes'] == 0])
+
+# %%
+# Correlations from a cell this scan marked insufficient are blanked before the argmax is taken,
+# so a driver with no support anywhere reports as unidentified rather than as a number computed
+# from a handful of days.
+scored = native_scan.copy()
+scored.loc[scored['status'] != 'ok', 'r_daily'] = np.nan
+native_summary = temporal_alignment.shift_summary(
+    scored, group_cols=('period', 'variable', 'pair'),
+    shift_col='shift_minutes', r_col='r_daily')
+native_summary['driver'] = native_summary['variable'] + '_' + native_summary['pair']
+native_summary['delay_minutes'] = -native_summary['shift_argmax']
+native_summary['status'] = np.where(native_summary['shift_argmax'].notna(),
+                                    'ok', 'insufficient_support')
+native_summary = native_summary.sort_values(
+    ['period', 'variable', 'pair']).reset_index(drop=True)
+display(native_summary)
+native_summary.to_csv(f'{OUTPUT_DIR}/TR_08_native_delay_summary.csv', index=False)
+
+# The delay convention, stated once rather than only in the caption below: `shift_minutes` reads
+# the driver later than the response when positive, and `delay_minutes` is its negation, so a
+# positive delay means the response follows the driver by that many minutes and a negative one
+# means the response precedes it. `shift_summary`'s own `sign` column describes `shift_argmax`,
+# not the negated `delay_minutes` the table reports, so it is left out of the table rather than
+# printed next to a number it does not describe.
+tables.write_table(
+    native_summary, f'{OUTPUT_DIR}/TR_T08_native_delay_summary.tex',
+    columns=[('period', None),
+             ('driver', tables.texttt),
+             ('delay_minutes', '+.0f'),
+             ('r_argmax', '+.3f'),
+             ('r_shift0', '+.3f')])
+
+# %% [markdown]
+# **How to read TR_F10.** One row per instrument era, one column per driver variable, one curve
+# per source family: solid for on-structure, dashed for the ground station, dotted for ERA5. The
+# horizontal axis is the delay of the response behind the driver, in minutes: at +40 the driver's
+# value 40 minutes earlier is paired with the response now. The vertical axis is the Pearson
+# correlation of the two after each day's mean has been removed from both, so the inclination's
+# drift and its arbitrary anchor play no part. The expected sign is negative, so the reading is the
+# minimum of each curve; the accent dot marks it and its label gives the delay. When a delay is a
+# property of the wall rather than of a sensor, the three sources of one variable agree to within a
+# slot or two: for radiation they do, at about 40 minutes, once the station is placed at its
+# interval centre by `GROUND_STAMP_OFFSET`. For air temperature the on-structure curve bottoms out
+# at zero delay while the station and ERA5 curves bottom out at a negative delay, which means the
+# wall moves before the free air warms: the wall follows the sun, and the on-structure air probe in
+# its sun-exposed housing follows the sun too. The curves are V-shaped rather than cosine-shaped
+# because the scan spans only four hours either way of a 24-hour cycle. A cell the legacy era
+# cannot support, such as on-structure radiation before 2025-02-21, is left out of that row.
+
+# %%
+figures.plot_reference_shift_scan(
+    native_scan, variables=('tair', 'sr'), pairs=['str', 'gs', 'era5'],
+    variable_col='variable', pair_col='pair',
+    row_col='period', row_order=['legacy', 'current'],
+    negate_x=True, x_label='Delay of the response behind the driver [min]',
+    mark_extreme=True, extreme_label='corner',
+    pair_labels={'str': 'On-structure', 'gs': 'Ground station', 'era5': 'ERA5'},
+    title='Diurnal delay at native resolution, both eras',
+    save_path=OUTPUT_DIR, filename='TR_F10_native_delay_scan')
+
+# %% [markdown]
+# The wall follows radiation by twenty to forty minutes across the three sources and both eras —
+# forty minutes exactly against ERA5 in the current era — not the zero-to-one-hour range
+# `TR_T04_coupling_diurnal.tex` reports from the hourly grid. That range is the hourly grid's
+# rounding of this same delay, not a separate or contradicting finding: forty minutes rounds to
+# either zero or one hour depending on which side of the half-hour the true value falls, and the
+# hourly scan cannot say which. Against air temperature the relationship runs the other way — the
+# wall leads rather than follows, by forty to eighty minutes across sources and eras — consistent
+# with the heating driver reaching the surface that governs the inclination before the air
+# temperature above it has finished responding to the same forcing. `tair_str`'s optimum sits at
+# zero delay in both eras, the one driver co-located with the response in the same on-structure
+# housing. Every recovered correlation is negative, the sign the site's geometry predicts
+# (`EXPECTED_SIGN`, § 7.5), with no exception. `sr_str` has no scoreable cell in the legacy era,
+# correctly: the current-era package that carries it did not exist before 2025-02-21.
+
+# %% [markdown]
 # ## Step 8 · Stability
 #
 # Every gain above is a single number fitted over a whole record, and a single season can produce
@@ -586,6 +842,18 @@ else:
 #
 # `STABILITY_FREQ` sets the window — calendar months here, which the post-outage record supports.
 # `STABILITY_MIN_HOURS` is the paired hours a window needs before its gain is reported at all.
+#
+# **How to read TR_F06.** One panel per shortlisted driver. The scan of step 7 chose one lag per
+# driver on the pooled record; here the gain is re-fitted month by month at that fixed lag, so
+# that a coupling which only holds on average is told apart from one that holds in every month.
+# The line is the monthly gain, in millidegrees per unit of the driver, and the band its 95 %
+# confidence interval; the grey line is zero, and the lag each panel uses is written on it. The
+# panels have different vertical scales because the drivers have different units, so compare
+# shapes rather than heights. What to look for: a gain that keeps its sign in every month, which is
+# the minimum a physical coupling must do; a seasonal swing, which says the gain depends on the
+# wall's thermal state and that a single number is a compromise; and a band that widens or a line
+# that jumps, which marks months where the driver or the response is thin. Panels that begin in
+# 2025 belong to channels that exist only in the current instrument era.
 
 # %%
 shortlisted = list(dict.fromkeys(admitted['driver'])) if len(admitted) else []
@@ -604,7 +872,7 @@ if shortlisted:
     figures.plot_gain_stability(
         stability, drivers=shortlisted[:5],
         title='Gain re-fitted month by month, at the lag the pooled scan chose',
-        width=FIGSIZE_WIDTH, save_path=OUTPUT_DIR,
+        width=FIGSIZE_WIDTH, lags=lags_at, save_path=OUTPUT_DIR,
         filename='TR_F06_gain_stability')
 else:
     stability = pd.DataFrame()

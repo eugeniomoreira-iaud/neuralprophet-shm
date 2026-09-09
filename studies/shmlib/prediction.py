@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from . import coupling
+from . import monitoring
 
 # scipy's lombscargle evaluates every (frequency, sample) pair in one shot
 # internally; on a multi-year record at native resolution (order 2e5
@@ -2944,6 +2945,286 @@ def attribution_fits(frames, regressors, valid_p, n_changepoints,
     return fits, shares, gains, diagnostics
 
 
+def _tau_label(tau):
+    """Stable dict key for one candidate time constant, e.g. ``'tau_4h'``."""
+    return f'tau_{float(tau):g}h'
+
+
+def _sideband_amplitude(residual):
+    """
+    Half the peak-to-trough range of a residual's daily-cycle amplitude,
+    fitted through the calendar year.
+
+    :func:`shmlib.monitoring.daily_harmonic` reduces the residual to one
+    daily-swing amplitude per calendar day; :func:`shmlib.coupling.annual_modulation`
+    then fits a low-order Fourier curve of that swing against day of year,
+    choosing its order by a leave-one-year-out rule. Reading the fitted
+    curve's own peak-to-trough range, halved, is the same idiom
+    :func:`seasonal_weights` already uses to normalise this curve, and it
+    stays meaningful whichever harmonic order the parsimony rule selects, so
+    a first-harmonic-only reading is never a fair substitute here.
+
+    Parameters
+    ----------
+    residual : pd.Series
+        Model residual on a regular sub-daily grid, ``NaN`` wherever a row
+        is excluded (missing, or flagged by a candidate's warm-up mask).
+
+    Returns
+    -------
+    float
+        The fitted annual curve's amplitude, or ``NaN`` when
+        :func:`shmlib.monitoring.daily_harmonic` yields no day (too few
+        covered samples) or :func:`shmlib.coupling.annual_modulation` finds
+        every candidate harmonic order too short a record to hold a year
+        out on.
+    """
+    daily = monitoring.daily_harmonic(residual)
+    if daily.empty:
+        return np.nan
+    try:
+        _, fit = coupling.annual_modulation(daily['amplitude'])
+    except ValueError:
+        return np.nan
+    year = pd.date_range('2001-01-01', periods=365, freq='D')
+    curve = coupling.evaluate_modulation(fit, year)
+    return float((curve.max() - curve.min()) / 2.0)
+
+
+def radiation_filter_sweep(frame, radiation, taus_h, regressors, valid_p,
+                           n_changepoints, reset_gap, freq='20min',
+                           block_hours=24, repetitions=2000, seed=0,
+                           warmup_factor=3.0, study03_gain=None,
+                           radiation_column='sr', n_jobs=1, **model_kwargs):
+    """
+    Radiation as a filtered thermal state, swept against the delay-only
+    baseline (spec D15).
+
+    The study's main line feeds radiation to the model as a pure transport
+    delay: ``frame``'s ``radiation_column`` already carries that delay and
+    is fitted unchanged as the baseline. This sweep asks whether the filter
+    half of the same delay-and-filter operator — the heat the stone itself
+    stores, decaying continuously rather than tracking the driver step for
+    step — explains the wall better. For each candidate time constant in
+    ``taus_h``, ``radiation`` (the same source, undelayed) is passed through
+    :func:`shmlib.coupling.reset_thermal_lag_filter` and substituted for
+    ``radiation_column`` in an otherwise identical frame; the transport
+    delay is set to zero by this substitution, so the two halves of the
+    operator are never charged for the same lag twice.
+
+    Every frame — the baseline and every candidate — is split, fitted and
+    scored exactly as :func:`attribution_fits` does it: this function calls
+    :func:`attribution_fits` itself, once, over the baseline and every
+    candidate frame together, so the training-head/held-out-tail split, the
+    placement of changepoints on the head's own covered time (via
+    :func:`covered_changepoints`), the nowcast fit itself, and the learned
+    radiation gain (via :func:`regressor_gains`) are the same call for every
+    row this function reports — there is no second, silently different
+    fitting path. Each fit's held-out residual is then read with
+    :func:`decompose_components` on that fit's own held-out tail, which
+    :func:`attribution_fits` does not itself return.
+
+    Warm-up handling. :func:`shmlib.coupling.reset_thermal_lag_filter` flags
+    the first ``warmup_factor`` time constants after every reset (a target
+    gap longer than ``reset_gap``) as a segment's warm-up: a state that has
+    not yet forgotten its own start-up condition measures that condition,
+    not the filter. Rows a candidate's warm-up mask flags within its
+    held-out tail are therefore excluded from every measurement this
+    function makes of that candidate alone — its held-out MAE, its paired
+    skill against the baseline, and its residual's daily-sideband fit — by
+    setting them to ``NaN`` before each is computed. The baseline carries no
+    filter and so no warm-up mask; its own rows are never excluded on a
+    candidate's account. Because the surviving rows differ candidate by
+    candidate, each is paired against the baseline on its own surviving
+    rows rather than on one shared held-out set — :func:`paired_mae_skill`
+    already aligns parent and child on their shared complete timestamps, and
+    ``n_scored`` reports how many of those survived so that this per-row
+    difference stays visible rather than being averaged away.
+
+    The rule this sweep is judged by is fixed before it runs: a candidate
+    ``improves`` on the baseline only when the bootstrap bounds on its skill
+    exclude zero (``skill_q05 > 0``). A lower point estimate whose interval
+    still crosses zero is not a result.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        The baseline fitting frame, normally one set of
+        :func:`regressor_set_frames`'s output — carrying ``'y'`` and every
+        column ``regressors`` names, with ``radiation_column`` already the
+        delayed radiation the main line uses. Fitted and scored unchanged
+        as the baseline row.
+    radiation : pd.Series
+        The same station's radiation, with no delay applied, on the same
+        index as ``frame``. Reindexed onto ``frame.index`` before the
+        filter runs.
+    taus_h : sequence of float
+        Candidate thermal time constants, in hours, passed to
+        :func:`shmlib.coupling.reset_thermal_lag_filter` as ``tau_hours``.
+    regressors : sequence of str
+        Regressor columns registered on every fit, baseline and candidates
+        alike; must include ``radiation_column``.
+    valid_p : float
+        Fraction of each frame held out as the tail scored against the
+        baseline, passed to :func:`attribution_fits`.
+    n_changepoints : int
+        Passed to :func:`attribution_fits`, and from there to
+        :func:`covered_changepoints` for each frame's training head.
+    reset_gap : str or pd.Timedelta
+        Longest run of missing radiation slots the filter's state is
+        allowed to survive; anything :func:`pandas.Timedelta` accepts. See
+        :func:`shmlib.coupling.reset_thermal_lag_filter`.
+    freq : str, optional
+        The study's native grid spacing, used to convert ``reset_gap``'s
+        and every candidate ``tau``'s hours into slots via ``dt_hours =
+        pd.Timedelta(freq) / pd.Timedelta(hours=1)``, and passed through to
+        :func:`decompose_components` for symmetry (unused there at
+        prediction time). Default ``'20min'``.
+    block_hours, repetitions, seed : optional
+        Passed unchanged to :func:`paired_mae_skill` for the candidate/baseline
+        skill. Defaults ``24``, ``2000``, ``0``.
+    warmup_factor : float, optional
+        Passed to :func:`shmlib.coupling.reset_thermal_lag_filter`. Default
+        ``3.0``.
+    study03_gain : float or None, optional
+        Study 03's independently measured gain for this station's
+        radiation, placed beside every row's learned ``gain`` as
+        ``study03_gain``. ``None`` (the default) reports ``NaN`` in that
+        column rather than a fabricated comparison.
+    radiation_column : str, optional
+        The regressor column ``radiation`` (filtered, per candidate)
+        replaces in every candidate frame. Must be one of ``regressors``.
+        Default ``'sr'``.
+    n_jobs : int, optional
+        Passed to :func:`attribution_fits`, and from there to
+        :func:`_parallel_map`: the baseline and every candidate are fit in
+        separate worker processes when greater than ``1``. Each fit is
+        independent of every other's, so this changes only how long the
+        sweep takes, never the scores it reports. Default ``1``.
+    **model_kwargs
+        Passed unchanged to :func:`attribution_fits`, and from there to
+        every :func:`neuralprophet_backtest` call, beside ``train``,
+        ``valid``, ``regressors``, ``task``, ``changepoints``,
+        ``n_changepoints`` and ``validation``, which :func:`attribution_fits`
+        already supplies.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row for the baseline and one per candidate, columns ``tau_h``
+        (``NaN`` on the baseline row), ``is_baseline``, ``mae_val``,
+        ``skill``, ``skill_q05``, ``skill_q95``, ``n`` (the last four
+        ``NaN`` on the baseline row, which has no baseline of its own to be
+        paired against), ``gain``, ``study03_gain``, ``sideband_amplitude``,
+        ``n_warmup``, ``n_scored`` and ``improves`` (``False`` on the
+        baseline row by definition).
+    """
+    dt_hours = pd.Timedelta(freq) / pd.Timedelta(hours=1)
+    radiation = radiation.reindex(frame.index)
+
+    frames = {'baseline': frame}
+    warmups = {}
+    for tau in taus_h:
+        name = _tau_label(tau)
+        filtered, warmup = coupling.reset_thermal_lag_filter(
+            radiation, tau, reset_gap, dt_hours=dt_hours,
+            warmup_factor=warmup_factor)
+        candidate = frame.copy()
+        candidate[radiation_column] = filtered
+        # The filter returns nothing inside a reset gap, and nothing where the
+        # driver itself was missing. Those rows cannot be fitted — the model
+        # refuses a frame with missing inputs — so they leave this candidate's
+        # fit rather than being imputed back into it, which is the same rule
+        # D13 applies to the target: a row the evidence does not cover is
+        # dropped, never filled. Each candidate therefore fits on its own row
+        # set, and ``n_scored`` records what survived.
+        frames[name] = candidate.loc[candidate[radiation_column].notna()]
+        warmups[name] = warmup
+
+    study03_gains = None
+    if study03_gain is not None:
+        study03_gains = {(name, radiation_column): float(study03_gain)
+                         for name in frames}
+
+    # ``freq`` is this function's own parameter and therefore never reaches
+    # ``model_kwargs``; it is handed on explicitly so that every fit runs on
+    # the study's grid rather than on the backtest's default.
+    fits, _shares, gains, _diagnostics = attribution_fits(
+        frames, regressors, valid_p, n_changepoints,
+        study03_gains=study03_gains, n_jobs=n_jobs, freq=freq, **model_kwargs)
+
+    def _gain_row(name):
+        matched = gains.loc[(gains['set'] == name)
+                            & (gains['regressor'] == radiation_column)]
+        if matched.empty:
+            return np.nan, np.nan
+        return (float(matched['gain'].iloc[0]),
+               float(matched['study03_gain'].iloc[0]))
+
+    baseline_valid = fits['baseline']['valid']
+    baseline_components = decompose_components(
+        fits['baseline']['model'], baseline_valid, regressors, freq=freq)
+    baseline_abs_err = (baseline_components['y']
+                        - baseline_components['yhat1']).abs()
+    baseline_finite = baseline_abs_err.dropna()
+    baseline_gain, baseline_study03_gain = _gain_row('baseline')
+
+    rows = [{
+        'tau_h': np.nan,
+        'is_baseline': True,
+        'mae_val': float(baseline_finite.mean()) if len(baseline_finite) else np.nan,
+        'skill': np.nan,
+        'skill_q05': np.nan,
+        'skill_q95': np.nan,
+        'n': np.nan,
+        'gain': baseline_gain,
+        'study03_gain': baseline_study03_gain,
+        'sideband_amplitude': _sideband_amplitude(baseline_components['residual']),
+        'n_warmup': 0,
+        'n_scored': int(len(baseline_finite)),
+        'improves': False,
+    }]
+
+    for tau in taus_h:
+        name = _tau_label(tau)
+        model = fits[name]['model']
+        valid = fits[name]['valid']
+        components = decompose_components(model, valid, regressors, freq=freq)
+        abs_err = (components['y'] - components['yhat1']).abs()
+
+        warmup_valid = warmups[name].reindex(valid.index).fillna(False).astype(bool)
+        n_warmup = int(warmup_valid.sum())
+        scored_abs_err = abs_err.where(~warmup_valid)
+        scored_residual = components['residual'].where(~warmup_valid)
+
+        skill = paired_mae_skill(baseline_abs_err, scored_abs_err,
+                                 block_hours=block_hours, repetitions=repetitions,
+                                 seed=seed)
+        gain, study03_value = _gain_row(name)
+        improves = bool(np.isfinite(skill['skill_q05']) and skill['skill_q05'] > 0)
+
+        rows.append({
+            'tau_h': float(tau),
+            'is_baseline': False,
+            'mae_val': skill['child_mae'],
+            'skill': skill['skill'],
+            'skill_q05': skill['skill_q05'],
+            'skill_q95': skill['skill_q95'],
+            'n': skill['n'],
+            'gain': gain,
+            'study03_gain': study03_value,
+            'sideband_amplitude': _sideband_amplitude(scored_residual),
+            'n_warmup': n_warmup,
+            'n_scored': skill['n'],
+            'improves': improves,
+        })
+
+    columns = ['tau_h', 'is_baseline', 'mae_val', 'skill', 'skill_q05',
+              'skill_q95', 'n', 'gain', 'study03_gain', 'sideband_amplitude',
+              'n_warmup', 'n_scored', 'improves']
+    return pd.DataFrame(rows, columns=columns)
+
+
 def _select_by_ds(block, ds):
     """
     Rows of ``block`` whose index appears in ``ds``, a fold boundary column
@@ -3092,7 +3373,8 @@ def fold_stability(fits, frames, regressors, n_changepoints, k, fold_pct,
 
 def ladder_frame(frame, sensor, start, twall_tau_h, twall_lead_h,
                  radiation_delay_h, freq, weight_curve=None,
-                 twall_column='twall_str', sr_column='sr_str'):
+                 twall_column='twall_str', sr_column='sr_str',
+                 radiation_delay_min=None):
     """
     The current-era window plus the wall probe and the on-structure
     pyranometer, ready for the channel ladder (D4).
@@ -3134,11 +3416,13 @@ def ladder_frame(frame, sensor, start, twall_tau_h, twall_lead_h,
         positive value to zero; a caller that reports a lag rather than a
         lead is expected to say so, since a leading probe is the entire
         reason that rung exists as a diagnostic rather than a candidate.
-    radiation_delay_h : float
+    radiation_delay_h : float or None
         Transport delay applied to the on-structure radiation, in hours;
-        normally the same value the main line applies to every radiation
-        source (D3), so that the ladder's radiation rung differs from the
-        main line's `'str'` set in source alone.
+        normally the same value the main line applies to that source (D3),
+        so that the ladder's radiation rung differs from the main line's
+        `'str'` set in source alone. Pass ``None`` when the delay is given
+        in minutes through ``radiation_delay_min`` instead; passing both is
+        an error, and passing neither is an error too.
     freq : str
         Sampling frequency of ``frame`` and ``sensor``, used to convert
         ``radiation_delay_h`` and ``twall_lead_h`` from hours into grid
@@ -3150,6 +3434,17 @@ def ladder_frame(frame, sensor, start, twall_tau_h, twall_lead_h,
         Columns of ``sensor`` holding the wall probe and the pyranometer.
         Defaults ``'twall_str'`` and ``'sr_str'``, :func:`shmlib.proxies.\
 load_sensor_forcings`'s own names for those quantities.
+    radiation_delay_min : float or None, optional
+        The same transport delay expressed in minutes, for a study whose
+        measured delay is finer than an hour. Default ``None``, which leaves
+        ``radiation_delay_h`` in charge. Rounds to whole slots of the ``freq``
+        grid, as the hourly form does.
+
+    Raises
+    ------
+    ValueError
+        If both ``radiation_delay_h`` and ``radiation_delay_min`` are given,
+        or neither.
 
     Returns
     -------
@@ -3160,10 +3455,18 @@ load_sensor_forcings`'s own names for those quantities.
         ``twall_lead`` (the probe at its measured lead), ``summer_w`` and
         ``winter_w`` (the conditional-seasonality weights).
     """
+    if (radiation_delay_h is None) == (radiation_delay_min is None):
+        raise ValueError(
+            'give the radiation delay once: radiation_delay_h in hours or '
+            'radiation_delay_min in minutes, not both and not neither')
+
     current = frame.loc[start:].copy()
     step_hours = pd.Timedelta(freq) / pd.Timedelta(hours=1)
     slots_per_hour = 1.0 / step_hours
-    delay_slots = int(round(radiation_delay_h / step_hours))
+    if radiation_delay_min is None:
+        delay_slots = int(round(radiation_delay_h / step_hours))
+    else:
+        delay_slots = int(round(radiation_delay_min / (step_hours * 60.0)))
 
     current['twall'] = sensor[twall_column].reindex(current.index)
     current['sr_wall'] = coupling.thermal_operator(

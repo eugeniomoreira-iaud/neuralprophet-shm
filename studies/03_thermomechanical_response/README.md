@@ -63,13 +63,43 @@ Three properties of that set are load-bearing:
 
 ## What it writes
 
-Tables and figures into `outputs/`, which the report reads: `TR_01`–`TR_06` for tables (and
-`TR_T01`, `TR_T03`, `TR_T04`, `TR_T06` as LaTeX table bodies) and `TR_F01`–`TR_F09` for figures,
-the last three being the delay-by-time-constant grid, one per source family. Those three are the
-study's only two-dimensional figures and they are not self-explanatory; section 7.1 of the report,
-*How to read one of these grids*, is the guide to them — what the axes are, what the colour can
-and cannot say, and what each shape of bright region means.
+Tables and figures into `outputs/`, which the report reads: `TR_01`–`TR_08` for tables (and
+`TR_T01`, `TR_T03`, `TR_T04`, `TR_T06`, `TR_T08` as LaTeX table bodies) and `TR_F01`–`TR_F10` for
+figures:
+
+| Figure | Shows |
+|---|---|
+| `TR_F01` | The response's first analysis week, as its recorded level and as the diurnal band the rest of the study screens. |
+| `TR_F02` | Round 1's lag curves — correlation against transport delay, diurnal band, on-structure drivers, current era. |
+| `TR_F03` | Round 2's lag curves, ERA5, diurnal band, whole record. |
+| `TR_F04` | Round 3's lag curves, the Gubbio station, diurnal band, whole record. |
+| `TR_F05` | The response against the strongest surviving driver overall, as a hexbin cloud with the fitted gain and its confidence interval. |
+| `TR_F06` | That driver's — and every shortlisted driver's — gain re-fitted month by month at the lag step 7 chose. |
+| `TR_F07` | Round 1's delay-by-time-constant operator grid, on-structure, levels. |
+| `TR_F08` | Round 2's operator grid, ERA5, levels. |
+| `TR_F09` | Round 3's operator grid, the Gubbio station, levels. |
+| `TR_F10` | Step 7.5's native-resolution delay scan, one row per instrument era, one panel per driver variable, one curve per source family. |
+
+`TR_F07`–`TR_F09` are the delay-by-time-constant grid, one per source family; those three
+are the study's only two-dimensional figures and they are not self-explanatory, so section 7.1 of
+the report, *How to read one of these grids*, is the guide to them — what the axes are, what the
+colour can and cannot say, and what each shape of bright region means.
 No dataset is exported. This study's product is a measurement, not a file the pipeline consumes.
+
+**`TR_07`/`TR_08`/`TR_F10` are step 7.5's native-resolution delay**, a re-measurement of the same
+diurnal delay `TR_02`/`TR_T04` report from the hourly coupling scan, but on the archive's own
+twenty-minute grid instead of the hourly one — a daily-demeaned Pearson correlation against a
+displaced reference (`shmlib.temporal_alignment.reference_shift_scan`), scanned separately over
+the legacy and current instrument eras since `sr_str` and every other current-only channel exist
+from 2025-02-21 on. The wall follows radiation by twenty to forty minutes across the three sources
+and both eras (forty minutes exactly against ERA5 in the current era) and leads air temperature by
+forty to eighty minutes; the hourly grid's own "zero to one hour" for the same drivers
+(`TR_T04_coupling_diurnal.tex`) is that same delay rounded to the hour it can resolve, not a
+disagreement. Every recovered correlation is negative, as the site's geometry predicts, with no
+exception. **Study 5's `RADIATION_DELAY_H` parameter should read its value from
+`TR_08_native_delay_summary.csv`** — the `sr_era5`/current row's `delay_minutes` (currently 40),
+converted to hours — rather than from the hourly coupling table, which cannot state the delay more
+finely than the hour.
 
 ## Contents
 
@@ -83,7 +113,9 @@ No dataset is exported. This study's product is a measurement, not a file the pi
 
 This study has no library of its own. The thermal operator, the delay-and-time-constant scan,
 the band separation, the gains and their stability live in `../shmlib/coupling.py`; the response loader and the era join in
-`shmlib.proxies`; the wind decomposition in `shmlib.meteo`; the three figures in `shmlib.figures`.
+`shmlib.proxies`; the wind decomposition in `shmlib.meteo`; the figures in `shmlib.figures`; step
+7.5's native-resolution delay scan in `shmlib.temporal_alignment`, written for study 5's
+clock-alignment question and reused here for a physical delay instead.
 `shmlib.coupling.lag_scan` is also what `shmlib.quality.clock_check` now uses for study 2's clock
 test — one implementation of the search, two callers, differing only in the objective they
 maximise and the range they scan.

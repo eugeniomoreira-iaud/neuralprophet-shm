@@ -1,0 +1,103 @@
+\documentclass[aspectratio=169]{beamer}
+\usetheme{metropolis}
+\usepackage{graphicx}
+
+\title{Is the wall behaving as expected?}
+\subtitle{Grey-box monitoring of station 02 (2018--2026)}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{The Problem}
+    \textbf{Question:} Given the current environment, is the wall leaning exactly as expected, or doing something unusual?
+    \vspace{0.5cm}
+    \begin{itemize}
+        \item Readings every 20 minutes from the medieval wall of Gubbio:
+        \begin{itemize}
+            \item Inclination (leaning)
+            \item Air temperature
+            \item Humidity
+            \item Solar radiation
+        \end{itemize}
+        \item \textbf{Goal:} Model normal behavior and monitor for unexpected movements over 8 years.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{The Dataset}
+    \begin{itemize}
+        \item We use three sets of environmental drivers to ensure reliability when the wall's own sensors (\texttt{str}) fail.
+        \item External proxies: Local ground station (\texttt{gs}) and ERA5 reanalysis (\texttt{era5}).
+    \end{itemize}
+    \centering
+    \includegraphics[width=\textwidth,height=0.6\textheight,keepaspectratio]{../outputs/GM_F01_regressor_sets.png}
+\end{frame}
+
+\begin{frame}{How We Model the Wall}
+    \begin{itemize}
+        \item We use a ``grey-box'' model (\textit{NeuralProphet}) separating inclination into:
+        \begin{itemize}
+            \item \textbf{Trend:} Long-term wandering.
+            \item \textbf{Seasonality:} Annual and daily repeating cycles.
+            \item \textbf{Drivers:} Temperature, humidity, radiation.
+        \end{itemize}
+    \end{itemize}
+    \centering
+    \includegraphics[width=\textwidth,height=0.5\textheight,keepaspectratio]{../outputs/GM_F06_decomposition.png}
+\end{frame}
+
+\begin{frame}{What Drives the Wall's Movement?}
+    \begin{columns}
+        \begin{column}{0.5\textwidth}
+            \begin{itemize}
+                \item \textbf{Slow Trend ($\approx$60\%):} Major wandering over years. Not a straight drift; it reverses.
+                \item \textbf{Air Temp (15--24\%):} The wall and air heat together from solar radiation. The daily swing is captured instantaneously by air temperature.
+                \item \textbf{Annual Cycle (12--17\%):} Delayed seasonal response.
+            \end{itemize}
+        \end{column}
+        \begin{column}{0.5\textwidth}
+            \centering
+            \includegraphics[width=\textwidth,keepaspectratio]{../outputs/GM_F04_trend.png} \\
+            \vspace{0.2cm}
+            \includegraphics[width=\textwidth,keepaspectratio]{../outputs/GM_F05_seasonality.png}
+        \end{column}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{Monitoring for Anomalies}
+    \begin{itemize}
+        \item \textbf{Rolling Expectation:} The model is re-trained every 30 days to establish a moving baseline.
+    \end{itemize}
+    \centering
+    \includegraphics[width=0.8\textwidth,height=0.6\textheight,keepaspectratio]{../outputs/GM_F08_observed_expected.png}
+\end{frame}
+
+\begin{frame}{The Control Charts}
+    We use three control charts to catch different anomalies:
+    \begin{enumerate}
+        \item \textbf{Fast Chart:} Catches sudden steps or spikes (e.g., instrument faults).
+        \item \textbf{Daily Chart:} Catches changes in daily swing amplitude or phase.
+        \item \textbf{Slow Chart:} Catches slow continuous drift over weeks.
+    \end{enumerate}
+    \vspace{0.3cm}
+    \centering
+    \includegraphics[width=0.9\textwidth,height=0.4\textheight,keepaspectratio]{../outputs/GM_F09_fast_chart.png}
+\end{frame}
+
+\begin{frame}{Behavior Across Outages}
+    \begin{itemize}
+        \item What happens when sensors go offline? The monitor flags when the wall resumes at an unexpected level.
+    \end{itemize}
+    \centering
+    \includegraphics[width=0.8\textwidth,height=0.6\textheight,keepaspectratio]{../outputs/GM_F12_outage_bridges.png}
+\end{frame}
+
+\begin{frame}{Conclusion}
+    \begin{itemize}
+        \item The wall at station 02 acts largely as a thermometer, driven primarily by solar heating (captured via air temperature) and a slow, reversible structural drift.
+        \item By separating this expected environmental response from raw data, our model and control charts provide a sensitive, automated way to monitor the true structural health.
+    \end{itemize}
+\end{frame}
+
+\end{document}

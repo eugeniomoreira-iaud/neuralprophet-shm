@@ -907,6 +907,223 @@ class TestFiguresStudy05(unittest.TestCase):
         self.assertEqual(len(fig.axes), 2)
         plt.close(fig)
 
+    def _coverage_frame(self, total_slots=1000):
+        """
+        A `proxies.regressor_set_coverage`-shaped frame: three sources, each
+        with all three roles, plus the target row last.
+        """
+        rows = []
+        for source in ('str', 'gs', 'era5'):
+            for role, accepted, filled in (('tair', 900, 50), ('rh', 800, 30),
+                                           ('sr', 950, 10)):
+                rows.append({'set': source, 'role': role, 'accepted': accepted,
+                            'filled': filled, 'coverage': accepted / total_slots})
+        rows.append({'set': 'target', 'role': 'absinc', 'accepted': 990,
+                    'filled': 0, 'coverage': 990 / total_slots})
+        return pd.DataFrame(rows)
+
+    def test_plot_regressor_coverage_draws_the_target_bar_first(self):
+        """
+        The target's bar (`set == 'target'`) must be the first group drawn,
+        ahead of the three source groups, per the report's own convention of
+        naming the target before its regressors.
+        """
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        fig = figures.plot_regressor_coverage(
+            self._coverage_frame(), total_slots=1000, target_label='Inclination')
+        ax = fig.axes[0]
+        tick_labels = [label.get_text() for label in ax.get_xticklabels()]
+        self.assertEqual(tick_labels,
+                         ['Inclination', 'On-structure', 'Ground station', 'ERA5'])
+        plt.close(fig)
+
+    def test_plot_regressor_coverage_stack_totals_the_accepted_count(self):
+        """
+        The stacked segments (`accepted - filled` then `filled`) must sum
+        back to `accepted`, since `filled` is defined as a subset of
+        `accepted`, not an addition to it.
+        """
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        fig = figures.plot_regressor_coverage(self._coverage_frame(), total_slots=1000)
+        ax = fig.axes[0]
+        heights = sorted(bar.get_height() for bar in ax.patches)
+        # The `'tair'` bars (accepted 900, filled 50) contribute a 850-tall
+        # base segment and a 50-tall top segment in every one of the three
+        # source groups.
+        self.assertIn(850.0, heights)
+        self.assertIn(50.0, heights)
+        plt.close(fig)
+
+    def test_plot_regressor_coverage_right_axis_matches_the_shared_total(self):
+        """The right axis is the left axis rescaled by `total_slots`, exactly, since every source shares one window."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        fig = figures.plot_regressor_coverage(self._coverage_frame(), total_slots=1000)
+        ax, ax2 = fig.axes[0], fig.axes[1]
+        left_top = ax.get_ylim()[1]
+        right_top = ax2.get_ylim()[1]
+        self.assertAlmostEqual(right_top, left_top / 1000.0 * 100.0, places=6)
+        plt.close(fig)
+
+    def _gap_inventory_frame(self, n_slots):
+        starts = pd.date_range('2020-01-01', periods=len(n_slots), freq='D')
+        return pd.DataFrame({
+            'start': starts,
+            'end': starts + pd.to_timedelta(np.asarray(n_slots) * 20, unit='m'),
+            'duration_h': np.asarray(n_slots) * 20.0 / 60.0,
+            'n_slots': n_slots,
+            'gap_class': 'x',
+        })
+
+    def test_plot_gap_size_histogram_bins_on_slot_count_not_duration_class(self):
+        """
+        A histogram built straight from `n_slots` must place a run of 1000
+        one-slot gaps and a single 1000-slot gap in different, far-apart
+        bins, which a histogram keyed on the coarse duration class would not
+        distinguish this sharply.
+        """
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        n_slots = [1] * 1000 + [1000]
+        fig = figures.plot_gap_size_histogram(self._gap_inventory_frame(n_slots))
+        ax = fig.axes[0]
+        heights = [bar.get_height() for bar in ax.patches if bar.get_height() > 0]
+        self.assertGreaterEqual(max(heights), 900)
+        self.assertTrue(any(0 < h <= 5 for h in heights))
+        plt.close(fig)
+
+    def test_plot_gap_size_histogram_ticks_read_as_durations_not_slot_counts(self):
+        """Tick labels must name physical durations (e.g. `'1 h'`), never the raw, log-scaled `n_slots` the bins are actually defined on."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        n_slots = list(range(1, 2000, 7))
+        fig = figures.plot_gap_size_histogram(self._gap_inventory_frame(n_slots),
+                                              freq='20min')
+        ax = fig.axes[0]
+        tick_labels = [label.get_text() for label in ax.get_xticklabels()]
+        self.assertIn('1 h', tick_labels)
+        self.assertIn('1 d', tick_labels)
+        self.assertTrue(all(char.isalpha() or char.isspace() for label in tick_labels
+                            for char in label if not char.isdigit()))
+        plt.close(fig)
+
+    def test_plot_gap_size_histogram_handles_an_empty_inventory(self):
+        """An inventory with no gaps is a legitimate, fully-covered result and must draw a figure rather than raise."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        empty = pd.DataFrame(columns=['start', 'end', 'duration_h', 'n_slots', 'gap_class'])
+        fig = figures.plot_gap_size_histogram(empty)
+        self.assertEqual(len(fig.axes), 1)
+        plt.close(fig)
+
+    def _radiation_filter_sweep_frame(self, taus_h=(1.0, 2.0, 4.0, 8.0, 12.0, 24.0, 48.0),
+                                      improves=None, study03_gain=-0.035):
+        """
+        A `prediction.radiation_filter_sweep`-shaped frame: one baseline row
+        (`is_baseline == True`, `tau_h` and every skill column `NaN`)
+        followed by one row per candidate `tau`.
+        """
+        n = len(taus_h)
+        if improves is None:
+            improves = [False] * n
+            if n:
+                improves[-1] = True
+        rows = [{
+            'tau_h': np.nan, 'is_baseline': True, 'mae_val': 1.20,
+            'skill': np.nan, 'skill_q05': np.nan, 'skill_q95': np.nan, 'n': np.nan,
+            'gain': -0.041, 'study03_gain': study03_gain, 'sideband_amplitude': 0.30,
+            'n_warmup': 0, 'n_scored': 500, 'improves': False,
+        }]
+        for tau, wins in zip(taus_h, improves):
+            skill = 0.06 if wins else -0.01
+            rows.append({
+                'tau_h': tau, 'is_baseline': False, 'mae_val': 1.10 if wins else 1.21,
+                'skill': skill, 'skill_q05': skill - 0.03 if wins else skill - 0.05,
+                'skill_q95': skill + 0.03, 'n': 480,
+                'gain': -0.038, 'study03_gain': study03_gain,
+                'sideband_amplitude': 0.05, 'n_warmup': 12, 'n_scored': 468,
+                'improves': bool(wins),
+            })
+        return pd.DataFrame(rows)
+
+    def test_plot_radiation_filter_sweep_excludes_the_baseline_row_from_the_skill_panel(self):
+        """
+        The baseline row has no skill of its own (`tau_h` and every skill
+        column are `NaN`); it must never appear as a plotted point in the
+        top (skill) panel, which has as many finite-skill points as there
+        are candidates, not one more for the baseline.
+        """
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.collections as mcollections
+        import matplotlib.pyplot as plt
+        sweep = self._radiation_filter_sweep_frame()
+        fig = figures.plot_radiation_filter_sweep(sweep)
+        skill_ax = fig.axes[0]
+        # `fill_between`'s band is a `PolyCollection`, not a scatter; only
+        # the `PathCollection`s the two `scatter` calls add are candidate
+        # points.
+        scatters = [c for c in skill_ax.collections
+                   if isinstance(c, mcollections.PathCollection)]
+        plotted = sum(len(c.get_offsets()) for c in scatters)
+        self.assertEqual(plotted, len(sweep) - 1)
+        plt.close(fig)
+
+    def test_plot_radiation_filter_sweep_draws_improving_and_non_improving_candidates_differently(self):
+        """
+        A candidate whose `improves` is `True` is a filled marker; one
+        whose `improves` is `False` is hollow (`facecolor='none'`) — the
+        two must never share a scatter collection's face colour.
+        """
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.collections as mcollections
+        import matplotlib.pyplot as plt
+        sweep = self._radiation_filter_sweep_frame(
+            taus_h=(1.0, 2.0), improves=[False, True])
+        fig = figures.plot_radiation_filter_sweep(sweep)
+        skill_ax = fig.axes[0]
+        scatters = [c for c in skill_ax.collections
+                   if isinstance(c, mcollections.PathCollection)]
+        # One `scatter` call per marker style: one filled candidate, one
+        # hollow candidate.
+        self.assertEqual(len(scatters), 2)
+        facecolors = [tuple(c.get_facecolor()[0]) if len(c.get_facecolor()) else None
+                     for c in scatters]
+        # One of the two scatter calls is hollow: matplotlib reports an
+        # empty (or fully transparent) face array for `facecolor='none'`.
+        hollow_present = any(fc is None or fc[3] == 0.0 for fc in facecolors)
+        self.assertTrue(hollow_present)
+        plt.close(fig)
+
+    def test_plot_radiation_filter_sweep_handles_an_all_nan_study03_gain(self):
+        """A caller that passed no Study 03 comparison leaves `study03_gain` entirely `NaN`; the reference line must simply not be drawn, without raising."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        sweep = self._radiation_filter_sweep_frame(study03_gain=np.nan)
+        fig = figures.plot_radiation_filter_sweep(sweep)
+        self.assertEqual(len(fig.axes), 2)
+        plt.close(fig)
+
+    def test_plot_radiation_filter_sweep_handles_a_single_candidate(self):
+        """A sweep run over one candidate `tau` (plus the baseline row) must still draw both panels without raising."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        sweep = self._radiation_filter_sweep_frame(taus_h=(4.0,), improves=[True])
+        fig = figures.plot_radiation_filter_sweep(sweep)
+        self.assertEqual(len(fig.axes), 2)
+        plt.close(fig)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

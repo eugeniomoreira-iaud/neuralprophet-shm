@@ -30,6 +30,15 @@ One further test is a regression rather than a specification.
 study 3 extracted it, and study 2's clock results depend on that search
 answering exactly as it did before. ``TestClockCheckRegression`` reimplements
 the loop as it stood and requires the shared search to agree with it.
+
+A sixth carries step 7.5's native-resolution delay scan, whose sign
+convention its report depends on rather than the hourly coupling grid's own
+convention. ``TestNativeDelayScan`` checks that
+:func:`shmlib.temporal_alignment.scan_reference_pairs` and
+:func:`shmlib.temporal_alignment.shift_summary` together produce one summary
+row for every declared pair, and that the delay this study reports — the
+negated argmax displacement — recovers a delay put into a synthetic pair on
+purpose.
 """
 
 import os
@@ -37,6 +46,10 @@ import sys
 import tempfile
 import unittest
 
+import matplotlib
+matplotlib.use('Agg')            # headless: this file's figure smoke tests
+                                  # never open a window.
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -47,7 +60,8 @@ for path in (_STUDY, _STUDIES):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from shmlib import coupling, meteo, proxies, quality, site        # noqa: E402
+from shmlib import (coupling, figures, meteo, proxies,            # noqa: E402
+                    quality, site, temporal_alignment)
 
 
 def _hourly(values, start='2025-03-01', tz='UTC'):
@@ -657,6 +671,211 @@ class TestClockCheckRegression(unittest.TestCase):
         by_source = result.set_index('source')
         self.assertEqual(by_source.loc['era5', 'xcorr_lag_h'], 0.0)
         self.assertEqual(by_source.loc['gs', 'xcorr_lag_h'], -2.0)
+
+
+class TestNativeDelayScan(unittest.TestCase):
+    """Step 7.5's native-resolution delay: the pairs it produces, and its sign."""
+
+    def _synthetic_frame(self, days=30, delay_steps=2):
+        """
+        A response that lags a diurnal driver by `delay_steps` twenty-minute
+        slots, and nothing else. `delay_steps=2` is a physical delay of forty
+        minutes, matching this study's own radiation finding, and the sign
+        the site's geometry predicts is built in: the response is the
+        driver's *negative*.
+        """
+        steps_per_day = 24 * 3     # twenty-minute native grid
+        n = days * steps_per_day
+        index = pd.date_range('2025-03-01', periods=n, freq='20min')
+        t = np.arange(n, dtype=float)
+        driver = pd.Series(np.sin(2.0 * np.pi * t / steps_per_day), index=index)
+        response = -driver.shift(delay_steps)
+        return pd.DataFrame({'inc_comp_cleaned': response, 'tair_era5': driver})
+
+    def test_delay_is_the_negated_argmax_shift(self):
+        frame = self._synthetic_frame(days=30, delay_steps=2)
+        scan = temporal_alignment.reference_shift_scan(
+            frame['inc_comp_cleaned'], frame['tair_era5'],
+            shifts_minutes=range(-120, 121, 20), freq='20min',
+            min_pairs=100, min_days=10)
+        tagged = scan.assign(pair='inc_vs_tair_era5')
+        summary = temporal_alignment.shift_summary(
+            tagged, group_cols=('pair',), shift_col='shift_minutes',
+            r_col='r_daily')
+        row = summary.iloc[0]
+        delay_minutes = -row['shift_argmax']
+        # delay_steps=2 on a 20-minute grid is a forty-minute physical delay.
+        self.assertEqual(delay_minutes, 40)
+        self.assertLess(row['r_argmax'], -0.99)
+
+    def test_the_summary_carries_every_declared_pair(self):
+        frame = self._synthetic_frame(days=20, delay_steps=1)
+        frame = frame.rename(columns={'tair_era5': 'tair_str'})
+        for column in ('tair_gs', 'tair_era5', 'sr_str', 'sr_gs', 'sr_era5'):
+            frame[column] = frame['tair_str']
+
+        pairs = (
+            ('str', 'tair', 'inc_comp_cleaned', 'tair_str'),
+            ('gs', 'tair', 'inc_comp_cleaned', 'tair_gs'),
+            ('era5', 'tair', 'inc_comp_cleaned', 'tair_era5'),
+            ('str', 'sr', 'inc_comp_cleaned', 'sr_str'),
+            ('gs', 'sr', 'inc_comp_cleaned', 'sr_gs'),
+            ('era5', 'sr', 'inc_comp_cleaned', 'sr_era5'),
+        )
+        periods = ({'name': 'all', 'start': None, 'end': None},)
+        scan = temporal_alignment.scan_reference_pairs(
+            {'native': frame}, pairs, periods, range(-60, 61, 20),
+            freq='20min', min_pairs=50, min_days=5)
+        summary = temporal_alignment.shift_summary(
+            scan, group_cols=('period', 'variable', 'pair'),
+            shift_col='shift_minutes', r_col='r_daily')
+        produced = set(zip(summary['variable'], summary['pair']))
+        expected = {(variable, pair_label)
+                    for pair_label, variable, _, _ in pairs}
+        self.assertEqual(produced, expected)
+
+    def test_a_pair_with_no_support_is_not_scored(self):
+        # A driver present in name only, entirely missing over the scanned
+        # period: the summary must report it as unidentified rather than
+        # compute a correlation from whatever the empty column resolves to.
+        frame = self._synthetic_frame(days=20, delay_steps=1)
+        frame['sr_str'] = np.nan
+        scan = temporal_alignment.reference_shift_scan(
+            frame['inc_comp_cleaned'], frame['sr_str'],
+            shifts_minutes=range(-60, 61, 20), freq='20min',
+            min_pairs=50, min_days=5)
+        tagged = scan.assign(pair='inc_vs_sr_str')
+        summary = temporal_alignment.shift_summary(
+            tagged, group_cols=('pair',), shift_col='shift_minutes',
+            r_col='r_daily')
+        self.assertTrue(pd.isna(summary.iloc[0]['shift_argmax']))
+        self.assertEqual(summary.iloc[0]['sign'], 'undefined')
+
+
+class TestReferenceShiftScanFigure(unittest.TestCase):
+    """The row facet, the negated axis, the extreme marker and the pair labels."""
+
+    def _scan(self):
+        rows = []
+        for period in ('legacy', 'current'):
+            for variable in ('tair', 'sr'):
+                for pair in ('str', 'gs', 'era5'):
+                    if period == 'legacy' and pair == 'str' and variable == 'sr':
+                        continue    # sr_str does not exist before the current era
+                    for shift in range(-60, 61, 20):
+                        # A clean optimum at shift -40 for every line, so the
+                        # extreme marker has an unambiguous point to find.
+                        r = -1.0 + 0.01 * abs(shift - (-40))
+                        rows.append({'period': period, 'variable': variable,
+                                    'pair': pair, 'shift_minutes': shift,
+                                    'r_daily': r})
+        return pd.DataFrame(rows)
+
+    def test_default_call_keeps_the_single_row_shape(self):
+        # Study 2's own call: no new argument passed, and the figure this
+        # function always drew must come back unchanged in shape.
+        scan = self._scan()
+        scan = scan[scan['period'] == 'current']
+        fig = figures.plot_reference_shift_scan(
+            scan, variables=('tair', 'sr'), pairs=['str', 'gs', 'era5'])
+        self.assertEqual(fig.axes[0].get_subplotspec().get_gridspec().nrows, 1)
+        plt.close(fig)
+
+    def test_row_facet_marks_extremes_and_relabels_pairs(self):
+        scan = self._scan()
+        fig = figures.plot_reference_shift_scan(
+            scan, variables=('tair', 'sr'), pairs=['str', 'gs', 'era5'],
+            row_col='period', row_order=['legacy', 'current'],
+            negate_x=True, x_label='Delay of the response behind the driver [min]',
+            mark_extreme=True,
+            pair_labels={'str': 'On-structure', 'gs': 'Ground station',
+                        'era5': 'ERA5'})
+        gridspec = fig.axes[0].get_subplotspec().get_gridspec()
+        self.assertEqual(gridspec.nrows, 2)
+        self.assertEqual(gridspec.ncols, 2)
+        legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
+        self.assertEqual(legend_labels, ['On-structure', 'Ground station', 'ERA5'])
+        # The negated axis and the accent extreme label: the injected optimum
+        # sits at shift -40, so the negated (reported) delay is +40.
+        bottom_row_xlabel = fig.axes[2].get_xlabel()
+        self.assertIn('Delay of the response', bottom_row_xlabel)
+        plt.close(fig)
+
+    def test_corner_label_collects_one_line_per_source(self):
+        # The fix for the per-dot labels colliding with each other and with
+        # the tick row: one small block per panel instead of one text per dot.
+        scan = self._scan()
+        fig = figures.plot_reference_shift_scan(
+            scan, variables=('tair', 'sr'), pairs=['str', 'gs', 'era5'],
+            row_col='period', row_order=['legacy', 'current'],
+            negate_x=True, mark_extreme=True, extreme_label='corner',
+            pair_labels={'str': 'On-structure', 'gs': 'Ground station',
+                        'era5': 'ERA5'})
+        # Legacy era, radiation panel (top right): sr_str does not exist
+        # there, so its corner block must carry only the other two sources.
+        # The leftmost column of a row also carries the row-title text, so
+        # the corner block is picked out as the one naming minutes.
+        def corner_block(ax):
+            blocks = [text.get_text() for text in ax.texts if 'min' in text.get_text()]
+            self.assertEqual(len(blocks), 1)
+            return blocks[0]
+
+        legacy_sr_corner = corner_block(fig.axes[1])
+        self.assertIn('Ground station', legacy_sr_corner)
+        self.assertIn('ERA5', legacy_sr_corner)
+        self.assertNotIn('On-structure', legacy_sr_corner)
+        # Current era, air temperature panel (bottom left): every source has
+        # a curve there, so all three appear in that panel's corner block.
+        current_tair_corner = corner_block(fig.axes[2])
+        for label in ('On-structure', 'Ground station', 'ERA5'):
+            self.assertIn(label, current_tair_corner)
+        plt.close(fig)
+
+
+class TestLagCurvesFigure(unittest.TestCase):
+    """The legend, with and without the lag `show_lag` adds beside the tau."""
+
+    def _curves(self):
+        curve = pd.DataFrame({'lag': [0.0, 4.0, 8.0],
+                              'r': [-0.2, -0.8, -0.3],
+                              'tau': [0.0, 0.0, 0.0]})
+        return {('current', coupling.BAND_DIURNAL, 'tair_str'): curve}
+
+    def test_legend_omits_the_lag_by_default(self):
+        fig = figures.plot_lag_curves(self._curves(), 'current',
+                                      coupling.BAND_DIURNAL)
+        label = fig.axes[0].get_legend().get_texts()[0].get_text()
+        self.assertNotIn('lag', label)
+        plt.close(fig)
+
+    def test_show_lag_states_the_chosen_lag_in_the_legend(self):
+        fig = figures.plot_lag_curves(self._curves(), 'current',
+                                      coupling.BAND_DIURNAL, show_lag=True)
+        label = fig.axes[0].get_legend().get_texts()[0].get_text()
+        self.assertIn('lag 4 h', label)
+        plt.close(fig)
+
+
+class TestGainStabilityFigure(unittest.TestCase):
+    """The corner text `lags` adds, naming the lag a panel was fitted at."""
+
+    def _stability(self):
+        index = pd.period_range('2024-01', periods=4, freq='M').to_timestamp()
+        return pd.DataFrame({'driver': ['tair_str'] * 4, 'window': index,
+                             'slope': [-2.0, -2.1, -1.9, -2.0],
+                             'ci_low': [-2.5] * 4, 'ci_high': [-1.5] * 4})
+
+    def test_no_lags_draws_no_corner_text(self):
+        fig = figures.plot_gain_stability(self._stability())
+        self.assertEqual(len(fig.axes[0].texts), 0)
+        plt.close(fig)
+
+    def test_lags_are_written_in_the_panel_corner(self):
+        fig = figures.plot_gain_stability(self._stability(),
+                                          lags={'tair_str': 3.0})
+        texts = [text.get_text() for text in fig.axes[0].texts]
+        self.assertIn('lag 3 h', texts)
+        plt.close(fig)
 
 
 if __name__ == '__main__':

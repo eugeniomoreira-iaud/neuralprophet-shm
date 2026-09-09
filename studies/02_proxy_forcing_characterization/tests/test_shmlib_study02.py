@@ -26,6 +26,15 @@ merely imprecise but pointing the opposite way, and they exercise
 :mod:`shmlib.compare` and :mod:`shmlib.proxies` alongside :mod:`shmlib.site`
 and :mod:`shmlib.quality`, the four modules study 2's own dissolved private
 library moved into.
+
+Three further classes guard step 5, the native-grid harmonisation scan added
+for this study: that :func:`shmlib.proxies.load_ground_station`'s
+``stamp_offset`` moves the value read at one timestamp to exactly the earlier
+timestamp requested and does nothing when left at its default; that
+:func:`shmlib.temporal_alignment.reference_shift_scan` recovers, with the
+documented sign, a residual reference-side displacement injected into a
+synthetic pair; and that :func:`shmlib.temporal_alignment.shift_summary`'s
+gain and sign arithmetic matches a summary worked out by hand.
 """
 
 import os
@@ -42,7 +51,7 @@ for path in (_STUDY, _STUDIES, os.path.join(_STUDIES, '01_data_exploration')):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from shmlib import compare, proxies, quality, site               # noqa: E402
+from shmlib import compare, proxies, quality, site, temporal_alignment  # noqa: E402
 
 
 def _write_csv(frame, directory, name):
@@ -412,6 +421,160 @@ class TestMaskImplausible(unittest.TestCase):
         self.assertTrue(pd.isna(masked['foo_gs'].iloc[1]))
         self.assertTrue(pd.isna(masked['foo_gs'].iloc[3]))
         self.assertEqual(int(n_masked['foo_gs']), 2)
+
+
+class TestGroundStationStampOffset(unittest.TestCase):
+    """``stamp_offset`` moves the value read at a timestamp, nothing else."""
+
+    def setUp(self):
+        import tempfile
+        self.directory = tempfile.mkdtemp()
+
+        # Raw timestamps every 30 minutes, each carrying a distinct value, so a
+        # shift in which raw sample lands under which grid label is visible.
+        index = pd.date_range('2025-06-01 00:00', periods=6, freq='30min')
+        frame = pd.DataFrame({'Temp': np.arange(len(index), dtype=float)},
+                             index=index)
+        frame.index.name = 'datetime'
+        self.path = _write_csv(frame, self.directory, 'ground.csv')
+
+    def test_offset_moves_the_value_to_the_earlier_label(self):
+        # A grid fine enough (5 minutes) that a 15-minute offset, itself a
+        # multiple of the grid step, cannot be absorbed by the resampling
+        # bin edges the way it would be on a coarser grid.
+        vendor = proxies.load_ground_station(
+            self.path, column_map={'tair': 'Temp'}, freq='5min', min_count=1)
+        offset = proxies.load_ground_station(
+            self.path, column_map={'tair': 'Temp'}, freq='5min', min_count=1,
+            stamp_offset='15min')
+
+        vendor_label = pd.Timestamp('2025-06-01 01:00')  # the raw sample valued 2.0
+        offset_label = vendor_label - pd.Timedelta(minutes=15)
+        self.assertEqual(float(vendor['tair_gs'].loc[vendor_label]), 2.0)
+        self.assertEqual(float(offset['tair_gs'].loc[offset_label]), 2.0)
+        self.assertTrue(pd.isna(offset['tair_gs'].loc[vendor_label]))
+
+    def test_offset_is_recorded_in_attrs(self):
+        offset = proxies.load_ground_station(
+            self.path, column_map={'tair': 'Temp'}, freq='5min', min_count=1,
+            stamp_offset='15min')
+        self.assertEqual(offset.attrs['stamp_offset'], '0 days 00:15:00')
+
+    def test_default_leaves_the_vendor_stamp_untouched(self):
+        vendor = proxies.load_ground_station(
+            self.path, column_map={'tair': 'Temp'}, freq='30min', min_count=1)
+        self.assertIsNone(vendor.attrs['stamp_offset'])
+        self.assertEqual(float(vendor['tair_gs'].loc['2025-06-01 00:00']), 0.0)
+
+
+class TestReferenceShiftScan(unittest.TestCase):
+    """Displacing the reference recovers an injected displacement, with sign."""
+
+    def test_argmax_shift_matches_the_injected_reference_delay(self):
+        freq = '20min'
+        rng = np.random.default_rng(20260906)
+        index = pd.date_range('2025-06-01', periods=300, freq=freq)
+        # Unstructured values, so only the correct alignment correlates: any
+        # other candidate compares unrelated samples and scores near zero.
+        base = pd.Series(rng.normal(size=len(index)), index=index)
+
+        d_true = 40  # minutes; the reference's own stamp sits 40 minutes late
+        reference = base.copy()
+        reference.index = reference.index + pd.Timedelta(minutes=d_true)
+
+        scan = temporal_alignment.reference_shift_scan(
+            base, reference, shifts_minutes=[-40, -20, 0, 20, 40, 60],
+            freq=freq, min_pairs=1, min_days=1)
+        best = scan.loc[scan['r_levels'].idxmax()]
+        self.assertEqual(int(best['shift_minutes']), d_true)
+        self.assertGreater(float(best['r_levels']), 0.99)
+
+    def test_negative_injected_delay_recovers_a_negative_argmax(self):
+        freq = '20min'
+        rng = np.random.default_rng(20260907)
+        index = pd.date_range('2025-06-01', periods=300, freq=freq)
+        base = pd.Series(rng.normal(size=len(index)), index=index)
+
+        d_true = -40
+        reference = base.copy()
+        reference.index = reference.index + pd.Timedelta(minutes=d_true)
+
+        scan = temporal_alignment.reference_shift_scan(
+            base, reference, shifts_minutes=[-60, -40, -20, 0, 20],
+            freq=freq, min_pairs=1, min_days=1)
+        best = scan.loc[scan['r_levels'].idxmax()]
+        self.assertEqual(int(best['shift_minutes']), d_true)
+
+    def test_matches_paired_shift_scan_for_the_same_arguments(self):
+        # The two functions read the same number two different ways; the
+        # numbers themselves must not differ.
+        freq = '20min'
+        rng = np.random.default_rng(20260908)
+        index = pd.date_range('2025-06-01', periods=200, freq=freq)
+        sensor = pd.Series(rng.normal(size=len(index)), index=index)
+        reference = pd.Series(rng.normal(size=len(index)), index=index)
+
+        shifts = [-20, 0, 20, 40]
+        one = temporal_alignment.paired_shift_scan(sensor, reference, shifts,
+                                                    freq=freq, min_pairs=1,
+                                                    min_days=1)
+        other = temporal_alignment.reference_shift_scan(sensor, reference,
+                                                         shifts, freq=freq,
+                                                         min_pairs=1,
+                                                         min_days=1)
+        pd.testing.assert_frame_equal(one.reset_index(drop=True),
+                                      other.reset_index(drop=True))
+
+
+class TestShiftSummary(unittest.TestCase):
+    """The gain and sign arithmetic, on a scan worked out by hand."""
+
+    def _scan(self):
+        return pd.DataFrame({
+            'pair': ['str-gs'] * 4 + ['str-era5'] * 4,
+            'period': ['current'] * 8,
+            'shift_minutes': [-20, 0, 20, 40] * 2,
+            'r_daily': [0.10, 0.20, 0.55, 0.30,   # str-gs: best at +20
+                       -0.05, -0.40, -0.20, -0.10],  # str-era5: best at 0
+        })
+
+    def test_gain_and_argmax_for_the_improving_pair(self):
+        summary = temporal_alignment.shift_summary(self._scan())
+        row = summary[summary['pair'] == 'str-gs'].iloc[0]
+        self.assertAlmostEqual(float(row['r_shift0']), 0.20, places=6)
+        self.assertEqual(int(row['shift_argmax']), 20)
+        self.assertAlmostEqual(float(row['r_argmax']), 0.55, places=6)
+        self.assertAlmostEqual(float(row['gain']), 0.35, places=6)
+        self.assertEqual(row['sign'], 'positive')
+
+    def test_zero_is_already_the_best_shift_for_the_other_pair(self):
+        summary = temporal_alignment.shift_summary(self._scan())
+        row = summary[summary['pair'] == 'str-era5'].iloc[0]
+        self.assertAlmostEqual(float(row['r_shift0']), -0.40, places=6)
+        self.assertEqual(int(row['shift_argmax']), 0)
+        self.assertAlmostEqual(float(row['gain']), 0.0, places=6)
+        self.assertEqual(row['sign'], 'zero')
+
+    def test_ties_break_toward_the_smaller_absolute_shift(self):
+        scan = pd.DataFrame({
+            'pair': ['x'] * 3,
+            'period': ['p'] * 3,
+            'shift_minutes': [-20, 0, 20],
+            'r_daily': [0.50, 0.20, 0.50],
+        })
+        summary = temporal_alignment.shift_summary(scan)
+        self.assertEqual(int(summary.iloc[0]['shift_argmax']), -20)
+
+    def test_a_group_with_no_finite_correlation_is_undefined(self):
+        scan = pd.DataFrame({
+            'pair': ['x'] * 2,
+            'period': ['p'] * 2,
+            'shift_minutes': [-20, 0],
+            'r_daily': [np.nan, np.nan],
+        })
+        summary = temporal_alignment.shift_summary(scan)
+        self.assertTrue(pd.isna(summary.iloc[0]['shift_argmax']))
+        self.assertEqual(summary.iloc[0]['sign'], 'undefined')
 
 
 if __name__ == '__main__':
